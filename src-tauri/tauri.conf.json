@@ -24,8 +24,8 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://api.skipi.app/broker/latest.json",
-        "http://127.0.0.1:8000/broker/latest.json"
+        "https://github.com/CaptTymur/skipi-broker/releases/latest/download/latest.json",
+        "https://api.skipi.app/broker/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ2NEE0RjIxNTQ3MzlCMjEKUldRaG0zTlVJVTlLUnRaNXdadWpvT1poMkhFL0U0b2VJS2QyUTZlbzc0Q25MbHFGM3k1UlhST2oK",
       "dangerousInsecureTransportProtocol": true,

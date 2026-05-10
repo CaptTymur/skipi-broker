@@ -1,0 +1,265 @@
+# Skipi Broker — Release workflow
+#
+# Trigger: push a git tag like `v0.1.0` or `v0.2.5`.
+#
+#   bump versions in src-tauri/Cargo.toml + src-tauri/tauri.conf.json +
+#   dist/index.html APP_VERSION → commit → tag → push
+#
+# Builds:
+#   * Linux  — ubuntu-22.04, .AppImage + .deb (mandatory for the
+#     broker AppImage downloaded by Tymur from api.skipi.app).
+#   * Windows — windows-latest, .msi + .exe NSIS installer (for Sasha's
+#     Windows machine; unsigned, SmartScreen will warn until SignPath
+#     Foundation cert is wired up — Rail 2).
+#
+# Tauri updater minisign signatures are produced for both platforms via
+# TAURI_SIGNING_PRIVATE_KEY repo secret (the same minisign key whose
+# pubkey is baked into src-tauri/tauri.conf.json plugins.updater.pubkey).
+#
+# After both builds succeed, publish-latest-json composes a manifest
+# the desktop app's auto-updater reads from
+# https://github.com/CaptTymur/skipi-broker/releases/latest/download/latest.json.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # JS syntax check — single missing paren in dist/index.html ships a
+  # white-screen build. ~10 seconds, well worth it.
+  syntax-check:
+    name: JS syntax check
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check inline JS in dist/index.html
+        run: |
+          node -e '
+            const fs = require("fs");
+            const html = fs.readFileSync("dist/index.html", "utf8");
+            const blocks = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]);
+            if (!blocks.length) { console.error("no <script> blocks"); process.exit(1); }
+            const main = blocks.reduce((a,b) => a.length > b.length ? a : b, "");
+            try {
+              new Function(main);
+              console.log("JS syntax OK (" + main.length + " chars across " + blocks.length + " blocks)");
+            } catch (e) {
+              console.error("SYNTAX ERROR:");
+              console.error("  " + e.message);
+              process.exit(1);
+            }
+          '
+
+  # Version triple check — Cargo.toml, tauri.conf.json and APP_VERSION
+  # in dist/index.html must all match the pushed tag.
+  version-check:
+    name: Version match (tag vs files)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare tag against version files
+        run: |
+          set -eu
+          TAG="${GITHUB_REF_NAME#v}"
+          CARGO=$(grep -m1 -E '^version = "' src-tauri/Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          CONF=$(grep -m1 -E '"version"' src-tauri/tauri.conf.json | sed -E 's/.*"version"[^"]*"([^"]+)".*/\1/')
+          HTML=$(grep -m1 -E "var APP_VERSION='" dist/index.html | sed -E "s/.*APP_VERSION='([^']+)'.*/\1/")
+          echo "tag         = $TAG"
+          echo "Cargo.toml  = $CARGO"
+          echo "tauri.conf  = $CONF"
+          echo "APP_VERSION = $HTML"
+          fail=0
+          [ "$TAG" = "$CARGO" ] || { echo "::error::tag $TAG ≠ Cargo.toml $CARGO"; fail=1; }
+          [ "$TAG" = "$CONF"  ] || { echo "::error::tag $TAG ≠ tauri.conf.json $CONF"; fail=1; }
+          [ "$TAG" = "$HTML"  ] || { echo "::error::tag $TAG ≠ APP_VERSION $HTML"; fail=1; }
+          exit "$fail"
+
+  build-linux:
+    name: Build (Linux)
+    needs: [syntax-check, version-check]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-registry-
+
+      - name: Build (Linux)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: src-tauri
+          tagName: ${{ github.ref_name }}
+          releaseName: "Skipi Broker ${{ github.ref_name }}"
+          releaseBody: |
+            ## Skipi Broker ${{ github.ref_name }}
+
+            Freight board client for Tymur + Sasha (private beta).
+
+            | Platform | File | Notes |
+            |----------|------|-------|
+            | Linux (.deb / .AppImage) | see assets | minisign signed |
+            | Windows (.msi / .exe) | see assets | unsigned — SmartScreen warns first run |
+
+            **Auto-update:** existing installs see this version on next launch.
+          releaseDraft: false
+          prerelease: false
+
+  build-windows:
+    name: Build (Windows unsigned)
+    needs: [syntax-check, version-check]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-registry-
+
+      - name: Build (Windows)
+        uses: tauri-apps/tauri-action@v0
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: src-tauri
+          tagName: ${{ github.ref_name }}
+          releaseName: "Skipi Broker ${{ github.ref_name }}"
+          releaseDraft: false
+          prerelease: false
+
+  publish-latest-json:
+    name: Publish latest.json
+    needs: [build-linux, build-windows]
+    # Linux is mandatory; Windows is best-effort while code-signing is
+    # not wired up. Manifest publishes as long as Linux succeeded.
+    if: needs.build-linux.result == 'success'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build latest.json from release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          WIN_OUTCOME: ${{ needs.build-windows.result }}
+        run: |
+          set -eu
+          VERSION="${TAG#v}"
+          PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
+
+          mkdir -p sigs
+          cd sigs
+          gh release download "$TAG" --repo "$REPO" --pattern '*.sig' --dir . || true
+          cd ..
+
+          # Linux AppImage (mandatory)
+          APPIMAGE_FILE="$(ls sigs | grep -E '\.AppImage\.sig$' | head -1)"
+          DEB_FILE="$(ls sigs | grep -E '\.deb\.sig$' | head -1 || true)"
+          MSI_FILE="$(ls sigs | grep -E '\.msi\.sig$' | head -1 || true)"
+          NSIS_FILE="$(ls sigs | grep -E '\.exe\.sig$' | head -1 || true)"
+
+          [ -n "$APPIMAGE_FILE" ] || { echo "::error::no AppImage signature in release"; exit 1; }
+          APPIMAGE_SIG="$(cat "sigs/$APPIMAGE_FILE")"
+          APPIMAGE_NAME="${APPIMAGE_FILE%.sig}"
+
+          PLATFORMS='"linux-x86_64": { "signature": "'"$APPIMAGE_SIG"'", "url": "'"$BASE_URL/$APPIMAGE_NAME"'" }'
+
+          if [ -n "$DEB_FILE" ]; then
+            DEB_SIG="$(cat "sigs/$DEB_FILE")"
+            DEB_NAME="${DEB_FILE%.sig}"
+            PLATFORMS="$PLATFORMS, \"linux-x86_64-deb\": { \"signature\": \"$DEB_SIG\", \"url\": \"$BASE_URL/$DEB_NAME\" }"
+          fi
+
+          if [ -n "$MSI_FILE" ]; then
+            MSI_SIG="$(cat "sigs/$MSI_FILE")"
+            MSI_NAME="${MSI_FILE%.sig}"
+            PLATFORMS="$PLATFORMS, \"windows-x86_64\": { \"signature\": \"$MSI_SIG\", \"url\": \"$BASE_URL/$MSI_NAME\" }"
+          elif [ -n "$NSIS_FILE" ]; then
+            NSIS_SIG="$(cat "sigs/$NSIS_FILE")"
+            NSIS_NAME="${NSIS_FILE%.sig}"
+            PLATFORMS="$PLATFORMS, \"windows-x86_64\": { \"signature\": \"$NSIS_SIG\", \"url\": \"$BASE_URL/$NSIS_NAME\" }"
+          fi
+
+          cat > latest.json <<JSON
+          {
+            "version": "$VERSION",
+            "pub_date": "$PUB_DATE",
+            "notes": "Skipi Broker $VERSION",
+            "platforms": { $PLATFORMS }
+          }
+          JSON
+
+          echo "--- latest.json ---"
+          cat latest.json
+
+          gh release upload "$TAG" latest.json --repo "$REPO" --clobber
+
+  verify-release:
+    name: Verify published release
+    needs: [publish-latest-json]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Curl latest.json and assert
+        env:
+          REPO: ${{ github.repository }}
+          TAG:  ${{ github.ref_name }}
+        run: |
+          set -eu
+          URL="https://github.com/${REPO}/releases/download/${TAG}/latest.json"
+          for i in 1 2 3 4 5; do
+            BODY="$(curl -fsSL --retry 3 --retry-delay 2 "$URL" || true)"
+            [ -n "$BODY" ] && break
+            sleep 5
+          done
+          [ -n "$BODY" ] || { echo "::error::latest.json missing at $URL"; exit 1; }
+          echo "$BODY"
+          echo "$BODY" | grep -q "\"version\": \"${TAG#v}\"" || {
+            echo "::error::version mismatch in manifest"; exit 1;
+          }
