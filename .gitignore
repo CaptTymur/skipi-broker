@@ -1,0 +1,23 @@
+# Rust / Cargo
+target/
+**/target/
+Cargo.lock.bak
+
+# Tauri build artifacts
+src-tauri/gen/schemas/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*~
+
+# Local env
+.env
+.env.local
+*.log
+
+# Tauri signing keys (private — must NEVER be committed)
+*.key
+*.key.password

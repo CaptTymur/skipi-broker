@@ -1,0 +1,57 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Skipi Broker",
+  "version": "0.1.0",
+  "identifier": "app.skipi.broker",
+  "build": {
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Skipi Broker 0.1.0",
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://api.skipi.app/broker/latest.json",
+        "http://127.0.0.1:8000/broker/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ2NEE0RjIxNTQ3MzlCMjEKUldRaG0zTlVJVTlLUnRaNXdadWpvT1poMkhFL0U0b2VJS2QyUTZlbzc0Q25MbHFGM3k1UlhST2oK",
+      "dangerousInsecureTransportProtocol": true,
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "publisher": "Tymur Rudov",
+    "copyright": "Copyright © 2026 Tymur Rudov. All rights reserved.",
+    "category": "Business",
+    "shortDescription": "Freight board for cargo and tonnage matching",
+    "longDescription": "Skipi Broker is the freight-side companion to the Skipi platform. Cargo-side and vessel-side participants publish listings to a private board; the matching engine proposes pairings without exposing the wider market to passive scraping.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    }
+  }
+}

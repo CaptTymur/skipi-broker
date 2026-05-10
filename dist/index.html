@@ -1,0 +1,1048 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skipi Broker</title>
+<script>
+var APP_VERSION='0.2.0';
+function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
+document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
+</script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+:root, [data-theme="dark"] {
+    --bg:#1e1e1e; --surface:#252525; --surface2:#2d2d2d; --surface3:#333;
+    --text:#dcddde; --text2:#888; --text3:#666;
+    --accent:#7c6ff7; --accent-bg:rgba(124,111,247,0.15); --accent-bg2:rgba(124,111,247,0.3);
+    --border:#333; --hover:rgba(255,255,255,0.05);
+    --green:#4ec970; --red:#e55561; --yellow:#e2b93d; --orange:#d89b65; --blue:#5b9be0;
+    --statusbar:#1a1a1a;
+    --font-ui:-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --font-mono:"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    --font-size-ui:13px;
+}
+[data-theme="light"] {
+    --bg:#fff; --surface:#f6f6f6; --surface2:#eee; --surface3:#e0e0e0;
+    --text:#1e1e1e; --text2:#666; --text3:#999;
+    --accent:#6c5ce7; --accent-bg:rgba(108,92,231,0.1); --accent-bg2:rgba(108,92,231,0.2);
+    --border:#ddd; --hover:rgba(0,0,0,0.04);
+    --green:#27ae60; --red:#e74c3c; --yellow:#f39c12; --orange:#e67e22; --blue:#2980b9;
+    --statusbar:#f0f0f0;
+}
+body { background:var(--bg); color:var(--text); font-family:var(--font-ui);
+    font-size:var(--font-size-ui); height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+::selection { background:var(--accent-bg2); }
+input, select, button, textarea { font-family:var(--font-ui); font-size:var(--font-size-ui); color:inherit; }
+a { color:var(--accent); text-decoration:none; cursor:pointer; }
+a:hover { text-decoration:underline; }
+code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px var(--font-mono); }
+
+/* Modules bar */
+.modules-bar { display:flex; align-items:center; height:34px; background:var(--surface);
+    border-bottom:1px solid var(--border); padding:0 8px; gap:2px; flex-shrink:0; }
+.mod-tab { display:flex; align-items:center; justify-content:center; gap:6px; height:26px;
+    min-width:90px; padding:0 12px; border-radius:5px; cursor:pointer; color:var(--text2); font-size:12px; }
+.mod-tab:hover { color:var(--text); background:var(--hover); }
+.mod-tab.active { color:#fff; background:var(--accent); font-weight:600; }
+.mb-spacer { flex:1; }
+.mb-identity { font-size:11px; color:var(--text2); padding:0 10px; }
+.mb-identity strong { color:var(--text); }
+.mb-gear { width:28px; height:28px; display:flex; align-items:center; justify-content:center;
+    border-radius:5px; cursor:pointer; color:var(--text2); font-size:14px; }
+.mb-gear:hover { color:var(--text); background:var(--hover); }
+
+/* App layout: 4-panel column-view + status bar */
+.app { display:flex; flex:1; flex-direction:column; overflow:hidden; }
+.columns { flex:1; display:flex; overflow:hidden; }
+.col { flex:1; min-width:200px; display:flex; flex-direction:column;
+    border-right:1px solid var(--border); overflow:hidden; }
+.col:last-child { border-right:none; }
+.col-head { display:flex; align-items:center; justify-content:space-between; gap:6px;
+    height:32px; padding:0 12px; background:var(--surface); border-bottom:1px solid var(--border);
+    font-size:11px; font-weight:600; color:var(--text2); text-transform:uppercase; letter-spacing:.05em; flex-shrink:0; }
+.col-head .count { color:var(--text3); font-weight:400; }
+.col-body { flex:1; overflow-y:auto; }
+.col-empty { padding:32px 18px; color:var(--text3); font-size:12px; line-height:1.5; text-align:center; }
+.col-empty .hint { display:block; margin-top:10px; color:var(--text2); }
+
+/* Status bar (P5 / progress bar zone) */
+.statusbar { display:flex; align-items:center; gap:14px; height:24px; background:var(--statusbar);
+    border-top:1px solid var(--border); padding:0 14px; font-size:11px; color:var(--text2); flex-shrink:0; }
+.sb-pill { display:inline-flex; align-items:center; gap:5px; padding:1px 8px; border-radius:9px;
+    background:var(--surface2); color:var(--text2); }
+.sb-pill .v { color:var(--text); font-weight:600; }
+.sb-pill.ok { color:var(--green); }
+.sb-pill.warn { color:var(--orange); }
+.sb-pill.err { color:var(--red); }
+.sb-spacer { flex:1; }
+
+/* Listing rows (P1, P2) */
+.row { padding:10px 14px; border-bottom:1px solid var(--border); cursor:pointer; }
+.row:hover { background:var(--hover); }
+.row.active { background:var(--accent-bg); border-left:3px solid var(--accent); padding-left:11px; }
+.row .r-top { display:flex; align-items:center; gap:6px; margin-bottom:4px; }
+.row .r-icon { font-size:14px; opacity:.85; }
+.row .r-title { flex:1; font-size:13px; font-weight:600; color:var(--text);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.row .r-score { font-size:11px; padding:1px 6px; border-radius:8px; background:var(--accent-bg2); color:var(--accent); font-weight:600; }
+.row .r-meta { font-size:11px; color:var(--text2); display:flex; gap:8px; flex-wrap:wrap; }
+.row .r-meta b { color:var(--text); font-weight:600; }
+.row .r-tag { display:inline-block; padding:0 5px; border-radius:3px; font-size:10px;
+    background:var(--surface2); color:var(--text2); }
+.row .r-tag.bazaar { background:rgba(91,155,224,.2); color:var(--blue); }
+.row .r-tag.own { background:rgba(78,201,112,.18); color:var(--green); }
+.row .r-tag.urgent { background:rgba(229,85,97,.2); color:var(--red); }
+
+/* P3 details panel */
+.detail { padding:18px; overflow-y:auto; }
+.detail h2 { font-size:15px; font-weight:600; margin-bottom:6px; }
+.detail .sub { color:var(--text2); font-size:11px; margin-bottom:14px; }
+.detail-block { background:var(--surface); border:1px solid var(--border); border-radius:6px;
+    padding:12px 14px; margin-bottom:12px; }
+.detail-block h4 { font-size:11px; text-transform:uppercase; letter-spacing:.05em;
+    color:var(--text2); margin-bottom:8px; font-weight:600; }
+.detail-row { display:flex; justify-content:space-between; gap:12px; padding:3px 0; font-size:12px; }
+.detail-row .k { color:var(--text2); flex-shrink:0; }
+.detail-row .v { color:var(--text); text-align:right; word-break:break-word; }
+.actions-row { display:flex; gap:6px; flex-wrap:wrap; margin-top:12px; }
+.btn { padding:6px 12px; border:none; border-radius:4px; cursor:pointer; font-size:12px; font-weight:600;
+    background:var(--surface2); color:var(--text); }
+.btn:hover { background:var(--surface3); }
+.btn-accent { background:var(--accent); color:#fff; }
+.btn-accent:hover { background:var(--accent); opacity:.85; }
+.btn-outline { background:transparent; border:1px solid var(--border); color:var(--text); }
+.btn-sm { padding:4px 10px; font-size:11px; }
+.btn-disabled, .btn:disabled { opacity:.4; cursor:not-allowed; }
+.raw-text { font-family:var(--font-mono); font-size:11px; color:var(--text2); white-space:pre-wrap;
+    background:var(--surface2); padding:10px; border-radius:4px; max-height:240px; overflow-y:auto; }
+
+/* P4 chat placeholder */
+.chat-stub { padding:24px 20px; text-align:center; color:var(--text3); font-size:12px; line-height:1.5; }
+.chat-stub .icon { font-size:30px; opacity:.4; margin-bottom:10px; }
+
+/* Modal — used for + Publish wizard */
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:50;
+    display:none; align-items:center; justify-content:center; padding:24px; }
+.modal-overlay.open { display:flex; }
+.modal { background:var(--bg); border:1px solid var(--border); border-radius:8px;
+    width:560px; max-width:100%; max-height:90vh; display:flex; flex-direction:column; overflow:hidden; }
+.modal-head { display:flex; align-items:center; justify-content:space-between;
+    padding:14px 18px; border-bottom:1px solid var(--border); }
+.modal-head h2 { font-size:14px; font-weight:600; }
+.modal-body { padding:18px; overflow-y:auto; flex:1; }
+.modal-foot { padding:12px 18px; border-top:1px solid var(--border); display:flex;
+    justify-content:flex-end; gap:8px; }
+.close-x { width:24px; height:24px; display:flex; align-items:center; justify-content:center;
+    border-radius:4px; cursor:pointer; color:var(--text2); }
+.close-x:hover { background:var(--hover); color:var(--text); }
+
+/* Forms */
+.field-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px 14px; }
+.field-grid.three { grid-template-columns:1fr 1fr 1fr; }
+.field { display:flex; flex-direction:column; }
+.field.full { grid-column:1/-1; }
+.field label { font-size:10px; color:var(--text2); margin-bottom:3px; text-transform:uppercase;
+    letter-spacing:.05em; font-weight:600; }
+.field input, .field select, .field textarea { padding:6px 9px; background:var(--surface);
+    border:1px solid var(--border); border-radius:4px; outline:none; }
+.field input:focus, .field select:focus, .field textarea:focus { border-color:var(--accent); }
+.field textarea { min-height:64px; resize:vertical; font-family:var(--font-ui); }
+.side-cards { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:18px; }
+.side-card { background:var(--surface); border:1px solid var(--border); border-radius:6px;
+    padding:18px; cursor:pointer; text-align:center; }
+.side-card:hover { border-color:var(--accent); }
+.side-card .icon { font-size:32px; margin-bottom:8px; }
+.side-card h3 { font-size:13px; font-weight:600; margin-bottom:4px; }
+.side-card p { font-size:11px; color:var(--text2); }
+
+/* Settings modal (inherits modal-overlay) */
+.set-modal { width:760px; height:520px; max-width:96vw; max-height:90vh; }
+.set-layout { display:flex; flex:1; overflow:hidden; }
+.set-nav { width:200px; background:var(--surface); border-right:1px solid var(--border); overflow-y:auto; padding:8px 0; }
+.set-nav-item { padding:8px 18px; cursor:pointer; font-size:12px; color:var(--text2); }
+.set-nav-item:hover { color:var(--text); background:var(--hover); }
+.set-nav-item.active { color:#fff; background:var(--accent); }
+.set-body { flex:1; padding:22px 26px; overflow-y:auto; }
+.set-body h3 { font-size:14px; margin-bottom:4px; font-weight:600; }
+.set-body .sub { font-size:11px; color:var(--text2); margin-bottom:16px; }
+
+/* Toasts */
+.toast-host { position:fixed; right:14px; bottom:34px; display:flex; flex-direction:column; gap:8px; z-index:100; }
+.toast { padding:10px 14px; background:var(--surface); border:1px solid var(--border);
+    border-radius:6px; font-size:12px; box-shadow:0 4px 16px rgba(0,0,0,.4); }
+.toast.error { border-color:var(--red); }
+.toast.ok { border-color:var(--green); }
+</style>
+</head>
+<body>
+
+<div class="modules-bar">
+    <div class="mod-tab active" id="nav-bazaar" onclick="showView('bazaar')">🛒 Базар</div>
+    <div class="mod-tab" id="nav-publish" onclick="openPublishModal()">＋ Publish</div>
+    <div class="mb-spacer"></div>
+    <div class="mb-identity" id="mb-identity">Not registered</div>
+    <div class="mb-gear" onclick="openSettings()" title="Settings">⚙</div>
+</div>
+
+<div class="app">
+    <div class="columns" id="columns">
+        <!-- P1 — my listings -->
+        <div class="col" style="flex:1.1">
+            <div class="col-head">
+                <span>Мои циркуляции</span>
+                <span class="count" id="p1-count">0</span>
+            </div>
+            <div class="col-body" id="p1-body"></div>
+        </div>
+        <!-- P2 — matches for selected P1 -->
+        <div class="col" style="flex:1.4">
+            <div class="col-head">
+                <span>Совпадения</span>
+                <span class="count" id="p2-count">0</span>
+            </div>
+            <div class="col-body" id="p2-body"></div>
+        </div>
+        <!-- P3 — counterparty details for selected match -->
+        <div class="col" style="flex:1.6">
+            <div class="col-head">
+                <span>Детали контрагента</span>
+                <span class="count" id="p3-score"></span>
+            </div>
+            <div class="col-body" id="p3-body"></div>
+        </div>
+        <!-- P4 — chat (E2E or fallback) -->
+        <div class="col" style="flex:1.2">
+            <div class="col-head">
+                <span>Чат</span>
+                <span class="count" id="p4-status"></span>
+            </div>
+            <div class="col-body" id="p4-body"></div>
+        </div>
+    </div>
+    <div class="statusbar" id="statusbar">
+        <span class="sb-pill"><span>Базар</span>: <span class="v" id="sb-bazaar-total">0</span></span>
+        <span class="sb-pill ok"><span>Coverage</span>: <span class="v" id="sb-coverage">0%</span></span>
+        <span class="sb-pill"><span>Свежие совпадения</span>: <span class="v" id="sb-fresh">0</span></span>
+        <span class="sb-spacer"></span>
+        <span id="sb-server" class="sb-pill">—</span>
+    </div>
+</div>
+
+<!-- Publish modal -->
+<div class="modal-overlay" id="publish-overlay" onclick="if(event.target===this)closePublishModal();">
+    <div class="modal">
+        <div class="modal-head">
+            <h2 id="publish-title">+ Publish circular</h2>
+            <div class="close-x" onclick="closePublishModal()">×</div>
+        </div>
+        <div class="modal-body" id="publish-body"></div>
+        <div class="modal-foot" id="publish-foot"></div>
+    </div>
+</div>
+
+<!-- Settings modal -->
+<div class="modal-overlay" id="settings-overlay" onclick="if(event.target===this)closeSettings();">
+    <div class="modal set-modal">
+        <div class="modal-head">
+            <h2>Settings</h2>
+            <div class="close-x" onclick="closeSettings()">×</div>
+        </div>
+        <div class="set-layout">
+            <div class="set-nav" id="set-nav"></div>
+            <div class="set-body" id="set-body"></div>
+        </div>
+    </div>
+</div>
+
+<div class="toast-host" id="toast-host"></div>
+
+<script>
+"use strict";
+
+// ---------- Tauri bridge ----------
+var invoke = (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke)
+    || (window.__TAURI__ && window.__TAURI__.invoke)
+    || function(){ return Promise.reject(new Error("Tauri bridge unavailable — open via Skipi Broker app, not file://")); };
+
+// ---------- Global state ----------
+var state = {
+    settings: { server_url:'', broker_id:'', display_name:'', reply_to:'', bearer_token:'' },
+    myCargo: [],
+    myTonnage: [],
+    selectedListing: null,   // { kind:'cargo'|'tonnage', id:'...' }
+    inbox: { own_matches:[], bazaar_matches:[] },
+    selectedMatch: null,     // { type:'own'|'bazaar', data:{...} }
+    publish: { side:null },  // null | 'cargo' | 'tonnage'
+    settingsTab: 'connection',
+};
+
+// ---------- Util ----------
+function esc(s){ return String(s==null?'':s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function val(id){ var el=document.getElementById(id); return el ? (el.value||'').trim() : ''; }
+function intOrNull(id){ var v=val(id); return v===''?null:parseInt(v,10); }
+function toIsoOrNull(id){ var v=val(id); return v===''?null:(new Date(v)).toISOString(); }
+function showToast(msg, kind){
+    var host=document.getElementById('toast-host');
+    var d=document.createElement('div');
+    d.className='toast '+(kind||'');
+    d.textContent=msg;
+    host.appendChild(d);
+    setTimeout(function(){ try{ host.removeChild(d); }catch(_){} }, 3500);
+}
+function fmtDate(iso){
+    if(!iso) return '—';
+    try { var d=new Date(iso); return d.toISOString().slice(0,10); }
+    catch(_){ return iso.slice(0,10); }
+}
+function fmtRange(from, to){
+    if(!from && !to) return '—';
+    if(from && to) return fmtDate(from)+'..'+fmtDate(to);
+    return fmtDate(from||to);
+}
+function truncate(s, n){ s=String(s||''); return s.length>n ? s.slice(0,n-1)+'…' : s; }
+
+// ---------- Theme ----------
+function applyTheme(){
+    var t = localStorage.getItem('skipi-broker-theme') || 'dark';
+    var resolved = (t==='system')
+        ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+        : t;
+    document.documentElement.setAttribute('data-theme', resolved);
+    var fs = parseInt(localStorage.getItem('skipi-broker-font-size')||'13',10);
+    document.documentElement.style.setProperty('--font-size-ui', fs+'px');
+}
+function setTheme(t){ localStorage.setItem('skipi-broker-theme', t); applyTheme(); renderSettingsBody(); }
+
+// ---------- Identity badge ----------
+function refreshIdentityBadge(){
+    var el=document.getElementById('mb-identity');
+    if(state.settings.broker_id){
+        el.innerHTML = '<strong>'+esc(state.settings.display_name||'unnamed')+'</strong> · <code>'+esc(state.settings.broker_id.slice(0,8))+'</code>';
+    } else {
+        el.textContent = 'Not registered — open Settings';
+    }
+    var srv = state.settings.server_url ? state.settings.server_url.replace(/^https?:\/\//,'') : '—';
+    document.getElementById('sb-server').textContent = srv;
+}
+
+// ---------- Boot ----------
+async function boot(){
+    applyTheme();
+    try {
+        state.settings = await invoke('get_settings');
+    } catch(e){
+        showToast('Settings load failed: '+e, 'error');
+    }
+    refreshIdentityBadge();
+    if(!state.settings.broker_id){
+        // First run — show settings so user registers.
+        openSettings();
+        return;
+    }
+    await refreshAll();
+}
+
+async function refreshAll(){
+    await Promise.all([refreshMyListings(), refreshInbox()]);
+    renderP1(); renderP2(); renderP3(); renderP4(); renderStatusBar();
+}
+
+async function refreshMyListings(){
+    try {
+        var c = await invoke('fetch_my_cargo');
+        var t = await invoke('fetch_my_tonnage');
+        state.myCargo = Array.isArray(c) ? c : [];
+        state.myTonnage = Array.isArray(t) ? t : [];
+    } catch(e){
+        showToast('Listings: '+e, 'error');
+        state.myCargo = []; state.myTonnage = [];
+    }
+}
+
+async function refreshInbox(){
+    try {
+        // Tauri 2 maps JS camelCase → Rust snake_case automatically.
+        // Sending snake_case keys like listing_id silently drops them.
+        var args = {};
+        if(state.selectedListing){
+            args.listingId = state.selectedListing.id;
+            args.listingKind = state.selectedListing.kind;
+        }
+        var inbox = await invoke('fetch_matches_inbox', args);
+        state.inbox = inbox || { own_matches:[], bazaar_matches:[] };
+    } catch(e){
+        showToast('Inbox: '+e, 'error');
+        state.inbox = { own_matches:[], bazaar_matches:[] };
+    }
+}
+
+// ---------- P1 — my listings ----------
+function renderP1(){
+    var body = document.getElementById('p1-body');
+    var rows = [];
+    state.myCargo.forEach(function(c){ rows.push({kind:'cargo', data:c}); });
+    state.myTonnage.forEach(function(t){ rows.push({kind:'tonnage', data:t}); });
+    document.getElementById('p1-count').textContent = rows.length;
+    if(rows.length===0){
+        body.innerHTML = '<div class="col-empty">Нет циркуляций.<span class="hint">Нажми <b>＋ Publish</b> чтобы опубликовать груз или тоннаж.</span></div>';
+        return;
+    }
+    rows.sort(function(a,b){
+        return (b.data.published_at||'').localeCompare(a.data.published_at||'');
+    });
+    body.innerHTML = rows.map(function(r){
+        var d = r.data;
+        var sel = state.selectedListing && state.selectedListing.id===d.id;
+        var icon = r.kind==='cargo' ? '📦' : '🚢';
+        var title = d.title || (r.kind==='cargo' ? (d.cargo_type+' '+d.load_port+'/'+d.disch_port) : (d.vessel_name||('IMO '+d.vessel_imo)));
+        var meta = r.kind==='cargo'
+            ? (d.quantity_mt?d.quantity_mt+'mt · ':'')+'laycan '+fmtRange(d.laycan_from, d.laycan_to)
+            : (d.dwt?d.dwt+' DWT · ':'')+'open '+(d.open_port||'?')+' '+fmtRange(d.open_from, d.open_to);
+        return '<div class="row '+(sel?'active':'')+'" onclick="selectListing(\''+r.kind+'\',\''+esc(d.id)+'\')">'
+            +'<div class="r-top"><span class="r-icon">'+icon+'</span>'
+            +'<span class="r-title">'+esc(truncate(title,42))+'</span></div>'
+            +'<div class="r-meta">'+esc(meta)+'</div>'
+            +'</div>';
+    }).join('');
+}
+
+async function selectListing(kind, id){
+    state.selectedListing = { kind:kind, id:id };
+    state.selectedMatch = null;
+    await refreshInbox();
+    renderP1(); renderP2(); renderP3(); renderP4();
+}
+
+// ---------- P2 — matches feed ----------
+//
+// Filter: only show matches we can actually act on — both email AND
+// phone available (either from the signal itself or from our owners
+// DB via the AI matcher's enrichment). Without both channels the
+// match is half-actionable and clutters the panel.
+//
+// Sort: smallest first. For tonnage signals (cargo own listing → vessel
+// candidates), DWT ascending. For cargo signals (tonnage own listing →
+// cargo candidates), quantity ascending. Matches Tymur's broker
+// preference: start from his small-fleet niche and scale up only if
+// nothing fits.
+function _matchSize(m){
+    var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal || {};
+    if(m.bazaar_tonnage_signal) return Number(sig.dwt || 0);
+    if(m.bazaar_cargo_signal) return Number(sig.quantity_mt || 0);
+    return 0;
+}
+function _hasEmail(m){
+    var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal || {};
+    var r = m.reasons || {};
+    return !!(r.contact_email || sig.posted_by_email);
+}
+function _hasPhone(m){
+    var r = m.reasons || {};
+    return !!r.contact_phone;
+}
+
+function renderP2(){
+    var body = document.getElementById('p2-body');
+    var ownM = state.inbox.own_matches || [];
+    var bazM = state.inbox.bazaar_matches || [];
+
+    document.getElementById('p2-count').textContent = (ownM.length + bazM.length);
+
+    if(!state.selectedListing){
+        body.innerHTML = '<div class="col-empty">Выбери циркуляцию слева чтобы увидеть совпадения.</div>';
+        return;
+    }
+    if(ownM.length===0 && bazM.length===0){
+        body.innerHTML = '<div class="col-empty">Совпадений пока нет.<span class="hint">Базар обновляется автоматически — вернись позже.</span></div>';
+        return;
+    }
+    var rows = [];
+    ownM.forEach(function(m){
+        rows.push({ type:'own', score:m.score, data:m, _size:0 });
+    });
+    // All bazaar matches surface; user picks based on full info shown
+    // in P3 (including raw original message). Contact extraction
+    // (phone from email body) is a future enrichment step.
+    bazM.forEach(function(m){
+        rows.push({ type:'bazaar', score:m.score, data:m, _size:_matchSize(m) });
+    });
+    rows.sort(function(a,b){
+        // Smallest first; ties broken by score desc.
+        if(a._size !== b._size) return a._size - b._size;
+        return b.score - a.score;
+    });
+    body.innerHTML = rows.map(function(r){
+        var sel = state.selectedMatch && state.selectedMatch.data.id===r.data.id;
+        var tag, title, meta, contactBadge='';
+        if(r.type==='own'){
+            tag = '<span class="r-tag own">peer</span>';
+            title = r.data.cargo_listing_id===state.selectedListing.id ? 'Tonnage match' : 'Cargo match';
+            meta = 'broker '+esc((r.data.tonnage_broker_id||r.data.cargo_broker_id||'').slice(0,8));
+        } else {
+            tag = '<span class="r-tag bazaar">базар</span>';
+            var sig = r.data.bazaar_cargo_signal || r.data.bazaar_tonnage_signal || {};
+            title = sig.title || (sig.vessel_name || sig.cargo_type || '—');
+            if(sig.vessel_name && sig.dwt) meta = sig.dwt+' DWT · open '+(sig.open_port||'?')+' '+fmtRange(sig.open_from, sig.open_to);
+            else if(sig.cargo_type) meta = (sig.quantity_mt?sig.quantity_mt+'mt · ':'')+(sig.load_port||'?')+'/'+(sig.disch_port||'?');
+            else meta = sig.source || '—';
+            // Tiny inline indicator of available contact channels.
+            // Lets the eye scan for actionable matches without
+            // hiding the rest.
+            var hasE = _hasEmail(r.data), hasP = _hasPhone(r.data);
+            contactBadge = '<span style="margin-left:6px; font-size:10px; color:'
+                + (hasE && hasP ? 'var(--green)' : (hasE ? 'var(--yellow)' : 'var(--text3)'))
+                + ';" title="email: ' + (hasE?'yes':'no') + ' · phone: ' + (hasP?'yes':'no') + '">'
+                + (hasE ? '📧' : '·') + (hasP ? '💬' : '·')
+                + '</span>';
+        }
+        return '<div class="row '+(sel?'active':'')+'" onclick="selectMatch(\''+r.type+'\',\''+esc(r.data.id)+'\')">'
+            +'<div class="r-top">'
+            +tag
+            +'<span class="r-title">'+esc(truncate(title,38))+'</span>'
+            +contactBadge
+            +'<span class="r-score">'+r.score+'</span>'
+            +'</div>'
+            +'<div class="r-meta">'+esc(meta)+'</div>'
+            +'</div>';
+    }).join('');
+}
+
+function selectMatch(type, id){
+    var pool = type==='own' ? state.inbox.own_matches : state.inbox.bazaar_matches;
+    var match = (pool||[]).filter(function(m){ return m.id===id; })[0];
+    if(!match) return;
+    state.selectedMatch = { type:type, data:match };
+    if(type==='bazaar'){
+        invoke('mark_bazaar_match_seen', {matchId:id}).catch(function(e){ console.warn('seen failed', e); });
+    } else {
+        var side = match.cargo_broker_id===state.settings.broker_id ? 'cargo' : 'tonnage';
+        invoke('mark_match_seen', {matchId:id, side:side}).catch(function(e){ console.warn('seen failed', e); });
+    }
+    renderP2(); renderP3(); renderP4();
+}
+
+// ---------- P3 — counterparty details ----------
+function renderP3(){
+    var body = document.getElementById('p3-body');
+    var scoreEl = document.getElementById('p3-score');
+    if(!state.selectedMatch){
+        body.innerHTML = '<div class="col-empty">Выбери совпадение в средней панели чтобы увидеть детали контрагента.</div>';
+        scoreEl.textContent = '';
+        return;
+    }
+    var m = state.selectedMatch.data;
+    scoreEl.textContent = 'score '+m.score;
+
+    if(state.selectedMatch.type==='bazaar'){
+        renderP3Bazaar(body, m);
+    } else {
+        renderP3Own(body, m);
+    }
+}
+
+function renderP3Bazaar(body, m){
+    var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal || {};
+    var sigKind = m.bazaar_cargo_signal ? 'cargo' : 'tonnage';
+    var fields = [];
+    if(sigKind==='tonnage'){
+        if(sig.vessel_name) fields.push(['Vessel', sig.vessel_name]);
+        if(sig.vessel_imo) fields.push(['IMO', sig.vessel_imo]);
+        if(sig.vessel_type) fields.push(['Type', sig.vessel_type]);
+        if(sig.dwt) fields.push(['DWT', sig.dwt]);
+        if(sig.flag) fields.push(['Flag', sig.flag]);
+        if(sig.commercial_manager) fields.push(['Comm. manager', sig.commercial_manager]);
+        if(sig.open_port) fields.push(['Open', sig.open_port+(sig.open_country?' ('+sig.open_country+')':'')]);
+        fields.push(['Window', fmtRange(sig.open_from, sig.open_to)]);
+        if(sig.redelivery_area) fields.push(['Redelivery', sig.redelivery_area]);
+    } else {
+        if(sig.cargo_type) fields.push(['Cargo', sig.cargo_type]);
+        if(sig.quantity_mt) fields.push(['Quantity', sig.quantity_mt+' mt']);
+        if(sig.load_port) fields.push(['Load', sig.load_port+(sig.load_country?' ('+sig.load_country+')':'')]);
+        if(sig.disch_port) fields.push(['Disch', sig.disch_port+(sig.disch_country?' ('+sig.disch_country+')':'')]);
+        fields.push(['Laycan', fmtRange(sig.laycan_from, sig.laycan_to)]);
+    }
+    if(sig.rate_indication) fields.push(['Rate', sig.rate_indication]);
+
+    var html = '<div class="detail">';
+    html += '<h2>'+esc(sig.title || (sigKind==='tonnage'?'Vessel position':'Cargo'))+'</h2>';
+    html += '<div class="sub">источник: '+esc(sig.source||'—')+' · '+esc(sig.signal_provenance||'')+' · впервые: '+esc(fmtDate(sig.first_seen_at))+'</div>';
+
+    // Raw original message — surfaced FIRST so the broker reads what
+    // the upstream party actually wrote (phone / extra context that
+    // didn't survive parsing into structured fields). For mbox this
+    // is the email body; for ShipNext it's the JSON payload; for
+    // owners_db it's the roster entry summary.
+    if(sig.description){
+        html += '<div class="detail-block"><h4>Исходное сообщение</h4>';
+        html += '<div class="raw-text">'+esc(sig.description)+'</div></div>';
+    }
+
+    html += '<div class="detail-block"><h4>Структурированные детали</h4>';
+    fields.forEach(function(f){
+        html += '<div class="detail-row"><span class="k">'+esc(f[0])+'</span><span class="v">'+esc(f[1])+'</span></div>';
+    });
+    html += '</div>';
+
+    // Counterparty contact — comes from one of two places:
+    //   (1) signal.posted_by_email — set when source=mbox (From: header)
+    //   (2) match.reasons.contact_email/phone — enriched by freight_agent
+    //       at AI matching time via vessel_db lookup (СПИСОК_ОВНЕРОВ.md).
+    // The reasons-derived contact takes precedence because owner-side
+    // contact is more useful than the broker who circulated.
+    var reasons = m.reasons || {};
+    var contactEmail = reasons.contact_email || sig.posted_by_email || '';
+    var contactPhone = reasons.contact_phone || '';
+    var contactName  = reasons.contact_name  || sig.posted_by_name || '';
+    var contactCompany = reasons.contact_company || '';
+    var contactSource = reasons.contact_source || (sig.posted_by_email ? 'signal_from' : '');
+
+    html += '<div class="detail-block"><h4>Контакт публикатора</h4>';
+    html += '<div class="detail-row"><span class="k">Email</span><span class="v">'+esc(contactEmail||'—')+'</span></div>';
+    if(contactPhone) html += '<div class="detail-row"><span class="k">Phone</span><span class="v">'+esc(contactPhone)+'</span></div>';
+    if(contactName) html += '<div class="detail-row"><span class="k">Имя</span><span class="v">'+esc(contactName)+'</span></div>';
+    if(contactCompany) html += '<div class="detail-row"><span class="k">Компания</span><span class="v">'+esc(contactCompany)+'</span></div>';
+    if(contactSource) html += '<div class="detail-row"><span class="k">Источник</span><span class="v" style="font-size:10px; color:var(--text3);">'+esc(contactSource)+'</span></div>';
+    html += '</div>';
+
+    // Action buttons — three channels (E2E in P4 separately).
+    // .eml needs an email; WhatsApp needs a phone (or asks the user).
+    html += '<div class="actions-row">';
+    html += '<button class="btn btn-accent" '+(contactEmail?'':'disabled')+' onclick="actionEml()">📧 Generate .eml</button>';
+    html += '<button class="btn" '+(contactPhone?'':'')+' onclick="actionWhatsApp()">💬 WhatsApp'+(contactPhone?'':' …')+'</button>';
+    html += '<button class="btn btn-outline" onclick="actionDismiss()">✕ Dismiss</button>';
+    html += '</div>';
+
+    // AI/rule reasoning behind this match
+    if(m.reasons){
+        var reasonsHidden = ['contact_email','contact_phone','contact_name','contact_company','contact_source'];
+        html += '<div class="detail-block"><h4>Почему это совпадение</h4>';
+        Object.keys(m.reasons).forEach(function(k){
+            if(reasonsHidden.indexOf(k) >= 0) return;
+            html += '<div class="detail-row"><span class="k">'+esc(k)+'</span><span class="v">'+esc(String(m.reasons[k]))+'</span></div>';
+        });
+        html += '</div>';
+    }
+    html += '</div>';
+    body.innerHTML = html;
+}
+
+function renderP3Own(body, m){
+    var html = '<div class="detail">';
+    html += '<h2>Skipi peer match</h2>';
+    html += '<div class="sub">обе стороны зарегистрированы в Skipi · score '+m.score+'</div>';
+    html += '<div class="detail-block"><h4>Match</h4>';
+    html += '<div class="detail-row"><span class="k">Cargo broker</span><span class="v"><code>'+esc(m.cargo_broker_id.slice(0,12))+'</code></span></div>';
+    html += '<div class="detail-row"><span class="k">Tonnage broker</span><span class="v"><code>'+esc(m.tonnage_broker_id.slice(0,12))+'</code></span></div>';
+    html += '</div>';
+    if(m.reasons){
+        html += '<div class="detail-block"><h4>Reasons</h4>';
+        Object.keys(m.reasons).forEach(function(k){
+            html += '<div class="detail-row"><span class="k">'+esc(k)+'</span><span class="v">'+esc(String(m.reasons[k]))+'</span></div>';
+        });
+        html += '</div>';
+    }
+    html += '<div class="actions-row">';
+    html += '<button class="btn btn-outline" onclick="actionDismissOwn()">✕ Dismiss</button>';
+    html += '</div>';
+    html += '</div>';
+    body.innerHTML = html;
+}
+
+// ---------- P4 — chat ----------
+function renderP4(){
+    var body = document.getElementById('p4-body');
+    var statusEl = document.getElementById('p4-status');
+    if(!state.selectedMatch){
+        body.innerHTML = '<div class="chat-stub"><div class="icon">💬</div>Выбери совпадение чтобы открыть чат.</div>';
+        statusEl.textContent = '';
+        return;
+    }
+    if(state.selectedMatch.type==='bazaar'){
+        statusEl.textContent = 'offline';
+        body.innerHTML = '<div class="chat-stub"><div class="icon">📭</div>Контрагент пока не в Skipi.<br><br>Используй <b>📧 .eml</b> или <b>💬 WhatsApp</b> в P3 чтобы связаться.</div>';
+    } else {
+        // Own × own — both on Skipi. E2E messaging integration TODO.
+        statusEl.textContent = 'E2E';
+        body.innerHTML = '<div class="chat-stub"><div class="icon">🔒</div>E2E chat будет здесь.<br>Интеграция с /api/messaging/* — следующая итерация.</div>';
+    }
+}
+
+// ---------- Actions ----------
+function buildEmailDraft(){
+    if(!state.selectedMatch || state.selectedMatch.type!=='bazaar') return null;
+    var m = state.selectedMatch.data;
+    var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal || {};
+    var ownListing = currentOwnListing();
+    var subject, body;
+    if(m.bazaar_tonnage_signal){
+        // Sasha has cargo, sees vessel signal — pitch the cargo.
+        subject = 'RE: '+(sig.vessel_name||sig.title||'tonnage circular')+' — cargo proposal';
+        body = 'Dear Sirs,\n\nNoted your circular for '+(sig.vessel_name||'subject vessel')+'.';
+        if(ownListing){
+            body += '\n\nWe have firm cargo as follows:\n';
+            body += '- Cargo: '+(ownListing.cargo_type||'')+'\n';
+            body += '- Quantity: '+(ownListing.quantity_mt||'?')+' mt\n';
+            body += '- Loading: '+(ownListing.load_port||'?')+'\n';
+            body += '- Discharge: '+(ownListing.disch_port||'?')+'\n';
+            body += '- Laycan: '+fmtRange(ownListing.laycan_from, ownListing.laycan_to)+'\n';
+            if(ownListing.rate_indication) body += '- Rate idea: '+ownListing.rate_indication+'\n';
+        }
+        body += '\nPlease confirm vessel position and indicate freight.\n\nBest regards,\n'+(state.settings.display_name||'');
+    } else {
+        // Sasha has tonnage, sees cargo signal — pitch the vessel.
+        subject = 'RE: '+(sig.cargo_type||sig.title||'cargo enquiry')+' — vessel proposal';
+        body = 'Dear Sirs,\n\nNoted your circular for '+(sig.cargo_type||'subject cargo')+' '+(sig.load_port||'')+'/'+(sig.disch_port||'')+'.';
+        if(ownListing){
+            body += '\n\nWe have firm tonnage as follows:\n';
+            body += '- Vessel: '+(ownListing.vessel_name||('IMO '+ownListing.vessel_imo))+'\n';
+            body += '- Type / DWT: '+(ownListing.vessel_type||'?')+' / '+(ownListing.dwt||'?')+'\n';
+            body += '- Open: '+(ownListing.open_port||'?')+' '+fmtRange(ownListing.open_from, ownListing.open_to)+'\n';
+            if(ownListing.commercial_manager) body += '- Manager: '+ownListing.commercial_manager+'\n';
+            if(ownListing.rate_indication) body += '- Rate idea: '+ownListing.rate_indication+'\n';
+        }
+        body += '\nPlease confirm cargo readiness and freight idea.\n\nBest regards,\n'+(state.settings.display_name||'');
+    }
+    return { to_email: sig.posted_by_email||'', to_name: sig.posted_by_name||'', subject:subject, body:body };
+}
+
+function currentOwnListing(){
+    if(!state.selectedListing) return null;
+    var pool = state.selectedListing.kind==='cargo' ? state.myCargo : state.myTonnage;
+    return pool.filter(function(x){ return x.id===state.selectedListing.id; })[0] || null;
+}
+
+function contactFromMatch(){
+    if(!state.selectedMatch || state.selectedMatch.type!=='bazaar') return null;
+    var m = state.selectedMatch.data;
+    var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal || {};
+    var reasons = m.reasons || {};
+    return {
+        email: reasons.contact_email || sig.posted_by_email || '',
+        phone: reasons.contact_phone || '',
+        name:  reasons.contact_name  || sig.posted_by_name  || '',
+    };
+}
+
+async function actionEml(){
+    var draft = buildEmailDraft();
+    if(!draft) return;
+    var contact = contactFromMatch() || {};
+    var email = contact.email || draft.to_email;
+    if(!email){ showToast('No counterparty email available.', 'error'); return; }
+    try {
+        await invoke('generate_eml', {
+            toEmail: email,
+            toName: contact.name || draft.to_name,
+            subject: draft.subject,
+            body: draft.body
+        });
+        showToast('.eml opened in your mail client. Review and send.', 'ok');
+    } catch(e){
+        showToast('eml: '+e, 'error');
+    }
+}
+
+async function actionWhatsApp(){
+    var draft = buildEmailDraft();
+    if(!draft) return;
+    var contact = contactFromMatch() || {};
+    var phone = contact.phone;
+    if(!phone){
+        phone = window.prompt('Phone number for WhatsApp (digits only, no +):', '');
+        if(!phone) return;
+    }
+    try {
+        await invoke('open_whatsapp', { phone:phone, message: draft.subject+'\n\n'+draft.body });
+        showToast('WhatsApp opened. Review and send.', 'ok');
+    } catch(e){
+        showToast('WhatsApp: '+e, 'error');
+    }
+}
+
+async function actionDismiss(){
+    if(!state.selectedMatch || state.selectedMatch.type!=='bazaar') return;
+    var id = state.selectedMatch.data.id;
+    try {
+        await invoke('dismiss_bazaar_match', { matchId:id });
+        state.selectedMatch = null;
+        await refreshInbox();
+        renderP2(); renderP3(); renderP4(); renderStatusBar();
+    } catch(e){
+        showToast('dismiss: '+e, 'error');
+    }
+}
+
+async function actionDismissOwn(){
+    if(!state.selectedMatch || state.selectedMatch.type!=='own') return;
+    var m = state.selectedMatch.data;
+    var side = m.cargo_broker_id===state.settings.broker_id ? 'cargo' : 'tonnage';
+    try {
+        await invoke('dismiss_match', { matchId:m.id, side:side });
+        state.selectedMatch = null;
+        await refreshInbox();
+        renderP2(); renderP3(); renderP4();
+    } catch(e){
+        showToast('dismiss: '+e, 'error');
+    }
+}
+
+// ---------- Status bar ----------
+function renderStatusBar(){
+    var ownN = (state.inbox.own_matches||[]).length;
+    var bazN = (state.inbox.bazaar_matches||[]).length;
+    document.getElementById('sb-bazaar-total').textContent = bazN;
+    document.getElementById('sb-fresh').textContent = ownN+bazN;
+    var totalListings = state.myCargo.length + state.myTonnage.length;
+    var coverage = totalListings>0 ? Math.round(((ownN+bazN>0?1:0)/Math.max(1,totalListings))*100) : 0;
+    document.getElementById('sb-coverage').textContent = coverage+'%';
+}
+
+// ---------- Publish modal ----------
+function openPublishModal(){
+    state.publish = { side:null };
+    document.getElementById('publish-overlay').classList.add('open');
+    renderPublishBody();
+}
+function closePublishModal(){
+    document.getElementById('publish-overlay').classList.remove('open');
+}
+function renderPublishBody(){
+    var body = document.getElementById('publish-body');
+    var foot = document.getElementById('publish-foot');
+    var title = document.getElementById('publish-title');
+    if(!state.publish.side){
+        title.textContent = '+ Publish — choose side';
+        body.innerHTML =
+            '<div class="side-cards">'+
+                '<div class="side-card" onclick="state.publish.side=\'cargo\'; renderPublishBody();"><div class="icon">📦</div><h3>Cargo side</h3><p>У меня есть груз — ищу подходящее судно.</p></div>'+
+                '<div class="side-card" onclick="state.publish.side=\'tonnage\'; renderPublishBody();"><div class="icon">🚢</div><h3>Vessel side</h3><p>У меня есть открытое судно — ищу груз.</p></div>'+
+            '</div>'+
+            '<div style="font-size:11px; color:var(--text2); text-align:center; margin-top:8px;">Один participant может публиковать на обеих сторонах — выбор делается per-listing.</div>';
+        foot.innerHTML = '<button class="btn btn-outline" onclick="closePublishModal()">Cancel</button>';
+        return;
+    }
+    if(state.publish.side==='cargo') renderCargoForm(body, foot, title);
+    else renderTonnageForm(body, foot, title);
+}
+
+function postureBlock(){
+    return '<div class="field-grid" style="margin-bottom:12px;">'+
+        '<div class="field"><label>Posture</label>'+
+            '<select id="pf-posted-as">'+
+                '<option value="broker">broker (representing)</option>'+
+                '<option value="principal">principal (direct)</option>'+
+            '</select></div>'+
+        '<div class="field"><label>Representing principal</label>'+
+            '<input id="pf-rep-principal" placeholder="Cargo owner / shipowner — free text"></div>'+
+        '</div>';
+}
+
+function renderCargoForm(body, foot, title){
+    title.textContent = '+ Publish — cargo';
+    body.innerHTML = postureBlock() +
+        '<div class="field-grid">'+
+            '<div class="field full"><label>Title</label><input id="pf-title" placeholder="25/10 wheat NVS/MER"></div>'+
+            '<div class="field"><label>Cargo type *</label><input id="pf-cargo-type" placeholder="Wheat in bulk"></div>'+
+            '<div class="field"><label>Quantity (mt)</label><input id="pf-qty" type="number" placeholder="25000"></div>'+
+            '<div class="field"><label>Load port *</label><input id="pf-load-port" placeholder="Novorossiysk"></div>'+
+            '<div class="field"><label>Load country</label><input id="pf-load-country" maxlength="3" placeholder="RU"></div>'+
+            '<div class="field"><label>Disch port *</label><input id="pf-disch-port" placeholder="Mersin"></div>'+
+            '<div class="field"><label>Disch country</label><input id="pf-disch-country" maxlength="3" placeholder="TR"></div>'+
+            '<div class="field"><label>Laycan from</label><input id="pf-laycan-from" type="date"></div>'+
+            '<div class="field"><label>Laycan to</label><input id="pf-laycan-to" type="date"></div>'+
+            '<div class="field"><label>Rate indication</label><input id="pf-rate" placeholder="USD 18 PMT FIO"></div>'+
+            '<div class="field"><label>Russia trading</label><select id="pf-russia"><option value="false">no</option><option value="true">yes</option></select></div>'+
+            '<div class="field full"><label>Description</label><textarea id="pf-desc"></textarea></div>'+
+        '</div>';
+    foot.innerHTML = '<button class="btn btn-outline" onclick="state.publish.side=null; renderPublishBody();">← Back</button>'+
+        '<button class="btn btn-accent" onclick="submitCargo()">Publish</button>';
+}
+
+function renderTonnageForm(body, foot, title){
+    title.textContent = '+ Publish — tonnage';
+    body.innerHTML = postureBlock() +
+        '<div class="field-grid">'+
+            '<div class="field full"><label>Title</label><input id="pf-title" placeholder="Supra open CTA 5-12 Jun"></div>'+
+            '<div class="field"><label>IMO * (7 digits)</label><input id="pf-imo" type="number" maxlength="7"></div>'+
+            '<div class="field"><label>Vessel name</label><input id="pf-vname" placeholder="MV ..."></div>'+
+            '<div class="field"><label>Vessel type</label><input id="pf-vtype" placeholder="Supramax"></div>'+
+            '<div class="field"><label>DWT</label><input id="pf-dwt" type="number"></div>'+
+            '<div class="field"><label>Flag</label><input id="pf-flag" maxlength="3"></div>'+
+            '<div class="field full"><label>Commercial manager</label><input id="pf-cmm"></div>'+
+            '<div class="field"><label>Open port *</label><input id="pf-open-port"></div>'+
+            '<div class="field"><label>Open country</label><input id="pf-open-country" maxlength="3"></div>'+
+            '<div class="field"><label>Open from</label><input id="pf-open-from" type="date"></div>'+
+            '<div class="field"><label>Open to</label><input id="pf-open-to" type="date"></div>'+
+            '<div class="field"><label>Redelivery</label><input id="pf-redelivery"></div>'+
+            '<div class="field"><label>Rate indication</label><input id="pf-rate"></div>'+
+            '<div class="field"><label>Russia trading</label><select id="pf-russia"><option value="false">no</option><option value="true">yes</option></select></div>'+
+            '<div class="field full"><label>Description</label><textarea id="pf-desc"></textarea></div>'+
+        '</div>';
+    foot.innerHTML = '<button class="btn btn-outline" onclick="state.publish.side=null; renderPublishBody();">← Back</button>'+
+        '<button class="btn btn-accent" onclick="submitTonnage()">Publish</button>';
+}
+
+async function submitCargo(){
+    var draft = {
+        title: val('pf-title') || null,
+        cargo_type: val('pf-cargo-type'),
+        quantity_mt: intOrNull('pf-qty'),
+        load_port: val('pf-load-port'),
+        load_country: val('pf-load-country') || null,
+        disch_port: val('pf-disch-port'),
+        disch_country: val('pf-disch-country') || null,
+        laycan_from: toIsoOrNull('pf-laycan-from'),
+        laycan_to: toIsoOrNull('pf-laycan-to'),
+        rate_indication: val('pf-rate') || null,
+        russia_trading: val('pf-russia')==='true',
+        description: val('pf-desc') || null,
+        posted_as: val('pf-posted-as') || 'broker',
+        representing_principal: val('pf-rep-principal') || null,
+    };
+    if(!draft.cargo_type || !draft.load_port || !draft.disch_port){
+        showToast('Cargo type, load port and disch port are required.', 'error');
+        return;
+    }
+    try {
+        await invoke('publish_cargo', { draft:draft });
+        showToast('Cargo published.', 'ok');
+        closePublishModal();
+        await refreshAll();
+    } catch(e){ showToast('Publish failed: '+e, 'error'); }
+}
+
+async function submitTonnage(){
+    var imo = intOrNull('pf-imo');
+    if(!imo || imo<1000000 || imo>9999999){
+        showToast('IMO must be a 7-digit number.', 'error');
+        return;
+    }
+    var draft = {
+        title: val('pf-title') || null,
+        vessel_imo: imo,
+        vessel_name: val('pf-vname') || null,
+        vessel_type: val('pf-vtype') || null,
+        dwt: intOrNull('pf-dwt'),
+        flag: val('pf-flag') || null,
+        commercial_manager: val('pf-cmm') || null,
+        open_port: val('pf-open-port'),
+        open_country: val('pf-open-country') || null,
+        open_from: toIsoOrNull('pf-open-from'),
+        open_to: toIsoOrNull('pf-open-to'),
+        redelivery_area: val('pf-redelivery') || null,
+        rate_indication: val('pf-rate') || null,
+        russia_trading: val('pf-russia')==='true',
+        description: val('pf-desc') || null,
+        posted_as: val('pf-posted-as') || 'broker',
+        representing_principal: val('pf-rep-principal') || null,
+    };
+    if(!draft.open_port){ showToast('Open port is required.', 'error'); return; }
+    try {
+        await invoke('publish_tonnage', { draft:draft });
+        showToast('Tonnage published.', 'ok');
+        closePublishModal();
+        await refreshAll();
+    } catch(e){ showToast('Publish failed: '+e, 'error'); }
+}
+
+// ---------- Settings ----------
+function openSettings(){
+    document.getElementById('settings-overlay').classList.add('open');
+    renderSettingsNav(); renderSettingsBody();
+}
+function closeSettings(){
+    document.getElementById('settings-overlay').classList.remove('open');
+}
+function renderSettingsNav(){
+    var tabs = [
+        {id:'connection', label:'Connection'},
+        {id:'identity',   label:'Identity'},
+        {id:'reply',      label:'Reply-to'},
+        {id:'appearance', label:'Appearance'},
+        {id:'about',      label:'About'},
+    ];
+    document.getElementById('set-nav').innerHTML = tabs.map(function(t){
+        return '<div class="set-nav-item '+(state.settingsTab===t.id?'active':'')
+            +'" onclick="state.settingsTab=\''+t.id+'\'; renderSettingsNav(); renderSettingsBody();">'+esc(t.label)+'</div>';
+    }).join('');
+}
+function renderSettingsBody(){
+    var body = document.getElementById('set-body');
+    var s = state.settings;
+    var t = state.settingsTab;
+    if(t==='connection'){
+        body.innerHTML = '<h3>Server connection</h3><div class="sub">Where the broker board lives.</div>'+
+            '<div class="field-grid">'+
+                '<div class="field full"><label>Server URL</label><input id="set-server" value="'+esc(s.server_url||'')+'" placeholder="http://127.0.0.1:8000"></div>'+
+                '<div class="field full"><label>Bearer token (admin / dev)</label><input id="set-bearer" value="'+esc(s.bearer_token||'')+'" placeholder="leave empty for dev"></div>'+
+            '</div>'+
+            '<div style="margin-top:18px;"><button class="btn btn-accent" onclick="saveConnection()">Save</button></div>';
+    } else if(t==='identity'){
+        body.innerHTML = '<h3>Broker identity</h3><div class="sub">Register on the server (one-time).</div>'+
+            '<div class="field-grid">'+
+                '<div class="field full"><label>Display name</label><input id="set-display" value="'+esc(s.display_name||'')+'"></div>'+
+                '<div class="field full"><label>Contact email</label><input id="set-contact" value="'+esc(s.reply_to||'')+'"></div>'+
+            '</div>'+
+            '<div style="margin-top:18px;">'+
+                (s.broker_id
+                    ? '<div class="sub" style="margin:6px 0;">Registered: <code>'+esc(s.broker_id)+'</code></div>'
+                    : '')+
+                '<button class="btn btn-accent" onclick="registerBroker()">'+(s.broker_id?'Re-register':'Register')+'</button>'+
+            '</div>';
+    } else if(t==='reply'){
+        body.innerHTML = '<h3>Reply-to</h3><div class="sub">From: header in generated .eml drafts.</div>'+
+            '<div class="field-grid">'+
+                '<div class="field full"><label>From name</label><input id="set-fname" value="'+esc(s.display_name||'')+'"></div>'+
+                '<div class="field full"><label>From email</label><input id="set-femail" value="'+esc(s.reply_to||'')+'"></div>'+
+            '</div>'+
+            '<div style="margin-top:18px;"><button class="btn btn-accent" onclick="saveReply()">Save</button></div>';
+    } else if(t==='appearance'){
+        var cur = localStorage.getItem('skipi-broker-theme') || 'dark';
+        body.innerHTML = '<h3>Appearance</h3><div class="sub">Theme & font size.</div>'+
+            '<div style="margin-bottom:14px;"><label style="font-size:11px; color:var(--text2);">Theme</label><br>'+
+                ['dark','light','system'].map(function(x){
+                    return '<label style="margin-right:14px;"><input type="radio" name="theme" '+(cur===x?'checked':'')+' onclick="setTheme(\''+x+'\')"> '+x+'</label>';
+                }).join('')+
+            '</div>';
+    } else {
+        body.innerHTML = '<h3>About</h3><div class="sub">Skipi Broker</div>'+
+            '<div class="detail-block"><div class="detail-row"><span class="k">Version</span><span class="v">'+APP_VERSION+'</span></div>'+
+            '<div class="detail-row"><span class="k">Server</span><span class="v">'+esc(s.server_url||'—')+'</span></div></div>';
+    }
+}
+
+async function saveConnection(){
+    var s = state.settings;
+    s.server_url = val('set-server');
+    s.bearer_token = val('set-bearer');
+    try { state.settings = await invoke('save_settings', { incoming:s }); showToast('Saved.', 'ok'); refreshIdentityBadge(); }
+    catch(e){ showToast('Save: '+e, 'error'); }
+}
+async function saveReply(){
+    var s = state.settings;
+    s.display_name = val('set-fname');
+    s.reply_to = val('set-femail');
+    try { state.settings = await invoke('save_settings', { incoming:s }); showToast('Saved.', 'ok'); refreshIdentityBadge(); }
+    catch(e){ showToast('Save: '+e, 'error'); }
+}
+async function registerBroker(){
+    var name = val('set-display'); var email = val('set-contact');
+    if(!name || !email){ showToast('Name and email required.', 'error'); return; }
+    try {
+        await invoke('register_broker', { displayName:name, contactEmail:email });
+        state.settings = await invoke('get_settings');
+        refreshIdentityBadge();
+        showToast('Registered: '+state.settings.broker_id, 'ok');
+        renderSettingsBody();
+        await refreshAll();
+    } catch(e){ showToast('Register: '+e, 'error'); }
+}
+
+// ---------- Boot ----------
+boot();
+</script>
+</body>
+</html>
