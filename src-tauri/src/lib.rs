@@ -81,6 +81,11 @@ impl Settings {
 
 pub struct AppState {
     pub settings: Mutex<Settings>,
+    /// Last API base that successfully answered a request. Lets us skip
+    /// the 4s TCP-timeout probe against a blocked primary on every call
+    /// once we've discovered the RF bridge works. Cleared when the
+    /// cached base fails pre-response (network changes, proxy outage).
+    pub active_api_base: Mutex<Option<String>>,
 }
 
 // ---------- HTTP helper ----------
@@ -125,23 +130,43 @@ fn is_pre_response_error(e: &reqwest::Error) -> bool {
     e.is_connect() || e.is_timeout() || e.is_request()
 }
 
-/// Path-relative API call with automatic primary→RF fallback.
+/// Path-relative API call with automatic primary→RF fallback +
+/// active-base caching to avoid re-probing a blocked primary on every
+/// call.
 ///
-/// `path_and_query` must start with `/`. Falls back to the next
-/// candidate base on pre-response errors (connect/DNS/TLS/timeout).
-/// Does NOT fall back once the server has actually replied — server
-/// 4xx/5xx are surfaced as final errors so mutating commands like
-/// publish/engage/close/pin don't double-execute.
+/// On first call (cache empty) we walk `api_bases()` in order: the
+/// first base that returns a server response (any status) becomes the
+/// cached active base. Subsequent calls go straight to it. If the
+/// cached base errors pre-response (network change, proxy died), we
+/// clear the cache and walk the candidates again from the top.
+///
+/// POSTs do NOT fall back once a server has actually replied —
+/// publish/engage/close/pin would otherwise risk duplicate execution.
 fn request_api(
+    state: &tauri::State<'_, AppState>,
     s: &Settings,
     method: reqwest::Method,
     path_and_query: &str,
     bearer: &str,
     body: Option<&JsonValue>,
 ) -> Result<JsonValue, String> {
-    let bases = api_bases(s);
-    let last = bases.len().saturating_sub(1);
+    let all_bases = api_bases(s);
     let client = http_client()?;
+
+    // Build the candidate order: cached active base first (if any and
+    // still allowed by current settings), then the rest of the list.
+    let cached: Option<String> = state.active_api_base.lock().unwrap().clone();
+    let mut bases: Vec<String> = Vec::with_capacity(all_bases.len());
+    if let Some(c) = cached.as_ref().filter(|c| all_bases.iter().any(|b| b == *c)) {
+        bases.push(c.clone());
+        for b in &all_bases {
+            if b != c { bases.push(b.clone()); }
+        }
+    } else {
+        bases = all_bases;
+    }
+    let last = bases.len().saturating_sub(1);
+
     let mut last_err = String::from("no api bases configured");
     for (i, base) in bases.iter().enumerate() {
         let url = format!("{}{}", base.trim_end_matches('/'), path_and_query);
@@ -154,10 +179,11 @@ fn request_api(
         }
         match req.send() {
             Ok(resp) => {
+                // We got a server response — promote this base to cache.
+                *state.active_api_base.lock().unwrap() = Some(base.clone());
                 let status = resp.status();
                 let text = resp.text().unwrap_or_default();
                 if !status.is_success() {
-                    // Real server response — final, do not try next base.
                     return Err(format!("HTTP {}: {}", status.as_u16(), text));
                 }
                 if text.is_empty() {
@@ -169,7 +195,10 @@ fn request_api(
             Err(e) => {
                 last_err = format!("{base}: {e}");
                 if is_pre_response_error(&e) && i < last {
-                    // Try next candidate base.
+                    // Clear stale cache if it was the active base.
+                    if cached.as_deref() == Some(base.as_str()) {
+                        *state.active_api_base.lock().unwrap() = None;
+                    }
                     continue;
                 }
                 return Err(last_err);
@@ -291,7 +320,7 @@ fn register_broker(
         "jurisdiction": jurisdiction,
         "contact_phone": contact_phone,
     });
-    let resp = request_api(&s, reqwest::Method::POST, "/api/brokers", &s.bearer_token, Some(&body))?;
+    let resp = request_api(&state, &s, reqwest::Method::POST, "/api/brokers", &s.bearer_token, Some(&body))?;
     // Auto-persist the new broker_id so the user doesn't have to copy it.
     if let Some(id) = resp.get("id").and_then(|v| v.as_str()) {
         let mut updated = s.clone();
@@ -318,7 +347,7 @@ fn publish_cargo(
     if body.get("reply_to").is_none() && !s.reply_to.is_empty() {
         body["reply_to"] = JsonValue::String(s.reply_to.clone());
     }
-    request_api(&s, reqwest::Method::POST, "/api/cargo-listings", &s.bearer_token, Some(&body))
+    request_api(&state, &s, reqwest::Method::POST, "/api/cargo-listings", &s.bearer_token, Some(&body))
 }
 
 #[tauri::command]
@@ -335,28 +364,28 @@ fn publish_tonnage(
     if body.get("reply_to").is_none() && !s.reply_to.is_empty() {
         body["reply_to"] = JsonValue::String(s.reply_to.clone());
     }
-    request_api(&s, reqwest::Method::POST, "/api/tonnage-listings", &s.bearer_token, Some(&body))
+    request_api(&state, &s, reqwest::Method::POST, "/api/tonnage-listings", &s.bearer_token, Some(&body))
 }
 
 #[tauri::command]
 fn fetch_my_cargo(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/cargo-listings?broker_id={}", s.broker_id);
-    request_api(&s, reqwest::Method::GET, &path, &s.bearer_token, None)
+    request_api(&state, &s, reqwest::Method::GET, &path, &s.bearer_token, None)
 }
 
 #[tauri::command]
 fn fetch_my_tonnage(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/tonnage-listings?broker_id={}", s.broker_id);
-    request_api(&s, reqwest::Method::GET, &path, &s.bearer_token, None)
+    request_api(&state, &s, reqwest::Method::GET, &path, &s.bearer_token, None)
 }
 
 #[tauri::command]
 fn fetch_matches(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/matches?broker_id={}", s.broker_id);
-    request_api(&s, reqwest::Method::GET, &path, &s.bearer_token, None)
+    request_api(&state, &s, reqwest::Method::GET, &path, &s.bearer_token, None)
 }
 
 /// 4-panel UX inbox: returns own × own + own × bazaar matches with
@@ -384,7 +413,7 @@ fn fetch_matches_inbox(
     if include_dismissed.unwrap_or(false) {
         path.push_str("&include_dismissed=true");
     }
-    request_api(&s, reqwest::Method::GET, &path, &s.bearer_token, None)
+    request_api(&state, &s, reqwest::Method::GET, &path, &s.bearer_token, None)
 }
 
 #[tauri::command]
@@ -394,7 +423,7 @@ fn mark_bazaar_match_seen(
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/bazaar-matches/{}/seen", match_id);
-    request_api(&s, reqwest::Method::POST, &path, &s.bearer_token, None)
+    request_api(&state, &s, reqwest::Method::POST, &path, &s.bearer_token, None)
 }
 
 #[tauri::command]
@@ -404,7 +433,7 @@ fn dismiss_bazaar_match(
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/bazaar-matches/{}/dismiss", match_id);
-    request_api(&s, reqwest::Method::POST, &path, &s.bearer_token, None)
+    request_api(&state, &s, reqwest::Method::POST, &path, &s.bearer_token, None)
 }
 
 #[tauri::command]
@@ -414,7 +443,7 @@ fn pin_bazaar_match(
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/bazaar-matches/{}/pin", match_id);
-    request_api(&s, reqwest::Method::POST, &path, &s.bearer_token, None)
+    request_api(&state, &s, reqwest::Method::POST, &path, &s.bearer_token, None)
 }
 
 #[tauri::command]
@@ -424,7 +453,7 @@ fn unpin_bazaar_match(
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/bazaar-matches/{}/unpin", match_id);
-    request_api(&s, reqwest::Method::POST, &path, &s.bearer_token, None)
+    request_api(&state, &s, reqwest::Method::POST, &path, &s.bearer_token, None)
 }
 
 #[tauri::command]
@@ -441,7 +470,7 @@ fn engage_listing(
         "viewer_broker_id": s.broker_id,
         "action": action,
     });
-    request_api(&s, reqwest::Method::POST, &path, &s.bearer_token, Some(&body))
+    request_api(&state, &s, reqwest::Method::POST, &path, &s.bearer_token, Some(&body))
 }
 
 #[tauri::command]
@@ -453,7 +482,7 @@ fn close_listing(
     let s = settings_snapshot(&state);
     let endpoint = if kind == "cargo" { "cargo-listings" } else { "tonnage-listings" };
     let path = format!("/api/{}/{}/close", endpoint, listing_id);
-    request_api(&s, reqwest::Method::POST, &path, &s.bearer_token, None)
+    request_api(&state, &s, reqwest::Method::POST, &path, &s.bearer_token, None)
 }
 
 #[tauri::command]
@@ -464,7 +493,7 @@ fn mark_match_seen(
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/matches/{}/seen?side={}", match_id, side);
-    request_api(&s, reqwest::Method::POST, &path, &s.bearer_token, None)
+    request_api(&state, &s, reqwest::Method::POST, &path, &s.bearer_token, None)
 }
 
 #[tauri::command]
@@ -632,7 +661,7 @@ fn dismiss_match(
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/matches/{}/dismiss?side={}", match_id, side);
-    request_api(&s, reqwest::Method::POST, &path, &s.bearer_token, None)
+    request_api(&state, &s, reqwest::Method::POST, &path, &s.bearer_token, None)
 }
 
 #[tauri::command]
@@ -643,7 +672,7 @@ fn pin_match(
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/matches/{}/pin?side={}", match_id, side);
-    request_api(&s, reqwest::Method::POST, &path, &s.bearer_token, None)
+    request_api(&state, &s, reqwest::Method::POST, &path, &s.bearer_token, None)
 }
 
 #[tauri::command]
@@ -654,7 +683,7 @@ fn unpin_match(
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/matches/{}/unpin?side={}", match_id, side);
-    request_api(&s, reqwest::Method::POST, &path, &s.bearer_token, None)
+    request_api(&state, &s, reqwest::Method::POST, &path, &s.bearer_token, None)
 }
 
 /// Trigger the local freight agent (bazaar_push) to scrape mailbox +
@@ -770,7 +799,10 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .manage(AppState { settings: Mutex::new(Settings::load()) })
+        .manage(AppState {
+            settings: Mutex::new(Settings::load()),
+            active_api_base: Mutex::new(None),
+        })
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,
