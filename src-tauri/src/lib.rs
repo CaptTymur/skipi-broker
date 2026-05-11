@@ -691,9 +691,28 @@ fn request_agent_update(
     let admin_token = std::env::var("SKIPI_ADMIN_TOKEN")
         .unwrap_or_else(|_| "aCjVedJo87SrtUdNGCcseO9Qtv3R0vpoAlOMkR7xikg".to_string());
 
+    // AppImage runtime injects PYTHONHOME/PYTHONPATH/LD_LIBRARY_PATH that
+    // point inside the AppImage's mount (/tmp/.mount_skipi-*) — if those
+    // leak into the spawned subprocess, the host venv's interpreter
+    // tries to load stdlib from the AppImage and explodes with
+    // "ModuleNotFoundError: No module named 'encodings'". Strip them.
     let output = Command::new(&venv_python)
         .args(["-m", "freight_agent.bazaar_push"])
         .current_dir(agent_dir)
+        .env_remove("PYTHONHOME")
+        .env_remove("PYTHONPATH")
+        .env_remove("PYTHONSTARTUP")
+        .env_remove("PYTHONNOUSERSITE")
+        .env_remove("LD_LIBRARY_PATH")
+        .env_remove("LD_PRELOAD")
+        .env_remove("PERLLIB")
+        .env_remove("GTK_DATA_PREFIX")
+        .env_remove("GTK_EXE_PREFIX")
+        .env_remove("GTK_PATH")
+        .env_remove("GDK_PIXBUF_MODULEDIR")
+        .env_remove("GDK_PIXBUF_MODULE_FILE")
+        .env_remove("GI_TYPELIB_PATH")
+        .env_remove("XDG_DATA_DIRS")
         .env("SKIPI_BAZAAR_URL", &bazaar_url)
         .env("SKIPI_ADMIN_TOKEN", &admin_token)
         .output()
