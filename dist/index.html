@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.2';
+var APP_VERSION='0.1.4';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -194,8 +194,16 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 
 <div class="app">
     <div class="columns" id="columns">
+        <!-- P0 — details of selected own listing (sticky anchor across panels) -->
+        <div class="col" style="flex:1.3">
+            <div class="col-head">
+                <span>Моя циркуляция</span>
+                <span class="count" id="p0-age"></span>
+            </div>
+            <div class="col-body" id="p0-body"></div>
+        </div>
         <!-- P1 — my listings -->
-        <div class="col" style="flex:1.1">
+        <div class="col" style="flex:1.0">
             <div class="col-head">
                 <span>Мои циркуляции</span>
                 <span class="count" id="p1-count">0</span>
@@ -394,7 +402,7 @@ async function boot(){
 
 async function refreshAll(){
     await Promise.all([refreshMyListings(), refreshInbox()]);
-    renderP1(); renderP2(); renderP3(); renderP4(); renderStatusBar();
+    renderP0(); renderP1(); renderP2(); renderP3(); renderP4(); renderStatusBar();
 }
 
 async function refreshMyListings(){
@@ -427,6 +435,119 @@ async function refreshInbox(){
 }
 
 // ---------- P1 — my listings ----------
+function renderP0(){
+    var body = document.getElementById('p0-body');
+    var ageEl = document.getElementById('p0-age');
+    if(!state.selectedListing){
+        body.innerHTML = '<div class="col-empty">Выбери циркуляцию справа чтобы увидеть её детали тут.</div>';
+        ageEl.innerHTML = '';
+        return;
+    }
+    // Find the full data from the lists (selectedListing only stores id+kind).
+    var pool = state.selectedListing.kind==='cargo' ? state.myCargo : state.myTonnage;
+    var d = (pool||[]).filter(function(x){ return x.id===state.selectedListing.id; })[0];
+    if(!d){
+        body.innerHTML = '<div class="col-empty">Циркуляция не найдена (возможно истекла).</div>';
+        ageEl.innerHTML = '';
+        return;
+    }
+    var kind = state.selectedListing.kind;
+    var title = d.title || (kind==='cargo'
+        ? (d.cargo_type+' '+d.load_port+'/'+d.disch_port)
+        : (d.vessel_name || ('IMO '+d.vessel_imo)));
+    var tag = kind==='cargo'
+        ? '<span class="r-tag" style="background:rgba(229,153,57,.2); color:#e29a39;">📦 cargo</span>'
+        : '<span class="r-tag" style="background:rgba(91,155,224,.2); color:var(--blue);">🚢 tonnage</span>';
+
+    ageEl.innerHTML = ageRingSvg(d.published_at, 14);
+
+    var html = '<div class="detail">';
+    html += '<h2>'+esc(title)+'</h2>';
+    html += '<div class="sub">'+tag+' &nbsp; опубликовано '+esc(fmtDate(d.published_at));
+    if(d.expires_at) html += ' · истекает '+esc(fmtDate(d.expires_at));
+    html += '</div>';
+
+    var fields = [];
+    if(kind==='cargo'){
+        if(d.cargo_type) fields.push(['Cargo', d.cargo_type]);
+        if(d.quantity_mt) fields.push(['Quantity', d.quantity_mt+' mt'+(d.quantity_tolerance_pct?' ±'+d.quantity_tolerance_pct+'%':'')]);
+        if(d.stowage_factor) fields.push(['SF', d.stowage_factor]);
+        if(d.load_port) fields.push(['Load', d.load_port+(d.load_country?' ('+d.load_country+')':'')]);
+        if(d.disch_port) fields.push(['Discharge', d.disch_port+(d.disch_country?' ('+d.disch_country+')':'')]);
+        fields.push(['Laycan', fmtRange(d.laycan_from, d.laycan_to)]);
+    } else {
+        if(d.vessel_name) fields.push(['Vessel', d.vessel_name]);
+        if(d.vessel_imo) fields.push(['IMO', d.vessel_imo]);
+        if(d.vessel_type) fields.push(['Type', d.vessel_type]);
+        if(d.dwt) fields.push(['DWT', d.dwt]);
+        if(d.flag) fields.push(['Flag', d.flag]);
+        if(d.commercial_manager) fields.push(['Comm. manager', d.commercial_manager]);
+        if(d.open_port) fields.push(['Open', d.open_port+(d.open_country?' ('+d.open_country+')':'')]);
+        fields.push(['Window', fmtRange(d.open_from, d.open_to)]);
+        if(d.redelivery_area) fields.push(['Redelivery', d.redelivery_area]);
+    }
+    if(d.rate_indication) fields.push(['Rate', d.rate_indication]);
+    if(d.russia_trading) fields.push(['Russia', 'YES']);
+
+    html += '<div class="detail-block"><h4>Структурированные детали</h4>';
+    fields.forEach(function(f){
+        html += '<div class="detail-row"><span class="k">'+esc(f[0])+'</span><span class="v">'+esc(f[1])+'</span></div>';
+    });
+    html += '</div>';
+
+    // Original / posting context
+    var posted = d.posted_as || 'broker';
+    var postingFields = [['Posted as', posted]];
+    if(d.representing_principal) postingFields.push(['Representing', d.representing_principal]);
+    if(d.redacted_principal) postingFields.push(['Principal (redacted)', d.redacted_principal]);
+    if(d.reply_to) postingFields.push(['Reply-to', d.reply_to]);
+    html += '<div class="detail-block"><h4>Размещение</h4>';
+    postingFields.forEach(function(f){
+        html += '<div class="detail-row"><span class="k">'+esc(f[0])+'</span><span class="v">'+esc(f[1])+'</span></div>';
+    });
+    html += '</div>';
+
+    if(d.description){
+        html += '<div class="detail-block"><h4>Полный текст</h4>';
+        html += '<div class="raw-text">'+esc(d.description)+'</div></div>';
+    }
+
+    // Quick stats — what the bazaar engagement model is showing.
+    var stats = [];
+    if(d.view_count != null) stats.push(['Views', d.view_count]);
+    if(d.like_count != null) stats.push(['Likes', d.like_count]);
+    if(d.interest_count != null) stats.push(['Interest', d.interest_count]);
+    if(d.hide_count != null) stats.push(['Hides', d.hide_count]);
+    if(stats.length){
+        html += '<div class="detail-block"><h4>Engagement</h4>';
+        stats.forEach(function(f){
+            html += '<div class="detail-row"><span class="k">'+esc(f[0])+'</span><span class="v">'+esc(f[1])+'</span></div>';
+        });
+        html += '</div>';
+    }
+
+    html += '<div class="actions-row">';
+    html += '<button class="btn btn-outline" onclick="actionCloseListing()">✕ Снять с базара</button>';
+    html += '</div>';
+    html += '</div>';
+    body.innerHTML = html;
+}
+
+async function actionCloseListing(){
+    if(!state.selectedListing) return;
+    if(!confirm('Снять циркуляцию с базара? Все её совпадения удалятся.')) return;
+    try {
+        await invoke('close_listing', { kind:state.selectedListing.kind, listingId:state.selectedListing.id });
+        state.selectedListing = null;
+        state.selectedMatch = null;
+        await refreshAll();
+        renderP0(); renderP1(); renderP2(); renderP3(); renderP4(); renderStatusBar();
+        showToast('Циркуляция снята', 'success');
+    } catch(e){
+        showToast('Close failed: '+e, 'error');
+    }
+}
+
 function renderP1(){
     var body = document.getElementById('p1-body');
     var rows = [];
@@ -463,7 +584,7 @@ async function selectListing(kind, id){
     state.selectedListing = { kind:kind, id:id };
     state.selectedMatch = null;
     await refreshInbox();
-    renderP1(); renderP2(); renderP3(); renderP4();
+    renderP0(); renderP1(); renderP2(); renderP3(); renderP4();
 }
 
 // ---------- P2 — matches feed ----------
