@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.4';
+var APP_VERSION='0.1.5';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -66,6 +66,11 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
     color:var(--text2); background:var(--surface2); user-select:none; }
 .p2-tab:hover { color:var(--text); }
 .p2-tab.active { color:#fff; background:var(--accent); }
+.p2-refresh { font-size:13px; cursor:pointer; padding:1px 6px; border-radius:9px;
+    color:var(--text2); user-select:none; }
+.p2-refresh:hover { color:var(--text); background:var(--surface2); }
+.p2-refresh.spinning { animation: spin 1s linear infinite; color:var(--accent); }
+@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
 .row .r-pin { color:var(--accent); font-size:11px; margin-right:4px; }
 .row.pinned { background:linear-gradient(90deg, var(--accent-bg) 0%, transparent 60%); }
 .row.pinned:hover { background:linear-gradient(90deg, var(--accent-bg2) 0%, var(--hover) 60%); }
@@ -218,6 +223,7 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
                     <span class="p2-tab" id="p2-tab-all" onclick="p2SetFilter('all')">All</span>
                     <span class="p2-tab" id="p2-tab-work" onclick="p2SetFilter('work')">📌 В работе</span>
                 </span>
+                <span class="p2-refresh" id="p2-refresh" title="Запросить апдейт у агента — подтянуть свежие сигналы из mbox/ShipNext и пересчитать совпадения. Закреплённые (📌) сохранятся." onclick="actionAgentUpdate()">🔄</span>
                 <span class="count" id="p2-count">0</span>
             </div>
             <div class="col-body" id="p2-body"></div>
@@ -996,6 +1002,27 @@ async function actionDismissOwn(){
         renderP2(); renderP3(); renderP4();
     } catch(e){
         showToast('dismiss: '+e, 'error');
+    }
+}
+
+async function actionAgentUpdate(){
+    var btn = document.getElementById('p2-refresh');
+    if(btn.classList.contains('spinning')) return;  // debounce
+    btn.classList.add('spinning');
+    try {
+        var r = await invoke('request_agent_update');
+        var c = (r && r.cargo_inserted) || 0;
+        var t = (r && r.tonnage_inserted) || 0;
+        var m = (r && r.matches_created) || 0;
+        var msg = 'Агент обновил базар: +'+c+' cargo · +'+t+' tonnage · +'+m+' матчей';
+        if(c===0 && t===0 && m===0) msg = 'Агент проверил: новых сигналов нет';
+        await refreshInbox();
+        renderP0(); renderP1(); renderP2(); renderP3(); renderP4(); renderStatusBar();
+        showToast(msg, 'success');
+    } catch(e){
+        showToast('Agent: '+e, 'error');
+    } finally {
+        btn.classList.remove('spinning');
     }
 }
 

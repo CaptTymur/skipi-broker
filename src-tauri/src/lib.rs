@@ -657,6 +657,90 @@ fn unpin_match(
     request_api(&s, reqwest::Method::POST, &path, &s.bearer_token, None)
 }
 
+/// Trigger the local freight agent (bazaar_push) to scrape mailbox +
+/// ShipNext for fresh signals and push them to skipi-server, then
+/// recompute matches. Pinned matches survive irrespective of new
+/// scoring — that protection lives in the server matcher.
+///
+/// This is a TYMUR-MACHINE-LOCAL command: it shells out to the Python
+/// agent at `/home/linux/scripts/freight_agent/`. On other installs
+/// (Sasha's Windows) the agent isn't present and the command returns
+/// a friendly error so the UI can show "agent not available here".
+#[tauri::command]
+fn request_agent_update(
+    _state: tauri::State<'_, AppState>,
+) -> Result<JsonValue, String> {
+    use std::process::Command;
+
+    let agent_dir = std::path::Path::new("/home/linux/scripts");
+    let venv_python = agent_dir.join("venv/bin/python");
+    if !venv_python.exists() {
+        return Err(
+            "Агент недоступен на этой машине. Эта функция работает \
+             только на локальной установке Тимура (Linux). \
+             Свежие совпадения приходят автоматически по расписанию."
+                .into(),
+        );
+    }
+
+    // Read shared admin token + bazaar URL from the same place freight_agent uses.
+    // Hardcode dev defaults — broker app on Tymur's machine talks to
+    // 127.0.0.1:8000 anyway (see Settings.server_url override).
+    let bazaar_url = std::env::var("SKIPI_BAZAAR_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:8000".to_string());
+    let admin_token = std::env::var("SKIPI_ADMIN_TOKEN")
+        .unwrap_or_else(|_| "aCjVedJo87SrtUdNGCcseO9Qtv3R0vpoAlOMkR7xikg".to_string());
+
+    let output = Command::new(&venv_python)
+        .args(["-m", "freight_agent.bazaar_push"])
+        .current_dir(agent_dir)
+        .env("SKIPI_BAZAAR_URL", &bazaar_url)
+        .env("SKIPI_ADMIN_TOKEN", &admin_token)
+        .output()
+        .map_err(|e| format!("spawn agent failed: {e}"))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    if !output.status.success() {
+        return Err(format!("agent exited {}: {stderr}", output.status));
+    }
+
+    // Parse the last "pushed cargo (ins/upd)=N/M, tonnage (ins/upd)=A/B,
+    // matches=K, new_offset=..." line — freight_agent emits a fresh
+    // one per batch. Take the most recent.
+    let combined = format!("{stdout}\n{stderr}");
+    let last_summary = combined
+        .lines()
+        .filter(|l| l.contains("pushed cargo"))
+        .last()
+        .unwrap_or("");
+
+    // Lightweight parse: grab ins counts and matches count.
+    let extract = |key: &str| -> i64 {
+        if let Some(start) = last_summary.find(&format!("{key}=")) {
+            let rest = &last_summary[start + key.len() + 1..];
+            let end = rest.find(|c: char| !c.is_ascii_digit() && c != '/').unwrap_or(rest.len());
+            // For "ins/upd" format, take only the ins part.
+            let token = &rest[..end];
+            let ins = token.split('/').next().unwrap_or("0");
+            ins.parse().unwrap_or(0)
+        } else {
+            0
+        }
+    };
+
+    let cargo_new = extract("cargo (ins/upd)");
+    let tonnage_new = extract("tonnage (ins/upd)");
+    let matches_new = extract("matches");
+
+    Ok(serde_json::json!({
+        "cargo_inserted": cargo_new,
+        "tonnage_inserted": tonnage_new,
+        "matches_created": matches_new,
+        "raw_last_line": last_summary,
+    }))
+}
+
 // ---------- App entry ----------
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -684,6 +768,7 @@ pub fn run() {
             dismiss_match,
             pin_match,
             unpin_match,
+            request_agent_update,
             mark_bazaar_match_seen,
             dismiss_bazaar_match,
             pin_bazaar_match,
