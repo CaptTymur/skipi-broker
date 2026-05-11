@@ -1,6 +1,6 @@
 [package]
 name = "skipi-broker"
-version = "0.1.0"
+version = "0.1.2"
 description = "Skipi Broker — freight board client for cargo↔tonnage matching"
 authors = ["Tymur Rudov"]
 license = "Proprietary"

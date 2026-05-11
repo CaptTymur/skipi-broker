@@ -356,6 +356,26 @@ fn dismiss_bazaar_match(
 }
 
 #[tauri::command]
+fn pin_bazaar_match(
+    state: tauri::State<'_, AppState>,
+    match_id: String,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let url = format!("{}/api/bazaar-matches/{}/pin", s.server_url, match_id);
+    request(reqwest::Method::POST, &url, &s.bearer_token, None)
+}
+
+#[tauri::command]
+fn unpin_bazaar_match(
+    state: tauri::State<'_, AppState>,
+    match_id: String,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let url = format!("{}/api/bazaar-matches/{}/unpin", s.server_url, match_id);
+    request(reqwest::Method::POST, &url, &s.bearer_token, None)
+}
+
+#[tauri::command]
 fn engage_listing(
     state: tauri::State<'_, AppState>,
     kind: String,
@@ -503,8 +523,16 @@ fn generate_eml(
         body = body_with_footer,
     );
 
-    // Temp file with .eml extension so the OS picks the right handler.
-    let mut path = std::env::temp_dir();
+    // Write the .eml inside the user's home so snap'd / flatpak'd mail
+    // clients (Thunderbird snap, Geary flatpak, etc.) can actually read
+    // it. Files in /tmp are invisible to confined apps and the user
+    // gets a "File not found" dialog from the launcher.
+    let mut path = dirs::data_local_dir()
+        .or_else(dirs::home_dir)
+        .ok_or_else(|| "no writable home dir".to_string())?;
+    path.push("skipi-broker");
+    path.push("drafts");
+    std::fs::create_dir_all(&path).map_err(|e| format!("mkdir drafts: {e}"))?;
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
     path.push(format!("skipi-broker-{}-{}.eml", stamp, uuid::Uuid::new_v4().simple()));
     std::fs::write(&path, eml).map_err(|e| format!("write .eml: {e}"))?;
@@ -555,6 +583,28 @@ fn dismiss_match(
     request(reqwest::Method::POST, &url, &s.bearer_token, None)
 }
 
+#[tauri::command]
+fn pin_match(
+    state: tauri::State<'_, AppState>,
+    match_id: String,
+    side: String,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let url = format!("{}/api/matches/{}/pin?side={}", s.server_url, match_id, side);
+    request(reqwest::Method::POST, &url, &s.bearer_token, None)
+}
+
+#[tauri::command]
+fn unpin_match(
+    state: tauri::State<'_, AppState>,
+    match_id: String,
+    side: String,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let url = format!("{}/api/matches/{}/unpin?side={}", s.server_url, match_id, side);
+    request(reqwest::Method::POST, &url, &s.bearer_token, None)
+}
+
 // ---------- App entry ----------
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -580,8 +630,12 @@ pub fn run() {
             close_listing,
             mark_match_seen,
             dismiss_match,
+            pin_match,
+            unpin_match,
             mark_bazaar_match_seen,
             dismiss_bazaar_match,
+            pin_bazaar_match,
+            unpin_bazaar_match,
             send_circular_email,
             generate_eml,
             open_whatsapp,
