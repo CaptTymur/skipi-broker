@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.19';
+var APP_VERSION='0.1.20';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -831,13 +831,11 @@ function _isPinned(type, m){
 
 function renderP2(){
     var body = document.getElementById('p2-body');
-    // Self-matches (own × own where both sides are the SAME broker) are
-    // an auto-adopt artifact — broker can't act on a deal where they
-    // own both sides. Filter them out.
-    // Hide matches where both sides are the same broker (auto-adopt artifact).
-    var ownM = (state.inbox.own_matches || []).filter(function(m){
-        return m.cargo_broker_id !== m.tonnage_broker_id;
-    });
+    // Hide ALL own × own matches. Tymur + Sasha (and future team-mates)
+    // work as one team — matches between team brokers are not
+    // actionable deals. Will revisit when external brokers register and
+    // peer-to-peer becomes meaningful.
+    var ownM = [];
     var bazM = state.inbox.bazaar_matches || [];
     var filter = state.p2Filter || 'all';
 
@@ -1580,7 +1578,14 @@ function renderSettingsBody(){
                     ? '<div class="sub" style="margin:6px 0;">Зарегистрирован: <code>'+esc(s.broker_id)+'</code></div>'
                     : '')+
                 '<button class="btn btn-accent" onclick="registerBroker()">'+(s.broker_id?'Перерегистрировать':'Зарегистрировать')+'</button>'+
-            '</div>';
+            '</div>'+
+            '<hr style="margin:22px 0; border:none; border-top:1px solid var(--border);">'+
+            '<h4 style="margin-bottom:4px;">Командный режим</h4>'+
+            '<div class="sub" style="margin-bottom:10px;">Вставь broker_id напарника чтобы видеть его циркуляции и совпадения как свои. Полезно для команд из нескольких человек на одном аккаунте.</div>'+
+            '<div class="field-grid">'+
+                '<div class="field full"><label>Team broker_id</label><input id="set-team-bid" value="'+esc(s.broker_id||'')+'" placeholder="вставь UUID"></div>'+
+            '</div>'+
+            '<div style="margin-top:10px;"><button class="btn" onclick="overrideBrokerId()">Использовать этот ID</button></div>';
     } else if(t==='reply'){
         body.innerHTML = '<h3>Reply-to</h3><div class="sub">Отправитель в подготовленных .eml письмах.</div>'+
             '<div class="field-grid">'+
@@ -1629,6 +1634,22 @@ async function registerBroker(){
         renderSettingsBody();
         await refreshAll();
     } catch(e){ showToast('Register: '+e, 'error'); }
+}
+
+async function overrideBrokerId(){
+    var newId = (val('set-team-bid')||'').trim();
+    if(!newId || newId.length < 30){
+        showToast('Вставь полный UUID brokerа.', 'error'); return;
+    }
+    var s = state.settings;
+    s.broker_id = newId;
+    try {
+        state.settings = await invoke('save_settings', { incoming:s });
+        refreshIdentityBadge();
+        showToast('Использую team broker_id: '+newId.slice(0,8), 'ok');
+        await refreshAll();
+        renderSettingsBody();
+    } catch(e){ showToast('Override: '+e, 'error'); }
 }
 
 // ---------- Boot ----------
