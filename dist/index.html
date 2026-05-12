@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.18';
+var APP_VERSION='0.1.19';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -901,7 +901,12 @@ function renderP2(){
         if(r.type==='own'){
             tag = '<span class="r-tag own">peer</span>';
             title = r.data.cargo_listing_id===state.selectedListing.id ? 'Tonnage match' : 'Cargo match';
-            meta = 'broker '+esc((r.data.tonnage_broker_id||r.data.cargo_broker_id||'').slice(0,8));
+            // Show the counterparty broker_id — the one that ISN'T mine.
+            // Previous version showed our own broker_id which made every
+            // inter-broker peer match look like a self-match.
+            var myBid = state.settings.broker_id;
+            var counter = r.data.cargo_broker_id === myBid ? r.data.tonnage_broker_id : r.data.cargo_broker_id;
+            meta = 'broker '+esc((counter||'').slice(0,8));
         } else {
             tag = '<span class="r-tag bazaar">базар</span>';
             var sig = r.data.bazaar_cargo_signal || r.data.bazaar_tonnage_signal || {};
