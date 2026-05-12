@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.11';
+var APP_VERSION='0.1.12';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -958,6 +958,11 @@ function renderP3Bazaar(body, m){
     html += '<div class="actions-row">';
     html += '<button class="btn btn-accent" '+(contactEmail?'':'disabled')+' onclick="actionEml()">📧 Generate .eml</button>';
     html += '<button class="btn" '+(contactPhone?'':'')+' onclick="actionWhatsApp()">💬 WhatsApp'+(contactPhone?'':' …')+'</button>';
+    var adoptLabel = sigKind==='tonnage' ? '📋 Взять судно в работу' : '📋 Взять груз в работу';
+    var adoptTitle = sigKind==='tonnage'
+        ? 'Скопировать этот vessel-сигнал в мои циркуляции — matcher начнёт подбирать грузы под него'
+        : 'Скопировать этот cargo-сигнал в мои циркуляции — matcher начнёт подбирать суда под него';
+    html += '<button class="btn" title="'+esc(adoptTitle)+'" onclick="actionAdoptSignal()">'+adoptLabel+'</button>';
     var pinnedB = !!m.pinned_at;
     html += '<button class="btn '+(pinnedB?'btn-accent':'btn-outline')+'" onclick="actionTogglePin()">'+(pinnedB?'📌 В работе':'📌 В работу')+'</button>';
     html += '<button class="btn btn-outline" onclick="actionDismiss()">✕ Dismiss</button>';
@@ -1123,6 +1128,68 @@ async function actionDismiss(){
         renderP2(); renderP3(); renderP4(); renderStatusBar();
     } catch(e){
         showToast('dismiss: '+e, 'error');
+    }
+}
+
+// Copy a bazaar signal into the broker's own circulations. The
+// matcher then automatically pairs it against the opposite-side bazaar
+// — i.e. adopting a vessel sets up cargo search for it, and vice versa.
+// Posted as broker; description carries the original signal text so
+// the broker keeps the upstream attribution / contact thread.
+async function actionAdoptSignal(){
+    if(!state.selectedMatch || state.selectedMatch.type!=='bazaar') return;
+    var m = state.selectedMatch.data;
+    var sigT = m.bazaar_tonnage_signal;
+    var sigC = m.bazaar_cargo_signal;
+    try {
+        if(sigT){
+            var draft = {
+                title: sigT.title || null,
+                vessel_imo: sigT.vessel_imo,
+                vessel_name: sigT.vessel_name || null,
+                vessel_type: sigT.vessel_type || null,
+                dwt: sigT.dwt || null,
+                flag: sigT.flag || null,
+                commercial_manager: sigT.commercial_manager || null,
+                open_port: sigT.open_port,
+                open_country: sigT.open_country || null,
+                open_from: sigT.open_from || null,
+                open_to: sigT.open_to || null,
+                redelivery_area: sigT.redelivery_area || null,
+                rate_indication: sigT.rate_indication || null,
+                russia_trading: !!sigT.russia_trading,
+                description: sigT.description || null,
+                posted_as: 'broker',
+                representing_principal: sigT.posted_by_name || sigT.commercial_manager || null,
+            };
+            await invoke('publish_tonnage', { draft: draft });
+            showToast('Судно взято в работу — matcher ищет грузы', 'success');
+        } else if(sigC){
+            var draftC = {
+                title: sigC.title || null,
+                cargo_type: sigC.cargo_type,
+                quantity_mt: sigC.quantity_mt || null,
+                load_port: sigC.load_port,
+                load_country: sigC.load_country || null,
+                disch_port: sigC.disch_port,
+                disch_country: sigC.disch_country || null,
+                laycan_from: sigC.laycan_from || null,
+                laycan_to: sigC.laycan_to || null,
+                rate_indication: sigC.rate_indication || null,
+                russia_trading: !!sigC.russia_trading,
+                description: sigC.description || null,
+                posted_as: 'broker',
+                representing_principal: sigC.posted_by_name || null,
+            };
+            await invoke('publish_cargo', { draft: draftC });
+            showToast('Груз взят в работу — matcher ищет суда', 'success');
+        } else {
+            showToast('Сигнал не содержит ни груза, ни судна', 'error');
+            return;
+        }
+        await refreshAll();
+    } catch(e){
+        showToast('Adopt: '+e, 'error');
     }
 }
 
