@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.16';
+var APP_VERSION='0.1.17';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -574,12 +574,29 @@ async function boot(){
         return;
     }
     await refreshAll();
+    startAutoRefresh();
     maybePromptForFeedback('broker-board');
 }
 
 async function refreshAll(){
     await Promise.all([refreshMyListings(), refreshInbox()]);
     renderP0(); renderP1(); renderP2(); renderP3(); renderP4(); renderStatusBar();
+}
+
+// Background poll every 60s: pull fresh listings + matches from the
+// server without user interaction. Server-side auto_adopt runs every
+// 30 min so signals appear in P1 / P2 organically. Silent (no toast),
+// preserves selected listing/match in state across re-render.
+function startAutoRefresh(){
+    if(state.autoRefreshTimer) return;
+    state.autoRefreshTimer = setInterval(async function(){
+        if(document.hidden) return;  // app minimised; skip
+        try {
+            await refreshAll();
+        } catch(e){
+            console.warn('auto-refresh failed', e);
+        }
+    }, 60000);
 }
 
 async function refreshMyListings(){
