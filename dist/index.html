@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.23';
+var APP_VERSION='0.1.24';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -481,6 +481,19 @@ function fmtRange(from, to){
 }
 function truncate(s, n){ s=String(s||''); return s.length>n ? s.slice(0,n-1)+'…' : s; }
 
+// Clickable IMO → MarineTraffic vessel page in user's default browser.
+function imoLinkHtml(imo){
+    if(!imo) return '—';
+    var n = String(imo).replace(/\D/g, '');
+    if(n.length < 6) return esc(String(imo));
+    return '<a href="#" onclick="event.preventDefault(); openVesselPage(\''+n+'\'); return false;" title="Открыть на MarineTraffic">'+esc(n)+'</a>';
+}
+function openVesselPage(imo){
+    var url = 'https://www.marinetraffic.com/en/ais/details/ships/imo:'+imo;
+    try { invoke('open_external', { url:url }); }
+    catch(e){ showToast('open: '+e, 'error'); }
+}
+
 // Age ring: always visible. Outer ring = age color (green/yellow/orange/red),
 // inner pie-sweep grows clockwise from 12 o'clock to mark elapsed time
 // within the 12h "fresh competition window". 12h+ = solid red disc.
@@ -712,7 +725,7 @@ function renderP0(){
         fields.push(['Laycan', fmtRange(d.laycan_from, d.laycan_to)]);
     } else {
         if(d.vessel_name) fields.push(['Vessel', d.vessel_name]);
-        if(d.vessel_imo) fields.push(['IMO', d.vessel_imo]);
+        if(d.vessel_imo) fields.push(['IMO', imoLinkHtml(d.vessel_imo), true]);
         if(d.vessel_type) fields.push(['Type', d.vessel_type]);
         if(d.dwt) fields.push(['DWT', d.dwt]);
         if(d.flag) fields.push(['Flag', d.flag]);
@@ -726,7 +739,8 @@ function renderP0(){
 
     html += '<div class="detail-block"><h4>Структурированные детали</h4>';
     fields.forEach(function(f){
-        html += '<div class="detail-row"><span class="k">'+esc(f[0])+'</span><span class="v">'+esc(f[1])+'</span></div>';
+        var v = f[2] ? f[1] : esc(f[1]);
+        html += '<div class="detail-row"><span class="k">'+esc(f[0])+'</span><span class="v">'+v+'</span></div>';
     });
     html += '</div>';
 
@@ -1052,7 +1066,7 @@ function renderP3Bazaar(body, m){
     var fields = [];
     if(sigKind==='tonnage'){
         if(sig.vessel_name) fields.push(['Vessel', sig.vessel_name]);
-        if(sig.vessel_imo) fields.push(['IMO', sig.vessel_imo]);
+        if(sig.vessel_imo) fields.push(['IMO', imoLinkHtml(sig.vessel_imo), true]);
         if(sig.vessel_type) fields.push(['Type', sig.vessel_type]);
         if(sig.dwt) fields.push(['DWT', sig.dwt]);
         if(sig.flag) fields.push(['Flag', sig.flag]);
@@ -1085,7 +1099,8 @@ function renderP3Bazaar(body, m){
 
     html += '<div class="detail-block"><h4>Структурированные детали</h4>';
     fields.forEach(function(f){
-        html += '<div class="detail-row"><span class="k">'+esc(f[0])+'</span><span class="v">'+esc(f[1])+'</span></div>';
+        var v = f[2] ? f[1] : esc(f[1]);
+        html += '<div class="detail-row"><span class="k">'+esc(f[0])+'</span><span class="v">'+v+'</span></div>';
     });
     html += '</div>';
 
