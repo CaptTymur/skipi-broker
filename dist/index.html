@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.22';
+var APP_VERSION='0.1.23';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -624,10 +624,49 @@ async function refreshInbox(){
         }
         var inbox = await invoke('fetch_matches_inbox', args);
         state.inbox = inbox || { own_matches:[], bazaar_matches:[] };
+        enrichInboxContacts();
     } catch(e){
         showToast('Inbox: '+e, 'error');
         state.inbox = { own_matches:[], bazaar_matches:[] };
     }
+}
+
+// Phone numbers usually live in the raw description (email signature)
+// rather than in any structured field. Extract them client-side after
+// fetching the inbox so the WA button + badges work without a server
+// schema change. Server-side enrichment can be added later if scoring
+// needs to depend on phone availability.
+function _extractPhone(text){
+    if(!text) return null;
+    // 1) Keyword-prefixed: "phone: +90 555 123-45-67" / "WhatsApp +44..."
+    var m = text.match(/(?:phone|tel|whatsapp|wa|viber|mob|cell|gsm)[\s:.\-]{0,5}((?:\+|00)\d[\d \-()]{7,}\d)/i);
+    if(m) return _cleanPhone(m[1]);
+    // 2) Bare international: "+90 5345 678 901"
+    m = text.match(/\+\d{1,3}[\s\-]?\d[\d \-()]{6,}\d/);
+    if(m) return _cleanPhone(m[0]);
+    return null;
+}
+function _cleanPhone(s){
+    s = s.replace(/[\s\-()]/g, '');
+    if(s.indexOf('00') === 0) s = '+' + s.slice(2);
+    return s;
+}
+function enrichInboxContacts(){
+    (state.inbox.bazaar_matches || []).forEach(function(m){
+        var reasons = m.reasons = m.reasons || {};
+        if(reasons.contact_phone) return;
+        var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal;
+        var phone = sig && _extractPhone(sig.description || '');
+        if(phone){
+            reasons.contact_phone = phone;
+            reasons.contact_source = reasons.contact_source || 'desc_regex';
+        }
+        // Also fill email from posted_by_email if reasons.contact_email empty.
+        if(!reasons.contact_email && sig && sig.posted_by_email){
+            reasons.contact_email = sig.posted_by_email;
+            reasons.contact_source = reasons.contact_source || 'signal_from';
+        }
+    });
 }
 
 // ---------- P1 — my listings ----------
