@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.20';
+var APP_VERSION='0.1.21';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -72,6 +72,8 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .p2-refresh.spinning { animation: spin 1s linear infinite; color:var(--accent); }
 @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
 .row .r-pin { color:var(--accent); font-size:11px; margin-right:4px; }
+.row .r-hot { font-size:12px; margin-right:2px; }
+.row.hot { box-shadow: inset 3px 0 0 var(--red); }
 .row.pinned { background:linear-gradient(90deg, var(--accent-bg) 0%, transparent 60%); }
 .row.pinned:hover { background:linear-gradient(90deg, var(--accent-bg2) 0%, var(--hover) 60%); }
 .col-body { flex:1; overflow-y:auto; }
@@ -896,6 +898,11 @@ function renderP2(){
         var sel = state.selectedMatch && state.selectedMatch.data.id===r.data.id;
         var tag, title, meta, contactBadge='';
         var pinHtml = r._pinned ? '<span class="r-pin" title="В работе">📌</span>' : '';
+        // Hot pair: server reported freshness bonus (both sides <=2h).
+        // Visual cue that this match has highest fix probability.
+        var reasons = r.data.reasons || {};
+        var hotHtml = (reasons && (reasons.hot_pair === true || reasons.freshness_bonus))
+            ? '<span class="r-hot" title="Hot pair: обе стороны <2h">🔥</span>' : '';
         if(r.type==='own'){
             tag = '<span class="r-tag own">peer</span>';
             title = r.data.cargo_listing_id===state.selectedListing.id ? 'Tonnage match' : 'Cargo match';
@@ -928,9 +935,10 @@ function renderP2(){
         // active conversation; dismiss is the wrong gesture).
         var dismissHtml = r._pinned ? '' :
             '<span class="r-dismiss" title="Скрыть как неинтересное" onclick="event.stopPropagation(); dismissRow(\''+r.type+'\',\''+esc(r.data.id)+'\')">✕</span>';
-        return '<div class="row '+(sel?'active':'')+(r._pinned?' pinned':'')+'" onclick="selectMatch(\''+r.type+'\',\''+esc(r.data.id)+'\')">'
+        return '<div class="row '+(sel?'active':'')+(r._pinned?' pinned':'')+(hotHtml?' hot':'')+'" onclick="selectMatch(\''+r.type+'\',\''+esc(r.data.id)+'\')">'
             +'<div class="r-top">'
             +pinHtml
+            +hotHtml
             +tag
             +'<span class="r-title">'+esc(truncate(title,38))+'</span>'
             +contactBadge
