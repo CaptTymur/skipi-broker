@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="ru" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.7';
+var APP_VERSION='0.1.8';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -160,6 +160,12 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
     border:1px solid var(--border); border-radius:4px; outline:none; }
 .field input:focus, .field select:focus, .field textarea:focus { border-color:var(--accent); }
 .field textarea { min-height:64px; resize:vertical; font-family:var(--font-ui); }
+.skipi-feedback-stars { display:flex; gap:6px; margin:8px 0 16px; }
+.skipi-feedback-stars button { width:36px; height:36px; border:1px solid var(--border);
+    border-radius:5px; background:var(--surface); color:var(--text3); cursor:pointer; font-size:22px; line-height:1; }
+.skipi-feedback-stars button:hover, .skipi-feedback-stars button.on { color:var(--yellow); border-color:var(--yellow); background:rgba(226,185,61,.12); }
+.skipi-feedback-note { color:var(--text2); font-size:12px; line-height:1.45; margin-bottom:16px; }
+.skipi-feedback-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
 .side-cards { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:18px; }
 .side-card { background:var(--surface); border:1px solid var(--border); border-radius:6px;
     padding:18px; cursor:pointer; text-align:center; }
@@ -191,9 +197,9 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 
 <div class="modules-bar">
     <div class="mod-tab active" id="nav-bazaar" onclick="showView('bazaar')">🛒 Базар</div>
-    <div class="mod-tab" id="nav-publish" onclick="openPublishModal()">＋ Publish</div>
+    <div class="mod-tab" id="nav-publish" onclick="openPublishModal()">＋ Опубликовать</div>
     <div class="mb-spacer"></div>
-    <div class="mb-identity" id="mb-identity">Not registered</div>
+    <div class="mb-identity" id="mb-identity">Не зарегистрирован</div>
     <div class="mb-gear" onclick="openSettings()" title="Settings">⚙</div>
 </div>
 
@@ -247,7 +253,7 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
     </div>
     <div class="statusbar" id="statusbar">
         <span class="sb-pill"><span>Базар</span>: <span class="v" id="sb-bazaar-total">0</span></span>
-        <span class="sb-pill ok"><span>Coverage</span>: <span class="v" id="sb-coverage">0%</span></span>
+        <span class="sb-pill ok"><span>Покрытие</span>: <span class="v" id="sb-coverage">0%</span></span>
         <span class="sb-pill"><span>Свежие совпадения</span>: <span class="v" id="sb-fresh">0</span></span>
         <span class="sb-spacer"></span>
         <span id="sb-server" class="sb-pill">—</span>
@@ -258,7 +264,7 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 <div class="modal-overlay" id="publish-overlay" onclick="if(event.target===this)closePublishModal();">
     <div class="modal">
         <div class="modal-head">
-            <h2 id="publish-title">+ Publish circular</h2>
+            <h2 id="publish-title">+ Опубликовать циркуляцию</h2>
             <div class="close-x" onclick="closePublishModal()">×</div>
         </div>
         <div class="modal-body" id="publish-body"></div>
@@ -270,13 +276,25 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 <div class="modal-overlay" id="settings-overlay" onclick="if(event.target===this)closeSettings();">
     <div class="modal set-modal">
         <div class="modal-head">
-            <h2>Settings</h2>
+            <h2>Настройки</h2>
             <div class="close-x" onclick="closeSettings()">×</div>
         </div>
         <div class="set-layout">
             <div class="set-nav" id="set-nav"></div>
             <div class="set-body" id="set-body"></div>
         </div>
+    </div>
+</div>
+
+<!-- Feedback modal -->
+<div class="modal-overlay" id="feedback-overlay" onclick="if(event.target===this)postponeFeedback();">
+    <div class="modal" style="width:520px;">
+        <div class="modal-head">
+            <h2>Оцените Skipi</h2>
+            <div class="close-x" onclick="postponeFeedback()">×</div>
+        </div>
+        <div class="modal-body" id="feedback-body"></div>
+        <div class="modal-foot" id="feedback-foot"></div>
     </div>
 </div>
 
@@ -302,6 +320,10 @@ var state = {
     settingsTab: 'connection',
 };
 
+var appFeedbackPromptScheduled = false;
+var appFeedbackRating = 0;
+var appFeedbackContext = 'manual';
+
 // ---------- Util ----------
 function esc(s){ return String(s==null?'':s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
@@ -317,6 +339,79 @@ function showToast(msg, kind){
     host.appendChild(d);
     setTimeout(function(){ try{ host.removeChild(d); }catch(_){} }, 3500);
 }
+
+// ---------- App feedback ----------
+function feedbackPromptFlag(st){
+    return !!(st && (st.should_prompt || st.shouldPrompt));
+}
+function maybePromptForFeedback(context){
+    if(appFeedbackPromptScheduled) return;
+    appFeedbackPromptScheduled = true;
+    setTimeout(async function(){
+        try {
+            if(document.getElementById('feedback-overlay').classList.contains('open')) return;
+            var st = await invoke('get_feedback_prompt_state', { appVersion: APP_VERSION });
+            if(feedbackPromptFlag(st)) openFeedbackDialog(context || 'auto');
+        } catch(e) {}
+    }, 90000);
+}
+function feedbackStarsHtml(){
+    var h = '<div class="skipi-feedback-stars" id="feedback-stars">';
+    for(var i=1;i<=5;i++){
+        h += '<button type="button" class="'+(i<=appFeedbackRating?'on':'')+'" onclick="setFeedbackRating('+i+')" aria-label="'+i+'">★</button>';
+    }
+    h += '</div>';
+    return h;
+}
+function setFeedbackRating(n){
+    appFeedbackRating = n;
+    var host = document.getElementById('feedback-stars');
+    if(host) host.outerHTML = feedbackStarsHtml();
+}
+function openFeedbackDialog(context){
+    appFeedbackContext = context || 'manual';
+    appFeedbackRating = 0;
+    document.getElementById('feedback-body').innerHTML =
+        '<div class="skipi-feedback-note">Поделитесь короткой оценкой бета-версии: что работает, что мешает, чего не хватает. Комментарий обязателен.</div>'+
+        '<div class="field"><label>Оценка</label>'+feedbackStarsHtml()+'</div>'+
+        '<div class="field"><label>Комментарий</label><textarea id="feedback-comment" rows="5" maxlength="4000" placeholder="Например: что было удобно, где возникла ошибка, что нужно добавить..."></textarea></div>';
+    document.getElementById('feedback-foot').innerHTML =
+        '<button class="btn btn-outline" onclick="postponeFeedback()">Позже</button>'+
+        '<button class="btn btn-accent" id="feedback-submit" onclick="submitFeedback()">Отправить</button>';
+    document.getElementById('feedback-overlay').classList.add('open');
+}
+function closeFeedbackDialog(){
+    document.getElementById('feedback-overlay').classList.remove('open');
+}
+async function postponeFeedback(){
+    try { await invoke('postpone_app_feedback'); } catch(e) {}
+    closeFeedbackDialog();
+}
+async function submitFeedback(){
+    var ta = document.getElementById('feedback-comment');
+    var comment = (ta && ta.value || '').trim();
+    if(appFeedbackRating < 1 || !comment){
+        showToast('Поставьте оценку и добавьте комментарий.', 'warn');
+        return;
+    }
+    var btn = document.getElementById('feedback-submit');
+    if(btn){ btn.disabled = true; btn.textContent = '...'; }
+    try {
+        await invoke('submit_app_feedback', {
+            appVersion: APP_VERSION,
+            rating: appFeedbackRating,
+            comment: comment,
+            locale: 'ru',
+            context: appFeedbackContext
+        });
+        closeFeedbackDialog();
+        showToast('Спасибо, отзыв сохранен.', 'ok');
+    } catch(e) {
+        if(btn){ btn.disabled = false; btn.textContent = 'Отправить'; }
+        showToast('Не удалось сохранить отзыв: '+e, 'error');
+    }
+}
+
 function fmtDate(iso){
     if(!iso) return '—';
     try { var d=new Date(iso); return d.toISOString().slice(0,10); }
@@ -383,7 +478,7 @@ function refreshIdentityBadge(){
     if(state.settings.broker_id){
         el.innerHTML = '<strong>'+esc(state.settings.display_name||'unnamed')+'</strong> · <code>'+esc(state.settings.broker_id.slice(0,8))+'</code>';
     } else {
-        el.textContent = 'Not registered — open Settings';
+        el.textContent = 'Не зарегистрирован - откройте настройки';
     }
     var srv = state.settings.server_url ? state.settings.server_url.replace(/^https?:\/\//,'') : '—';
     document.getElementById('sb-server').textContent = srv;
@@ -404,6 +499,7 @@ async function boot(){
         return;
     }
     await refreshAll();
+    maybePromptForFeedback('broker-board');
 }
 
 async function refreshAll(){
@@ -1078,14 +1174,14 @@ function renderPublishBody(){
     var foot = document.getElementById('publish-foot');
     var title = document.getElementById('publish-title');
     if(!state.publish.side){
-        title.textContent = '+ Publish — choose side';
+        title.textContent = '+ Опубликовать - выберите сторону';
         body.innerHTML =
             '<div class="side-cards">'+
-                '<div class="side-card" onclick="state.publish.side=\'cargo\'; renderPublishBody();"><div class="icon">📦</div><h3>Cargo side</h3><p>У меня есть груз — ищу подходящее судно.</p></div>'+
-                '<div class="side-card" onclick="state.publish.side=\'tonnage\'; renderPublishBody();"><div class="icon">🚢</div><h3>Vessel side</h3><p>У меня есть открытое судно — ищу груз.</p></div>'+
+                '<div class="side-card" onclick="state.publish.side=\'cargo\'; renderPublishBody();"><div class="icon">📦</div><h3>Груз</h3><p>У меня есть груз - ищу подходящее судно.</p></div>'+
+                '<div class="side-card" onclick="state.publish.side=\'tonnage\'; renderPublishBody();"><div class="icon">🚢</div><h3>Тоннаж</h3><p>У меня есть открытое судно - ищу груз.</p></div>'+
             '</div>'+
-            '<div style="font-size:11px; color:var(--text2); text-align:center; margin-top:8px;">Один participant может публиковать на обеих сторонах — выбор делается per-listing.</div>';
-        foot.innerHTML = '<button class="btn btn-outline" onclick="closePublishModal()">Cancel</button>';
+            '<div style="font-size:11px; color:var(--text2); text-align:center; margin-top:8px;">Один участник может публиковать и грузы, и суда - выбор делается для каждой циркуляции.</div>';
+        foot.innerHTML = '<button class="btn btn-outline" onclick="closePublishModal()">Отмена</button>';
         return;
     }
     if(state.publish.side==='cargo') renderCargoForm(body, foot, title);
@@ -1094,59 +1190,59 @@ function renderPublishBody(){
 
 function postureBlock(){
     return '<div class="field-grid" style="margin-bottom:12px;">'+
-        '<div class="field"><label>Posture</label>'+
+        '<div class="field"><label>Роль</label>'+
             '<select id="pf-posted-as">'+
-                '<option value="broker">broker (representing)</option>'+
-                '<option value="principal">principal (direct)</option>'+
+                '<option value="broker">брокер / представитель</option>'+
+                '<option value="principal">принципал напрямую</option>'+
             '</select></div>'+
-        '<div class="field"><label>Representing principal</label>'+
-            '<input id="pf-rep-principal" placeholder="Cargo owner / shipowner — free text"></div>'+
+        '<div class="field"><label>Представляем принципала</label>'+
+            '<input id="pf-rep-principal" placeholder="грузовладелец / судовладелец"></div>'+
         '</div>';
 }
 
 function renderCargoForm(body, foot, title){
-    title.textContent = '+ Publish — cargo';
+    title.textContent = '+ Опубликовать груз';
     body.innerHTML = postureBlock() +
         '<div class="field-grid">'+
-            '<div class="field full"><label>Title</label><input id="pf-title" placeholder="25/10 wheat NVS/MER"></div>'+
-            '<div class="field"><label>Cargo type *</label><input id="pf-cargo-type" placeholder="Wheat in bulk"></div>'+
-            '<div class="field"><label>Quantity (mt)</label><input id="pf-qty" type="number" placeholder="25000"></div>'+
-            '<div class="field"><label>Load port *</label><input id="pf-load-port" placeholder="Novorossiysk"></div>'+
-            '<div class="field"><label>Load country</label><input id="pf-load-country" maxlength="3" placeholder="RU"></div>'+
-            '<div class="field"><label>Disch port *</label><input id="pf-disch-port" placeholder="Mersin"></div>'+
-            '<div class="field"><label>Disch country</label><input id="pf-disch-country" maxlength="3" placeholder="TR"></div>'+
-            '<div class="field"><label>Laycan from</label><input id="pf-laycan-from" type="date"></div>'+
-            '<div class="field"><label>Laycan to</label><input id="pf-laycan-to" type="date"></div>'+
-            '<div class="field"><label>Rate indication</label><input id="pf-rate" placeholder="USD 18 PMT FIO"></div>'+
-            '<div class="field"><label>Russia trading</label><select id="pf-russia"><option value="false">no</option><option value="true">yes</option></select></div>'+
-            '<div class="field full"><label>Description</label><textarea id="pf-desc"></textarea></div>'+
+            '<div class="field full"><label>Заголовок</label><input id="pf-title" placeholder="25/10 wheat NVS/MER"></div>'+
+            '<div class="field"><label>Тип груза *</label><input id="pf-cargo-type" placeholder="Wheat in bulk"></div>'+
+            '<div class="field"><label>Количество, mt</label><input id="pf-qty" type="number" placeholder="25000"></div>'+
+            '<div class="field"><label>Порт погрузки *</label><input id="pf-load-port" placeholder="Novorossiysk"></div>'+
+            '<div class="field"><label>Страна погрузки</label><input id="pf-load-country" maxlength="3" placeholder="RU"></div>'+
+            '<div class="field"><label>Порт выгрузки *</label><input id="pf-disch-port" placeholder="Mersin"></div>'+
+            '<div class="field"><label>Страна выгрузки</label><input id="pf-disch-country" maxlength="3" placeholder="TR"></div>'+
+            '<div class="field"><label>Laycan от</label><input id="pf-laycan-from" type="date"></div>'+
+            '<div class="field"><label>Laycan до</label><input id="pf-laycan-to" type="date"></div>'+
+            '<div class="field"><label>Идея ставки</label><input id="pf-rate" placeholder="USD 18 PMT FIO"></div>'+
+            '<div class="field"><label>Россия трейдинг</label><select id="pf-russia"><option value="false">нет</option><option value="true">да</option></select></div>'+
+            '<div class="field full"><label>Описание</label><textarea id="pf-desc"></textarea></div>'+
         '</div>';
-    foot.innerHTML = '<button class="btn btn-outline" onclick="state.publish.side=null; renderPublishBody();">← Back</button>'+
-        '<button class="btn btn-accent" onclick="submitCargo()">Publish</button>';
+    foot.innerHTML = '<button class="btn btn-outline" onclick="state.publish.side=null; renderPublishBody();">← Назад</button>'+
+        '<button class="btn btn-accent" onclick="submitCargo()">Опубликовать</button>';
 }
 
 function renderTonnageForm(body, foot, title){
-    title.textContent = '+ Publish — tonnage';
+    title.textContent = '+ Опубликовать тоннаж';
     body.innerHTML = postureBlock() +
         '<div class="field-grid">'+
-            '<div class="field full"><label>Title</label><input id="pf-title" placeholder="Supra open CTA 5-12 Jun"></div>'+
+            '<div class="field full"><label>Заголовок</label><input id="pf-title" placeholder="Supra open CTA 5-12 Jun"></div>'+
             '<div class="field"><label>IMO * (7 digits)</label><input id="pf-imo" type="number" maxlength="7"></div>'+
-            '<div class="field"><label>Vessel name</label><input id="pf-vname" placeholder="MV ..."></div>'+
-            '<div class="field"><label>Vessel type</label><input id="pf-vtype" placeholder="Supramax"></div>'+
+            '<div class="field"><label>Название судна</label><input id="pf-vname" placeholder="MV ..."></div>'+
+            '<div class="field"><label>Тип судна</label><input id="pf-vtype" placeholder="Supramax"></div>'+
             '<div class="field"><label>DWT</label><input id="pf-dwt" type="number"></div>'+
-            '<div class="field"><label>Flag</label><input id="pf-flag" maxlength="3"></div>'+
-            '<div class="field full"><label>Commercial manager</label><input id="pf-cmm"></div>'+
-            '<div class="field"><label>Open port *</label><input id="pf-open-port"></div>'+
-            '<div class="field"><label>Open country</label><input id="pf-open-country" maxlength="3"></div>'+
-            '<div class="field"><label>Open from</label><input id="pf-open-from" type="date"></div>'+
-            '<div class="field"><label>Open to</label><input id="pf-open-to" type="date"></div>'+
-            '<div class="field"><label>Redelivery</label><input id="pf-redelivery"></div>'+
-            '<div class="field"><label>Rate indication</label><input id="pf-rate"></div>'+
-            '<div class="field"><label>Russia trading</label><select id="pf-russia"><option value="false">no</option><option value="true">yes</option></select></div>'+
-            '<div class="field full"><label>Description</label><textarea id="pf-desc"></textarea></div>'+
+            '<div class="field"><label>Флаг</label><input id="pf-flag" maxlength="3"></div>'+
+            '<div class="field full"><label>Коммерческий менеджер</label><input id="pf-cmm"></div>'+
+            '<div class="field"><label>Открыт порт *</label><input id="pf-open-port"></div>'+
+            '<div class="field"><label>Страна</label><input id="pf-open-country" maxlength="3"></div>'+
+            '<div class="field"><label>Открыт от</label><input id="pf-open-from" type="date"></div>'+
+            '<div class="field"><label>Открыт до</label><input id="pf-open-to" type="date"></div>'+
+            '<div class="field"><label>Ределивери</label><input id="pf-redelivery"></div>'+
+            '<div class="field"><label>Идея ставки</label><input id="pf-rate"></div>'+
+            '<div class="field"><label>Россия трейдинг</label><select id="pf-russia"><option value="false">нет</option><option value="true">да</option></select></div>'+
+            '<div class="field full"><label>Описание</label><textarea id="pf-desc"></textarea></div>'+
         '</div>';
-    foot.innerHTML = '<button class="btn btn-outline" onclick="state.publish.side=null; renderPublishBody();">← Back</button>'+
-        '<button class="btn btn-accent" onclick="submitTonnage()">Publish</button>';
+    foot.innerHTML = '<button class="btn btn-outline" onclick="state.publish.side=null; renderPublishBody();">← Назад</button>'+
+        '<button class="btn btn-accent" onclick="submitTonnage()">Опубликовать</button>';
 }
 
 async function submitCargo(){
@@ -1167,21 +1263,21 @@ async function submitCargo(){
         representing_principal: val('pf-rep-principal') || null,
     };
     if(!draft.cargo_type || !draft.load_port || !draft.disch_port){
-        showToast('Cargo type, load port and disch port are required.', 'error');
+        showToast('Нужны тип груза, порт погрузки и порт выгрузки.', 'error');
         return;
     }
     try {
         await invoke('publish_cargo', { draft:draft });
-        showToast('Cargo published.', 'ok');
+        showToast('Груз опубликован.', 'ok');
         closePublishModal();
         await refreshAll();
-    } catch(e){ showToast('Publish failed: '+e, 'error'); }
+    } catch(e){ showToast('Публикация не удалась: '+e, 'error'); }
 }
 
 async function submitTonnage(){
     var imo = intOrNull('pf-imo');
     if(!imo || imo<1000000 || imo>9999999){
-        showToast('IMO must be a 7-digit number.', 'error');
+        showToast('IMO должен быть 7-значным номером.', 'error');
         return;
     }
     var draft = {
@@ -1203,13 +1299,13 @@ async function submitTonnage(){
         posted_as: val('pf-posted-as') || 'broker',
         representing_principal: val('pf-rep-principal') || null,
     };
-    if(!draft.open_port){ showToast('Open port is required.', 'error'); return; }
+    if(!draft.open_port){ showToast('Укажите порт открытия.', 'error'); return; }
     try {
         await invoke('publish_tonnage', { draft:draft });
-        showToast('Tonnage published.', 'ok');
+        showToast('Тоннаж опубликован.', 'ok');
         closePublishModal();
         await refreshAll();
-    } catch(e){ showToast('Publish failed: '+e, 'error'); }
+    } catch(e){ showToast('Публикация не удалась: '+e, 'error'); }
 }
 
 // ---------- Settings ----------
@@ -1222,11 +1318,11 @@ function closeSettings(){
 }
 function renderSettingsNav(){
     var tabs = [
-        {id:'connection', label:'Connection'},
-        {id:'identity',   label:'Identity'},
+        {id:'connection', label:'Подключение'},
+        {id:'identity',   label:'Профиль брокера'},
         {id:'reply',      label:'Reply-to'},
-        {id:'appearance', label:'Appearance'},
-        {id:'about',      label:'About'},
+        {id:'appearance', label:'Внешний вид'},
+        {id:'about',      label:'О программе'},
     ];
     document.getElementById('set-nav').innerHTML = tabs.map(function(t){
         return '<div class="set-nav-item '+(state.settingsTab===t.id?'active':'')
@@ -1238,43 +1334,44 @@ function renderSettingsBody(){
     var s = state.settings;
     var t = state.settingsTab;
     if(t==='connection'){
-        body.innerHTML = '<h3>Server connection</h3><div class="sub">Where the broker board lives.</div>'+
+        body.innerHTML = '<h3>Подключение к серверу</h3><div class="sub">Доска брокера по умолчанию идет через Timeweb, с резервом на основной сервер.</div>'+
             '<div class="field-grid">'+
-                '<div class="field full"><label>Server URL</label><input id="set-server" value="'+esc(s.server_url||'')+'" placeholder="http://127.0.0.1:8000"></div>'+
-                '<div class="field full"><label>Bearer token (admin / dev)</label><input id="set-bearer" value="'+esc(s.bearer_token||'')+'" placeholder="leave empty for dev"></div>'+
+                '<div class="field full"><label>Server URL</label><input id="set-server" value="'+esc(s.server_url||'')+'" placeholder="https://api-ru.skipi.app"></div>'+
+                '<div class="field full"><label>Bearer token</label><input id="set-bearer" value="'+esc(s.bearer_token||'')+'" placeholder="токен доступа"></div>'+
             '</div>'+
-            '<div style="margin-top:18px;"><button class="btn btn-accent" onclick="saveConnection()">Save</button></div>';
+            '<div style="margin-top:18px;"><button class="btn btn-accent" onclick="saveConnection()">Сохранить</button></div>';
     } else if(t==='identity'){
-        body.innerHTML = '<h3>Broker identity</h3><div class="sub">Register on the server (one-time).</div>'+
+        body.innerHTML = '<h3>Профиль брокера</h3><div class="sub">Регистрация участника на сервере.</div>'+
             '<div class="field-grid">'+
-                '<div class="field full"><label>Display name</label><input id="set-display" value="'+esc(s.display_name||'')+'"></div>'+
-                '<div class="field full"><label>Contact email</label><input id="set-contact" value="'+esc(s.reply_to||'')+'"></div>'+
+                '<div class="field full"><label>Имя/компания</label><input id="set-display" value="'+esc(s.display_name||'')+'"></div>'+
+                '<div class="field full"><label>Контактный email</label><input id="set-contact" value="'+esc(s.reply_to||'')+'"></div>'+
             '</div>'+
             '<div style="margin-top:18px;">'+
                 (s.broker_id
-                    ? '<div class="sub" style="margin:6px 0;">Registered: <code>'+esc(s.broker_id)+'</code></div>'
+                    ? '<div class="sub" style="margin:6px 0;">Зарегистрирован: <code>'+esc(s.broker_id)+'</code></div>'
                     : '')+
-                '<button class="btn btn-accent" onclick="registerBroker()">'+(s.broker_id?'Re-register':'Register')+'</button>'+
+                '<button class="btn btn-accent" onclick="registerBroker()">'+(s.broker_id?'Перерегистрировать':'Зарегистрировать')+'</button>'+
             '</div>';
     } else if(t==='reply'){
-        body.innerHTML = '<h3>Reply-to</h3><div class="sub">From: header in generated .eml drafts.</div>'+
+        body.innerHTML = '<h3>Reply-to</h3><div class="sub">Отправитель в подготовленных .eml письмах.</div>'+
             '<div class="field-grid">'+
-                '<div class="field full"><label>From name</label><input id="set-fname" value="'+esc(s.display_name||'')+'"></div>'+
-                '<div class="field full"><label>From email</label><input id="set-femail" value="'+esc(s.reply_to||'')+'"></div>'+
+                '<div class="field full"><label>Имя отправителя</label><input id="set-fname" value="'+esc(s.display_name||'')+'"></div>'+
+                '<div class="field full"><label>Email отправителя</label><input id="set-femail" value="'+esc(s.reply_to||'')+'"></div>'+
             '</div>'+
-            '<div style="margin-top:18px;"><button class="btn btn-accent" onclick="saveReply()">Save</button></div>';
+            '<div style="margin-top:18px;"><button class="btn btn-accent" onclick="saveReply()">Сохранить</button></div>';
     } else if(t==='appearance'){
         var cur = localStorage.getItem('skipi-broker-theme') || 'dark';
-        body.innerHTML = '<h3>Appearance</h3><div class="sub">Theme & font size.</div>'+
-            '<div style="margin-bottom:14px;"><label style="font-size:11px; color:var(--text2);">Theme</label><br>'+
+        body.innerHTML = '<h3>Внешний вид</h3><div class="sub">Тема интерфейса.</div>'+
+            '<div style="margin-bottom:14px;"><label style="font-size:11px; color:var(--text2);">Тема</label><br>'+
                 ['dark','light','system'].map(function(x){
                     return '<label style="margin-right:14px;"><input type="radio" name="theme" '+(cur===x?'checked':'')+' onclick="setTheme(\''+x+'\')"> '+x+'</label>';
                 }).join('')+
             '</div>';
     } else {
-        body.innerHTML = '<h3>About</h3><div class="sub">Skipi Broker</div>'+
-            '<div class="detail-block"><div class="detail-row"><span class="k">Version</span><span class="v">'+APP_VERSION+'</span></div>'+
-            '<div class="detail-row"><span class="k">Server</span><span class="v">'+esc(s.server_url||'—')+'</span></div></div>';
+        body.innerHTML = '<h3>О программе</h3><div class="sub">Skipi Broker</div>'+
+            '<div class="detail-block"><div class="detail-row"><span class="k">Версия</span><span class="v">'+APP_VERSION+'</span></div>'+
+            '<div class="detail-row"><span class="k">Сервер</span><span class="v">'+esc(s.server_url||'—')+'</span></div></div>'+
+            '<div style="margin-top:14px;"><button class="btn btn-outline" onclick="openFeedbackDialog(\'about\')">Оценить Skipi</button></div>';
     }
 }
 
@@ -1282,24 +1379,24 @@ async function saveConnection(){
     var s = state.settings;
     s.server_url = val('set-server');
     s.bearer_token = val('set-bearer');
-    try { state.settings = await invoke('save_settings', { incoming:s }); showToast('Saved.', 'ok'); refreshIdentityBadge(); }
+    try { state.settings = await invoke('save_settings', { incoming:s }); showToast('Сохранено.', 'ok'); refreshIdentityBadge(); }
     catch(e){ showToast('Save: '+e, 'error'); }
 }
 async function saveReply(){
     var s = state.settings;
     s.display_name = val('set-fname');
     s.reply_to = val('set-femail');
-    try { state.settings = await invoke('save_settings', { incoming:s }); showToast('Saved.', 'ok'); refreshIdentityBadge(); }
+    try { state.settings = await invoke('save_settings', { incoming:s }); showToast('Сохранено.', 'ok'); refreshIdentityBadge(); }
     catch(e){ showToast('Save: '+e, 'error'); }
 }
 async function registerBroker(){
     var name = val('set-display'); var email = val('set-contact');
-    if(!name || !email){ showToast('Name and email required.', 'error'); return; }
+    if(!name || !email){ showToast('Укажите имя и email.', 'error'); return; }
     try {
         await invoke('register_broker', { displayName:name, contactEmail:email });
         state.settings = await invoke('get_settings');
         refreshIdentityBadge();
-        showToast('Registered: '+state.settings.broker_id, 'ok');
+        showToast('Зарегистрирован: '+state.settings.broker_id, 'ok');
         renderSettingsBody();
         await refreshAll();
     } catch(e){ showToast('Register: '+e, 'error'); }

@@ -12,6 +12,8 @@ use serde_json::Value as JsonValue;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+mod feedback;
+
 // ---------- Settings ----------
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -59,10 +61,10 @@ impl Settings {
     }
 
     pub fn load() -> Self {
-        // First-run default points at production. Switch to local dev
-        // via Settings → Connection.
+        // First-run default uses the RF-friendly Timeweb bridge.
+        // Switch to local dev via Settings -> Connection.
         let first_run = || Settings {
-            server_url: "https://api.skipi.app".to_string(),
+            server_url: RU_API.to_string(),
             ..Default::default()
         };
         let raw = match std::fs::read_to_string(Self::config_path()) {
@@ -90,20 +92,21 @@ pub struct AppState {
 
 // ---------- HTTP helper ----------
 //
-// Two-base fallback for RF reachability: api.skipi.app (origin) +
-// api-ru.skipi.app (Timeweb-hosted reverse proxy that is reachable
-// from Russian ISPs without VPN). When the user leaves Settings at the
-// production default we try both; an explicit non-default `server_url`
-// is treated as an override and used alone (dev / staging / proxy).
+// Two-base fallback for RF reachability: api-ru.skipi.app
+// (Timeweb-hosted reverse proxy that is reachable from Russian ISPs
+// without VPN) + api.skipi.app (origin). When the user leaves Settings
+// at a production default we try both; an explicit non-default
+// `server_url` is treated as an override and used alone (dev / staging
+// / proxy).
 
 const PRIMARY_API: &str = "https://api.skipi.app";
 const RU_API: &str = "https://api-ru.skipi.app";
 
 fn api_bases(s: &Settings) -> Vec<String> {
     let configured = s.server_url.trim_end_matches('/').to_string();
-    if configured.is_empty() || configured == PRIMARY_API {
-        // Automatic production: origin first, RF bridge as fallback.
-        return vec![PRIMARY_API.to_string(), RU_API.to_string()];
+    if configured.is_empty() || configured == PRIMARY_API || configured == RU_API {
+        // Automatic production: RF bridge first, origin as fallback.
+        return vec![RU_API.to_string(), PRIMARY_API.to_string()];
     }
     // Manual override — respect verbatim, single candidate.
     vec![configured]
@@ -828,6 +831,10 @@ pub fn run() {
             generate_eml,
             open_whatsapp,
             open_external,
+            feedback::get_feedback_prompt_state,
+            feedback::postpone_app_feedback,
+            feedback::submit_app_feedback,
+            feedback::list_app_feedback,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

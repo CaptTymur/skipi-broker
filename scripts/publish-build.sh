@@ -52,7 +52,7 @@ DEB_SIGNATURE=""
 if [ -f "$RELEASES/$DEB_SIG_OUT" ]; then
   DEB_SIGNATURE=$(cat "$RELEASES/$DEB_SIG_OUT")
 fi
-BASE_URL="${SKIPI_UPDATE_BASE:-https://api.skipi.app/broker/releases}"
+BASE_URL="${SKIPI_UPDATE_BASE:-https://api-ru.skipi.app/broker/releases}"
 # Note: api.skipi.app serves on standard 443 (xray REALITY removed; nginx
 # took over 443 directly). Keep the URL port-less so the manifest is
 # valid on both browsers and embedded fetchers.
