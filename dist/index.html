@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.17';
+var APP_VERSION='0.1.18';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -831,7 +831,13 @@ function _isPinned(type, m){
 
 function renderP2(){
     var body = document.getElementById('p2-body');
-    var ownM = state.inbox.own_matches || [];
+    // Self-matches (own × own where both sides are the SAME broker) are
+    // an auto-adopt artifact — broker can't act on a deal where they
+    // own both sides. Filter them out.
+    // Hide matches where both sides are the same broker (auto-adopt artifact).
+    var ownM = (state.inbox.own_matches || []).filter(function(m){
+        return m.cargo_broker_id !== m.tonnage_broker_id;
+    });
     var bazM = state.inbox.bazaar_matches || [];
     var filter = state.p2Filter || 'all';
 
