@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.10';
+var APP_VERSION='0.1.11';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -793,24 +793,20 @@ function renderP2(){
         rows.push({ type:'bazaar', score:m.score, data:m, _size:_matchSize(m), _pinned:_isPinned('bazaar', m),
                     _ageH: _matchAgeHours('bazaar', m) });
     });
-    // Hard rule (Tymur 2026-05-12): if a signal is older than 12h AND we
-    // didn't engage with it, someone else already worked it — show nothing.
-    // Pinned matches survive (we're working that chain).
-    var stalehidden = 0;
+    // Hard rule (Tymur 2026-05-12): drop matches whose signal is older
+    // than 12h and we didn't engage with it. Someone else already
+    // worked it — old signals are noise. No counter, no hint, no nudge:
+    // если их нет, Тимур либо найдёт, либо подождёт. Pinned matches
+    // survive (we're working that chain).
     rows = rows.filter(function(r){
         if(r._pinned) return true;
-        if(r._ageH != null && r._ageH > 12) { stalehidden++; return false; }
-        return true;
+        return !(r._ageH != null && r._ageH > 12);
     });
     if(filter==='work'){
         rows = rows.filter(function(r){ return r._pinned; });
-        if(rows.length===0){
-            body.innerHTML = '<div class="col-empty">Нет совпадений в работе.<span class="hint">Открой матч в P3 и нажми 📌 «В работу», чтобы закрепить его здесь.</span></div>';
-            return;
-        }
     }
-    if(rows.length===0 && stalehidden>0){
-        body.innerHTML = '<div class="col-empty">Свежих совпадений нет.<span class="hint">'+stalehidden+' старше 12ч скрыто — над ними скорее всего уже работают другие брокеры. Нажми 🔄 чтобы запросить апдейт у агента.</span></div>';
+    if(rows.length===0){
+        body.innerHTML = '<div class="col-empty"></div>';
         return;
     }
     rows.sort(function(a,b){
@@ -1194,12 +1190,23 @@ async function actionTogglePin(){
 
 // ---------- Status bar ----------
 function renderStatusBar(){
-    var ownN = (state.inbox.own_matches||[]).length;
-    var bazN = (state.inbox.bazaar_matches||[]).length;
-    document.getElementById('sb-bazaar-total').textContent = bazN;
-    document.getElementById('sb-fresh').textContent = ownN+bazN;
+    var own = state.inbox.own_matches || [];
+    var baz = state.inbox.bazaar_matches || [];
+    // "Свежие" = younger than 12h or pinned. Stale matches are filtered
+    // out of P2; the counter must match what the user actually sees,
+    // not the raw server payload.
+    var isFresh = function(type, m){
+        if(_isPinned(type, m)) return true;
+        var h = _matchAgeHours(type, m);
+        return h == null || h <= 12;
+    };
+    var freshOwn = own.filter(function(m){ return isFresh('own', m); }).length;
+    var freshBaz = baz.filter(function(m){ return isFresh('bazaar', m); }).length;
+    document.getElementById('sb-bazaar-total').textContent = freshBaz;
+    document.getElementById('sb-fresh').textContent = freshOwn + freshBaz;
     var totalListings = state.myCargo.length + state.myTonnage.length;
-    var coverage = totalListings>0 ? Math.round(((ownN+bazN>0?1:0)/Math.max(1,totalListings))*100) : 0;
+    var anyFresh = freshOwn + freshBaz > 0 ? 1 : 0;
+    var coverage = totalListings>0 ? Math.round((anyFresh / Math.max(1, totalListings)) * 100) : 0;
     document.getElementById('sb-coverage').textContent = coverage+'%';
 }
 
