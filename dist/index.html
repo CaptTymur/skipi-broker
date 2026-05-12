@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.9';
+var APP_VERSION='0.1.10';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -741,6 +741,15 @@ function p2SetFilter(mode){
     renderP2();
 }
 
+function _matchAgeHours(type, m){
+    var ts = rowAgeTimestamp(type, m);
+    if(!ts) return null;
+    var d = new Date(ts);
+    if(isNaN(d.getTime())) return null;
+    var h = (Date.now() - d.getTime()) / 3600000;
+    return h < 0 ? 0 : h;
+}
+
 function _isPinned(type, m){
     if(type==='bazaar') return !!m.pinned_at;
     var side = m.cargo_broker_id===state.settings.broker_id ? 'cargo' : 'tonnage';
@@ -774,13 +783,24 @@ function renderP2(){
     }
     var rows = [];
     ownM.forEach(function(m){
-        rows.push({ type:'own', score:m.score, data:m, _size:0, _pinned:_isPinned('own', m) });
+        rows.push({ type:'own', score:m.score, data:m, _size:0, _pinned:_isPinned('own', m),
+                    _ageH: _matchAgeHours('own', m) });
     });
     // All bazaar matches surface; user picks based on full info shown
     // in P3 (including raw original message). Contact extraction
     // (phone from email body) is a future enrichment step.
     bazM.forEach(function(m){
-        rows.push({ type:'bazaar', score:m.score, data:m, _size:_matchSize(m), _pinned:_isPinned('bazaar', m) });
+        rows.push({ type:'bazaar', score:m.score, data:m, _size:_matchSize(m), _pinned:_isPinned('bazaar', m),
+                    _ageH: _matchAgeHours('bazaar', m) });
+    });
+    // Hard rule (Tymur 2026-05-12): if a signal is older than 12h AND we
+    // didn't engage with it, someone else already worked it — show nothing.
+    // Pinned matches survive (we're working that chain).
+    var stalehidden = 0;
+    rows = rows.filter(function(r){
+        if(r._pinned) return true;
+        if(r._ageH != null && r._ageH > 12) { stalehidden++; return false; }
+        return true;
     });
     if(filter==='work'){
         rows = rows.filter(function(r){ return r._pinned; });
@@ -788,6 +808,10 @@ function renderP2(){
             body.innerHTML = '<div class="col-empty">Нет совпадений в работе.<span class="hint">Открой матч в P3 и нажми 📌 «В работу», чтобы закрепить его здесь.</span></div>';
             return;
         }
+    }
+    if(rows.length===0 && stalehidden>0){
+        body.innerHTML = '<div class="col-empty">Свежих совпадений нет.<span class="hint">'+stalehidden+' старше 12ч скрыто — над ними скорее всего уже работают другие брокеры. Нажми 🔄 чтобы запросить апдейт у агента.</span></div>';
+        return;
     }
     rows.sort(function(a,b){
         // Pinned always first; then smallest size; then score desc.
