@@ -856,10 +856,17 @@ fn request_agent_update(state: tauri::State<'_, AppState>) -> Result<JsonValue, 
     let agent_dir = std::path::Path::new("/home/linux/scripts");
     let venv_python = agent_dir.join("venv/bin/python");
     if !venv_python.exists() {
-        return Err("Агент недоступен на этой машине. Эта функция работает \
-             только на локальной установке Тимура (Linux). \
-             Свежие совпадения приходят автоматически по расписанию."
-            .into());
+        // Agent isn't on this install (Sasha's Windows etc.). Soft-fail:
+        // return success with zero counts and a remote flag — frontend
+        // will still trigger refreshInbox(), so the click is useful
+        // (pulls whatever the server-side auto-adopt has produced).
+        return Ok(serde_json::json!({
+            "cargo_inserted": 0,
+            "tonnage_inserted": 0,
+            "matches_created": 0,
+            "remote_only": true,
+            "raw_last_line": "agent not local; data refreshed from server"
+        }));
     }
 
     // Push targets the same backend the broker app currently talks to.
