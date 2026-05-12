@@ -786,6 +786,78 @@ fn open_external(_state: tauri::State<'_, AppState>, url: String) -> Result<(), 
     open_path_or_url(&url)
 }
 
+/// Open (or refocus + re-navigate) a dedicated WhatsApp Web window
+/// pinned to the conversation with the given phone. CSS is injected to
+/// hide WA Web's sidebar/header so only the active chat is visible —
+/// the broker stays in single-counterparty mode instead of the full
+/// WA UI distracting from the deal in hand.
+///
+/// First run requires QR-code scan (one-time per Tauri WebKit profile).
+#[tauri::command]
+fn open_wa_chat(
+    app: tauri::AppHandle,
+    phone: String,
+) -> Result<(), String> {
+    use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+
+    let digits: String = phone.chars().filter(|c| c.is_ascii_digit()).collect();
+    if digits.len() < 6 {
+        return Err("Не похоже на телефон — нужны минимум 6 цифр.".into());
+    }
+    let url = format!("https://web.whatsapp.com/send?phone={}", digits);
+
+    // Reuse the existing window if open — just navigate it to the new chat.
+    if let Some(win) = app.get_webview_window("wa-chat") {
+        let _ = win.eval(&format!(
+            "if (window.location.pathname !== '/send' || !window.location.search.includes('phone={d}')) {{ window.location.href = '{u}'; }}",
+            d = digits, u = url
+        ));
+        let _ = win.show();
+        let _ = win.set_focus();
+        return Ok(());
+    }
+
+    let injection = r#"
+(function(){
+    var css = "\
+        [data-testid='chatlist-pane'], #side, \
+        header._3xysY, header.app-wrapper-web-header, \
+        ._2Ts6i, ._3RGKj, ._3xRSL, \
+        [data-testid='chatlist-header'], [data-testid='chatlist-search'] \
+            { display: none !important; } \
+        #main { left: 0 !important; width: 100% !important; } \
+        ._3WByx, ._2QgSC, [data-testid='conversation-panel-wrapper'] \
+            { width: 100% !important; left: 0 !important; }";
+    function inject(){
+        if(document.getElementById('skipi-wa-style')) return;
+        var s = document.createElement('style');
+        s.id = 'skipi-wa-style';
+        s.textContent = css;
+        document.head.appendChild(s);
+    }
+    if(document.head) inject();
+    else document.addEventListener('DOMContentLoaded', inject);
+    // WA Web mutates DOM heavily during load — reinject for ~30s.
+    var n = 0;
+    var iv = setInterval(function(){ inject(); if(++n > 60) clearInterval(iv); }, 500);
+})();
+"#;
+
+    WebviewWindowBuilder::new(
+        &app,
+        "wa-chat",
+        WebviewUrl::External(url.parse().map_err(|e: url::ParseError| e.to_string())?),
+    )
+    .title("WhatsApp — Skipi Broker")
+    .inner_size(720.0, 900.0)
+    .min_inner_size(420.0, 600.0)
+    .resizable(true)
+    .initialization_script(injection)
+    .build()
+    .map(|_| ())
+    .map_err(|e| format!("open WA window: {e}"))
+}
+
 #[tauri::command]
 fn dismiss_match(
     state: tauri::State<'_, AppState>,
@@ -1004,6 +1076,7 @@ pub fn run() {
             send_circular_email,
             generate_eml,
             open_whatsapp,
+            open_wa_chat,
             open_external,
             feedback::init_app_diagnostics,
             feedback::app_heartbeat,

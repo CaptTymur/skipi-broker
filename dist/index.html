@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.21';
+var APP_VERSION='0.1.22';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -1135,12 +1135,37 @@ function renderP4(){
         return;
     }
     if(state.selectedMatch.type==='bazaar'){
-        statusEl.textContent = 'offline';
-        body.innerHTML = '<div class="chat-stub"><div class="icon">📭</div>Контрагент пока не в Skipi.<br><br>Используй <b>📧 .eml</b> или <b>💬 WhatsApp</b> в P3 чтобы связаться.</div>';
+        var m = state.selectedMatch.data;
+        var reasons = m.reasons || {};
+        var phone = reasons.contact_phone || '';
+        if(phone){
+            statusEl.textContent = 'WA';
+            body.innerHTML = '<div class="chat-stub" style="padding:18px 14px;">'
+                +'<div style="font-size:13px; color:var(--text); margin-bottom:8px;">WhatsApp-чат</div>'
+                +'<div style="font-size:11px; color:var(--text2); margin-bottom:14px;">с <code>'+esc(phone)+'</code></div>'
+                +'<button class="btn btn-accent" onclick="openWaChat()">💬 Открыть чат</button>'
+                +'<div style="margin-top:14px; font-size:10px; color:var(--text3); line-height:1.4;">Откроется отдельное окно с WhatsApp Web, sidebar скрыт. При первом запуске потребуется отсканировать QR с телефона.</div>'
+                +'</div>';
+        } else {
+            statusEl.textContent = 'offline';
+            body.innerHTML = '<div class="chat-stub"><div class="icon">📭</div>Контрагент пока не в Skipi и без телефона.<br><br>Используй <b>📧 .eml</b> в P3 чтобы связаться.</div>';
+        }
     } else {
         // Own × own — both on Skipi. E2E messaging integration TODO.
         statusEl.textContent = 'E2E';
         body.innerHTML = '<div class="chat-stub"><div class="icon">🔒</div>E2E chat будет здесь.<br>Интеграция с /api/messaging/* — следующая итерация.</div>';
+    }
+}
+
+async function openWaChat(){
+    if(!state.selectedMatch || state.selectedMatch.type!=='bazaar') return;
+    var m = state.selectedMatch.data;
+    var phone = (m.reasons||{}).contact_phone || '';
+    if(!phone){ showToast('У этого контрагента нет телефона', 'error'); return; }
+    try {
+        await invoke('open_wa_chat', { phone:phone });
+    } catch(e){
+        showToast('WA: '+e, 'error');
     }
 }
 
