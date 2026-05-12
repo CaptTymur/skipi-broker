@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.12';
+var APP_VERSION='0.1.13';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -98,6 +98,10 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .row .r-title { flex:1; font-size:13px; font-weight:600; color:var(--text);
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .row .r-score { font-size:11px; padding:1px 6px; border-radius:8px; background:var(--accent-bg2); color:var(--accent); font-weight:600; }
+.row .r-dismiss { font-size:13px; color:var(--text3); cursor:pointer; padding:0 4px; opacity:0;
+    transition:opacity 0.12s, color 0.12s; user-select:none; }
+.row:hover .r-dismiss { opacity:1; }
+.row .r-dismiss:hover { color:var(--red); }
 .row .r-meta { font-size:11px; color:var(--text2); display:flex; gap:8px; flex-wrap:wrap; }
 .row .r-meta b { color:var(--text); font-weight:600; }
 .row .r-tag { display:inline-block; padding:0 5px; border-radius:3px; font-size:10px;
@@ -841,6 +845,11 @@ function renderP2(){
                 + '</span>';
         }
         var ageHtml = ageRingSvg(rowAgeTimestamp(r.type, r.data), 14);
+        // Hover-only "×" — let broker mark this match as not-interesting
+        // without drilling into P3. Pinned rows hide the × (it's their
+        // active conversation; dismiss is the wrong gesture).
+        var dismissHtml = r._pinned ? '' :
+            '<span class="r-dismiss" title="Скрыть как неинтересное" onclick="event.stopPropagation(); dismissRow(\''+r.type+'\',\''+esc(r.data.id)+'\')">✕</span>';
         return '<div class="row '+(sel?'active':'')+(r._pinned?' pinned':'')+'" onclick="selectMatch(\''+r.type+'\',\''+esc(r.data.id)+'\')">'
             +'<div class="r-top">'
             +pinHtml
@@ -849,10 +858,33 @@ function renderP2(){
             +contactBadge
             +ageHtml
             +'<span class="r-score">'+r.score+'</span>'
+            +dismissHtml
             +'</div>'
             +'<div class="r-meta">'+esc(meta)+'</div>'
             +'</div>';
     }).join('');
+}
+
+async function dismissRow(type, id){
+    try {
+        if(type==='bazaar'){
+            await invoke('dismiss_bazaar_match', { matchId:id });
+        } else {
+            // own × own dismiss is per-side
+            var pool = state.inbox.own_matches || [];
+            var m = pool.filter(function(x){ return x.id===id; })[0];
+            if(!m) return;
+            var side = m.cargo_broker_id===state.settings.broker_id ? 'cargo' : 'tonnage';
+            await invoke('dismiss_match', { matchId:id, side:side });
+        }
+        if(state.selectedMatch && state.selectedMatch.data.id===id){
+            state.selectedMatch = null;
+        }
+        await refreshInbox();
+        renderP2(); renderP3(); renderP4(); renderStatusBar();
+    } catch(e){
+        showToast('dismiss: '+e, 'error');
+    }
 }
 
 function selectMatch(type, id){
