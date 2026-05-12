@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.14';
+var APP_VERSION='0.1.15';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -343,6 +343,58 @@ function showToast(msg, kind){
     setTimeout(function(){ try{ host.removeChild(d); }catch(_){} }, 3500);
 }
 
+// ---------- Diagnostics ----------
+function diagnosticsScreen(){
+    try {
+        if(state && state.view) return String(state.view);
+        var active=document.querySelector('.tab.active,[data-view].active,.nav-item.active');
+        if(active) return active.getAttribute('data-view') || active.id || active.textContent || 'unknown';
+    } catch(e) {}
+    return 'unknown';
+}
+function scrubDiagnosticText(v){
+    var s=String(v==null?'':v);
+    s=s.replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/g,'Bearer [redacted]');
+    s=s.replace(/token["'\s:=]+[A-Za-z0-9._~+/=-]{12,}/ig,'token=[redacted]');
+    return s.slice(0,4000);
+}
+function reportAppDiagnostic(eventType,severity,message,details){
+    try {
+        var body=Object.assign({screen:diagnosticsScreen(), href:location.hash||location.pathname, ts:new Date().toISOString()}, details||{});
+        invoke('record_app_diagnostic',{
+            appVersion:APP_VERSION,
+            eventType:eventType,
+            severity:severity||'error',
+            message:scrubDiagnosticText(message),
+            locale:'ru',
+            context:diagnosticsScreen(),
+            detailsJson:JSON.stringify(body)
+        }).catch(function(){});
+    } catch(e) {}
+}
+function startAppDiagnostics(){
+    try {
+        invoke('init_app_diagnostics',{appVersion:APP_VERSION,locale:'ru',context:diagnosticsScreen()}).catch(function(){});
+        setInterval(function(){
+            try { invoke('app_heartbeat',{appVersion:APP_VERSION,lastScreen:diagnosticsScreen()}).catch(function(){}); } catch(e) {}
+        },10000);
+        var lastTick=Date.now();
+        setInterval(function(){
+            var now=Date.now(), lag=now-lastTick-15000;
+            lastTick=now;
+            if(lag>45000) reportAppDiagnostic('ui_lag','warn','UI event loop lag '+Math.round(lag/1000)+'s',{lag_ms:lag});
+        },15000);
+        window.addEventListener('beforeunload',function(){ try { invoke('mark_app_shutdown').catch(function(){}); } catch(e) {} });
+        window.addEventListener('error',function(ev){
+            reportAppDiagnostic('js_error','error',ev.message||'JS error',{filename:ev.filename,line:ev.lineno,column:ev.colno,stack:ev.error&&ev.error.stack});
+        });
+        window.addEventListener('unhandledrejection',function(ev){
+            var reason=ev.reason;
+            reportAppDiagnostic('unhandledrejection','error',reason&&reason.message?reason.message:String(reason),{stack:reason&&reason.stack});
+        });
+    } catch(e) {}
+}
+
 // ---------- App feedback ----------
 function feedbackPromptFlag(st){
     return !!(st && (st.should_prompt || st.shouldPrompt));
@@ -514,6 +566,7 @@ async function boot(){
     } catch(e){
         showToast('Settings load failed: '+e, 'error');
     }
+    startAppDiagnostics();
     refreshIdentityBadge();
     if(!state.settings.broker_id){
         // First run — show settings so user registers.

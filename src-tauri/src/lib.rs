@@ -19,12 +19,12 @@ mod feedback;
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct SmtpConfig {
-    pub host: String,         // smtp.gmail.com
-    pub port: u16,            // 465 for SMTPS, 587 for STARTTLS
+    pub host: String, // smtp.gmail.com
+    pub port: u16,    // 465 for SMTPS, 587 for STARTTLS
     pub username: String,
-    pub password: String,     // App Password / SMTP password
-    pub from_email: String,   // From: header
-    pub from_name: String,    // optional display name
+    pub password: String,   // App Password / SMTP password
+    pub from_email: String, // From: header
+    pub from_name: String,  // optional display name
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -160,10 +160,15 @@ fn request_api(
     // still allowed by current settings), then the rest of the list.
     let cached: Option<String> = state.active_api_base.lock().unwrap().clone();
     let mut bases: Vec<String> = Vec::with_capacity(all_bases.len());
-    if let Some(c) = cached.as_ref().filter(|c| all_bases.iter().any(|b| b == *c)) {
+    if let Some(c) = cached
+        .as_ref()
+        .filter(|c| all_bases.iter().any(|b| b == *c))
+    {
         bases.push(c.clone());
         for b in &all_bases {
-            if b != c { bases.push(b.clone()); }
+            if b != c {
+                bases.push(b.clone());
+            }
         }
     } else {
         bases = all_bases;
@@ -232,11 +237,15 @@ fn send_smtp_circular(
         return Err("SMTP not configured — fill Settings → Circular email first.".into());
     }
     if recipients.is_empty() {
-        return Err("Recipient list is empty — add recipients in Settings → Circular email.".into());
+        return Err(
+            "Recipient list is empty — add recipients in Settings → Circular email.".into(),
+        );
     }
 
     let from: Mailbox = if smtp.from_name.is_empty() {
-        smtp.from_email.parse().map_err(|e| format!("from_email parse: {e}"))?
+        smtp.from_email
+            .parse()
+            .map_err(|e| format!("from_email parse: {e}"))?
     } else {
         format!("{} <{}>", smtp.from_name, smtp.from_email)
             .parse()
@@ -266,7 +275,10 @@ fn send_smtp_circular(
     for to in recipients {
         let to_mb: Mailbox = match to.parse() {
             Ok(mb) => mb,
-            Err(e) => { last_err = Some(format!("bad recipient {to}: {e}")); continue; }
+            Err(e) => {
+                last_err = Some(format!("bad recipient {to}: {e}"));
+                continue;
+            }
         };
         let email = match Message::builder()
             .from(from.clone())
@@ -276,11 +288,18 @@ fn send_smtp_circular(
             .body(body_text.to_string())
         {
             Ok(m) => m,
-            Err(e) => { last_err = Some(format!("build {to}: {e}")); continue; }
+            Err(e) => {
+                last_err = Some(format!("build {to}: {e}"));
+                continue;
+            }
         };
         match transport.send(&email) {
-            Ok(_) => { sent += 1; }
-            Err(e) => { last_err = Some(format!("send {to}: {e}")); }
+            Ok(_) => {
+                sent += 1;
+            }
+            Err(e) => {
+                last_err = Some(format!("send {to}: {e}"));
+            }
         }
     }
     if sent == 0 {
@@ -323,7 +342,14 @@ fn register_broker(
         "jurisdiction": jurisdiction,
         "contact_phone": contact_phone,
     });
-    let resp = request_api(&state, &s, reqwest::Method::POST, "/api/brokers", &s.bearer_token, Some(&body))?;
+    let resp = request_api(
+        &state,
+        &s,
+        reqwest::Method::POST,
+        "/api/brokers",
+        &s.bearer_token,
+        Some(&body),
+    )?;
     // Auto-persist the new broker_id so the user doesn't have to copy it.
     if let Some(id) = resp.get("id").and_then(|v| v.as_str()) {
         let mut updated = s.clone();
@@ -337,10 +363,7 @@ fn register_broker(
 }
 
 #[tauri::command]
-fn publish_cargo(
-    state: tauri::State<'_, AppState>,
-    draft: JsonValue,
-) -> Result<JsonValue, String> {
+fn publish_cargo(state: tauri::State<'_, AppState>, draft: JsonValue) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     if s.broker_id.is_empty() {
         return Err("Broker not registered — open Settings and register first.".into());
@@ -350,7 +373,14 @@ fn publish_cargo(
     if body.get("reply_to").is_none() && !s.reply_to.is_empty() {
         body["reply_to"] = JsonValue::String(s.reply_to.clone());
     }
-    request_api(&state, &s, reqwest::Method::POST, "/api/cargo-listings", &s.bearer_token, Some(&body))
+    request_api(
+        &state,
+        &s,
+        reqwest::Method::POST,
+        "/api/cargo-listings",
+        &s.bearer_token,
+        Some(&body),
+    )
 }
 
 #[tauri::command]
@@ -367,28 +397,56 @@ fn publish_tonnage(
     if body.get("reply_to").is_none() && !s.reply_to.is_empty() {
         body["reply_to"] = JsonValue::String(s.reply_to.clone());
     }
-    request_api(&state, &s, reqwest::Method::POST, "/api/tonnage-listings", &s.bearer_token, Some(&body))
+    request_api(
+        &state,
+        &s,
+        reqwest::Method::POST,
+        "/api/tonnage-listings",
+        &s.bearer_token,
+        Some(&body),
+    )
 }
 
 #[tauri::command]
 fn fetch_my_cargo(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/cargo-listings?broker_id={}", s.broker_id);
-    request_api(&state, &s, reqwest::Method::GET, &path, &s.bearer_token, None)
+    request_api(
+        &state,
+        &s,
+        reqwest::Method::GET,
+        &path,
+        &s.bearer_token,
+        None,
+    )
 }
 
 #[tauri::command]
 fn fetch_my_tonnage(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/tonnage-listings?broker_id={}", s.broker_id);
-    request_api(&state, &s, reqwest::Method::GET, &path, &s.bearer_token, None)
+    request_api(
+        &state,
+        &s,
+        reqwest::Method::GET,
+        &path,
+        &s.bearer_token,
+        None,
+    )
 }
 
 #[tauri::command]
 fn fetch_matches(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/matches?broker_id={}", s.broker_id);
-    request_api(&state, &s, reqwest::Method::GET, &path, &s.bearer_token, None)
+    request_api(
+        &state,
+        &s,
+        reqwest::Method::GET,
+        &path,
+        &s.bearer_token,
+        None,
+    )
 }
 
 /// 4-panel UX inbox: returns own × own + own × bazaar matches with
@@ -416,7 +474,14 @@ fn fetch_matches_inbox(
     if include_dismissed.unwrap_or(false) {
         path.push_str("&include_dismissed=true");
     }
-    request_api(&state, &s, reqwest::Method::GET, &path, &s.bearer_token, None)
+    request_api(
+        &state,
+        &s,
+        reqwest::Method::GET,
+        &path,
+        &s.bearer_token,
+        None,
+    )
 }
 
 #[tauri::command]
@@ -426,7 +491,14 @@ fn mark_bazaar_match_seen(
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/bazaar-matches/{}/seen", match_id);
-    request_api(&state, &s, reqwest::Method::POST, &path, &s.bearer_token, None)
+    request_api(
+        &state,
+        &s,
+        reqwest::Method::POST,
+        &path,
+        &s.bearer_token,
+        None,
+    )
 }
 
 #[tauri::command]
@@ -436,7 +508,14 @@ fn dismiss_bazaar_match(
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/bazaar-matches/{}/dismiss", match_id);
-    request_api(&state, &s, reqwest::Method::POST, &path, &s.bearer_token, None)
+    request_api(
+        &state,
+        &s,
+        reqwest::Method::POST,
+        &path,
+        &s.bearer_token,
+        None,
+    )
 }
 
 #[tauri::command]
@@ -446,7 +525,14 @@ fn pin_bazaar_match(
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/bazaar-matches/{}/pin", match_id);
-    request_api(&state, &s, reqwest::Method::POST, &path, &s.bearer_token, None)
+    request_api(
+        &state,
+        &s,
+        reqwest::Method::POST,
+        &path,
+        &s.bearer_token,
+        None,
+    )
 }
 
 #[tauri::command]
@@ -456,7 +542,14 @@ fn unpin_bazaar_match(
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/bazaar-matches/{}/unpin", match_id);
-    request_api(&state, &s, reqwest::Method::POST, &path, &s.bearer_token, None)
+    request_api(
+        &state,
+        &s,
+        reqwest::Method::POST,
+        &path,
+        &s.bearer_token,
+        None,
+    )
 }
 
 #[tauri::command]
@@ -467,13 +560,24 @@ fn engage_listing(
     action: String,
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
-    let endpoint = if kind == "cargo" { "cargo-listings" } else { "tonnage-listings" };
+    let endpoint = if kind == "cargo" {
+        "cargo-listings"
+    } else {
+        "tonnage-listings"
+    };
     let path = format!("/api/{}/{}/engage", endpoint, listing_id);
     let body = serde_json::json!({
         "viewer_broker_id": s.broker_id,
         "action": action,
     });
-    request_api(&state, &s, reqwest::Method::POST, &path, &s.bearer_token, Some(&body))
+    request_api(
+        &state,
+        &s,
+        reqwest::Method::POST,
+        &path,
+        &s.bearer_token,
+        Some(&body),
+    )
 }
 
 #[tauri::command]
@@ -483,9 +587,20 @@ fn close_listing(
     listing_id: String,
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
-    let endpoint = if kind == "cargo" { "cargo-listings" } else { "tonnage-listings" };
+    let endpoint = if kind == "cargo" {
+        "cargo-listings"
+    } else {
+        "tonnage-listings"
+    };
     let path = format!("/api/{}/{}/close", endpoint, listing_id);
-    request_api(&state, &s, reqwest::Method::POST, &path, &s.bearer_token, None)
+    request_api(
+        &state,
+        &s,
+        reqwest::Method::POST,
+        &path,
+        &s.bearer_token,
+        None,
+    )
 }
 
 #[tauri::command]
@@ -496,7 +611,14 @@ fn mark_match_seen(
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/matches/{}/seen?side={}", match_id, side);
-    request_api(&state, &s, reqwest::Method::POST, &path, &s.bearer_token, None)
+    request_api(
+        &state,
+        &s,
+        reqwest::Method::POST,
+        &path,
+        &s.bearer_token,
+        None,
+    )
 }
 
 #[tauri::command]
@@ -527,7 +649,9 @@ fn open_path_or_url(target: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let result = Command::new("open").arg(target).spawn();
     #[cfg(target_os = "windows")]
-    let result = Command::new("cmd").args(["/C", "start", "", target]).spawn();
+    let result = Command::new("cmd")
+        .args(["/C", "start", "", target])
+        .spawn();
     result.map(|_| ()).map_err(|e| format!("open failed: {e}"))
 }
 
@@ -571,7 +695,9 @@ fn generate_eml(
 ) -> Result<String, String> {
     let s = settings_snapshot(&state);
     if s.reply_to.is_empty() {
-        return Err("Reply-to email not set — open Settings and configure your address first.".into());
+        return Err(
+            "Reply-to email not set — open Settings and configure your address first.".into(),
+        );
     }
 
     let from_header = if s.display_name.is_empty() {
@@ -618,7 +744,11 @@ fn generate_eml(
     path.push("drafts");
     std::fs::create_dir_all(&path).map_err(|e| format!("mkdir drafts: {e}"))?;
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-    path.push(format!("skipi-broker-{}-{}.eml", stamp, uuid::Uuid::new_v4().simple()));
+    path.push(format!(
+        "skipi-broker-{}-{}.eml",
+        stamp,
+        uuid::Uuid::new_v4().simple()
+    ));
     std::fs::write(&path, eml).map_err(|e| format!("write .eml: {e}"))?;
 
     open_path_or_url(path.to_string_lossy().as_ref())?;
@@ -664,7 +794,14 @@ fn dismiss_match(
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/matches/{}/dismiss?side={}", match_id, side);
-    request_api(&state, &s, reqwest::Method::POST, &path, &s.bearer_token, None)
+    request_api(
+        &state,
+        &s,
+        reqwest::Method::POST,
+        &path,
+        &s.bearer_token,
+        None,
+    )
 }
 
 #[tauri::command]
@@ -675,7 +812,14 @@ fn pin_match(
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/matches/{}/pin?side={}", match_id, side);
-    request_api(&state, &s, reqwest::Method::POST, &path, &s.bearer_token, None)
+    request_api(
+        &state,
+        &s,
+        reqwest::Method::POST,
+        &path,
+        &s.bearer_token,
+        None,
+    )
 }
 
 #[tauri::command]
@@ -686,7 +830,14 @@ fn unpin_match(
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/matches/{}/unpin?side={}", match_id, side);
-    request_api(&state, &s, reqwest::Method::POST, &path, &s.bearer_token, None)
+    request_api(
+        &state,
+        &s,
+        reqwest::Method::POST,
+        &path,
+        &s.bearer_token,
+        None,
+    )
 }
 
 /// Trigger the local freight agent (bazaar_push) to scrape mailbox +
@@ -699,56 +850,70 @@ fn unpin_match(
 /// (Sasha's Windows) the agent isn't present and the command returns
 /// a friendly error so the UI can show "agent not available here".
 #[tauri::command]
-fn request_agent_update(
-    _state: tauri::State<'_, AppState>,
-) -> Result<JsonValue, String> {
+fn request_agent_update(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
     use std::process::Command;
 
     let agent_dir = std::path::Path::new("/home/linux/scripts");
     let venv_python = agent_dir.join("venv/bin/python");
     if !venv_python.exists() {
-        return Err(
-            "Агент недоступен на этой машине. Эта функция работает \
+        return Err("Агент недоступен на этой машине. Эта функция работает \
              только на локальной установке Тимура (Linux). \
              Свежие совпадения приходят автоматически по расписанию."
-                .into(),
-        );
+            .into());
     }
 
-    // Read shared admin token + bazaar URL from the same place freight_agent uses.
-    // Hardcode dev defaults — broker app on Tymur's machine talks to
-    // 127.0.0.1:8000 anyway (see Settings.server_url override).
-    let bazaar_url = std::env::var("SKIPI_BAZAAR_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:8000".to_string());
-    let admin_token = std::env::var("SKIPI_ADMIN_TOKEN")
-        .unwrap_or_else(|_| "aCjVedJo87SrtUdNGCcseO9Qtv3R0vpoAlOMkR7xikg".to_string());
+    // Push targets the same backend the broker app currently talks to.
+    // Previously this was hardcoded to 127.0.0.1:8000, which is fine for
+    // local dev but produces "no new signals" the moment the app is
+    // pointed at prod (api.skipi.app) — bazaar_push wrote into local
+    // while the app read from prod.
+    let s = settings_snapshot(&state);
+    let url = s.server_url.trim_end_matches('/').to_string();
+    let targets_prod = url.is_empty()
+        || url.contains("api.skipi.app")
+        || url.contains("api-ru.skipi.app");
 
-    // AppImage runtime injects PYTHONHOME/PYTHONPATH/LD_LIBRARY_PATH that
-    // point inside the AppImage's mount (/tmp/.mount_skipi-*) — if those
-    // leak into the spawned subprocess, the host venv's interpreter
-    // tries to load stdlib from the AppImage and explodes with
-    // "ModuleNotFoundError: No module named 'encodings'". Strip them.
-    let output = Command::new(&venv_python)
-        .args(["-m", "freight_agent.bazaar_push"])
-        .current_dir(agent_dir)
-        .env_remove("PYTHONHOME")
-        .env_remove("PYTHONPATH")
-        .env_remove("PYTHONSTARTUP")
-        .env_remove("PYTHONNOUSERSITE")
-        .env_remove("LD_LIBRARY_PATH")
-        .env_remove("LD_PRELOAD")
-        .env_remove("PERLLIB")
-        .env_remove("GTK_DATA_PREFIX")
-        .env_remove("GTK_EXE_PREFIX")
-        .env_remove("GTK_PATH")
-        .env_remove("GDK_PIXBUF_MODULEDIR")
-        .env_remove("GDK_PIXBUF_MODULE_FILE")
-        .env_remove("GI_TYPELIB_PATH")
-        .env_remove("XDG_DATA_DIRS")
-        .env("SKIPI_BAZAAR_URL", &bazaar_url)
-        .env("SKIPI_ADMIN_TOKEN", &admin_token)
-        .output()
-        .map_err(|e| format!("spawn agent failed: {e}"))?;
+    // Spawn the right script. The PROD path goes through the shell
+    // wrapper that swaps in `bazaar_state.prod.json` so it doesn't
+    // collide with the local cursor.
+    let output = if targets_prod {
+        let prod_script = agent_dir.join("freight_agent/bazaar_push_prod.sh");
+        if !prod_script.exists() {
+            return Err("Prod push скрипт не найден на этой машине.".into());
+        }
+        Command::new("bash")
+            .arg(&prod_script)
+            .current_dir(agent_dir)
+            .env_remove("PYTHONHOME").env_remove("PYTHONPATH")
+            .env_remove("PYTHONSTARTUP").env_remove("PYTHONNOUSERSITE")
+            .env_remove("LD_LIBRARY_PATH").env_remove("LD_PRELOAD")
+            .env_remove("PERLLIB")
+            .env_remove("GTK_DATA_PREFIX").env_remove("GTK_EXE_PREFIX")
+            .env_remove("GTK_PATH")
+            .env_remove("GDK_PIXBUF_MODULEDIR").env_remove("GDK_PIXBUF_MODULE_FILE")
+            .env_remove("GI_TYPELIB_PATH").env_remove("XDG_DATA_DIRS")
+            .output()
+            .map_err(|e| format!("spawn agent (prod) failed: {e}"))?
+    } else {
+        // Local dev — push to whatever Settings.server_url points at.
+        let admin_token = std::env::var("SKIPI_ADMIN_TOKEN")
+            .unwrap_or_else(|_| "aCjVedJo87SrtUdNGCcseO9Qtv3R0vpoAlOMkR7xikg".to_string());
+        Command::new(&venv_python)
+            .args(["-m", "freight_agent.bazaar_push"])
+            .current_dir(agent_dir)
+            .env_remove("PYTHONHOME").env_remove("PYTHONPATH")
+            .env_remove("PYTHONSTARTUP").env_remove("PYTHONNOUSERSITE")
+            .env_remove("LD_LIBRARY_PATH").env_remove("LD_PRELOAD")
+            .env_remove("PERLLIB")
+            .env_remove("GTK_DATA_PREFIX").env_remove("GTK_EXE_PREFIX")
+            .env_remove("GTK_PATH")
+            .env_remove("GDK_PIXBUF_MODULEDIR").env_remove("GDK_PIXBUF_MODULE_FILE")
+            .env_remove("GI_TYPELIB_PATH").env_remove("XDG_DATA_DIRS")
+            .env("SKIPI_BAZAAR_URL", &url)
+            .env("SKIPI_ADMIN_TOKEN", &admin_token)
+            .output()
+            .map_err(|e| format!("spawn agent (local) failed: {e}"))?
+    };
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -770,7 +935,9 @@ fn request_agent_update(
     let extract = |key: &str| -> i64 {
         if let Some(start) = last_summary.find(&format!("{key}=")) {
             let rest = &last_summary[start + key.len() + 1..];
-            let end = rest.find(|c: char| !c.is_ascii_digit() && c != '/').unwrap_or(rest.len());
+            let end = rest
+                .find(|c: char| !c.is_ascii_digit() && c != '/')
+                .unwrap_or(rest.len());
             // For "ins/upd" format, take only the ins part.
             let token = &rest[..end];
             let ins = token.split('/').next().unwrap_or("0");
@@ -831,6 +998,10 @@ pub fn run() {
             generate_eml,
             open_whatsapp,
             open_external,
+            feedback::init_app_diagnostics,
+            feedback::app_heartbeat,
+            feedback::mark_app_shutdown,
+            feedback::record_app_diagnostic,
             feedback::get_feedback_prompt_state,
             feedback::postpone_app_feedback,
             feedback::submit_app_feedback,
