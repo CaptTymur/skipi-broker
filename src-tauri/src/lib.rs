@@ -846,7 +846,7 @@ fn open_wa_chat(
     WebviewWindowBuilder::new(
         &app,
         "wa-chat",
-        WebviewUrl::External(url.parse().map_err(|e: url::ParseError| e.to_string())?),
+        WebviewUrl::External(reqwest::Url::parse(&url).map_err(|e| e.to_string())?),
     )
     .title("WhatsApp — Skipi Broker")
     .inner_size(720.0, 900.0)
