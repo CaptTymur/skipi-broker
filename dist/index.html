@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.13';
+var APP_VERSION='0.1.14';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -98,10 +98,9 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .row .r-title { flex:1; font-size:13px; font-weight:600; color:var(--text);
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .row .r-score { font-size:11px; padding:1px 6px; border-radius:8px; background:var(--accent-bg2); color:var(--accent); font-weight:600; }
-.row .r-dismiss { font-size:13px; color:var(--text3); cursor:pointer; padding:0 4px; opacity:0;
-    transition:opacity 0.12s, color 0.12s; user-select:none; }
-.row:hover .r-dismiss { opacity:1; }
-.row .r-dismiss:hover { color:var(--red); }
+.row .r-dismiss { font-size:14px; color:var(--text3); cursor:pointer; padding:1px 6px;
+    user-select:none; line-height:1; border-radius:3px; }
+.row .r-dismiss:hover { color:var(--red); background:var(--surface2); }
 .row .r-meta { font-size:11px; color:var(--text2); display:flex; gap:8px; flex-wrap:wrap; }
 .row .r-meta b { color:var(--text); font-weight:600; }
 .row .r-tag { display:inline-block; padding:0 5px; border-radius:3px; font-size:10px;
