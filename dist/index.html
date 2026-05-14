@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.24';
+var APP_VERSION='0.1.25';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -802,11 +802,20 @@ function renderP1(){
     var rows = [];
     state.myCargo.forEach(function(c){ rows.push({kind:'cargo', data:c}); });
     state.myTonnage.forEach(function(t){ rows.push({kind:'tonnage', data:t}); });
+    // Hide circulations older than 12h: stale data only adds noise,
+    // counterparties have moved on. Mirrors the P2 freshness rule.
+    rows = rows.filter(function(r){
+        var ts = r.data.published_at;
+        if(!ts) return true;
+        var ageH = (Date.now() - new Date(ts).getTime()) / 3600000;
+        return ageH <= 12;
+    });
     document.getElementById('p1-count').textContent = rows.length;
     if(rows.length===0){
-        body.innerHTML = '<div class="col-empty">Нет циркуляций.<span class="hint">Нажми <b>＋ Publish</b> чтобы опубликовать груз или тоннаж.</span></div>';
+        body.innerHTML = '<div class="col-empty">Нет свежих циркуляций.<span class="hint">Старее 12ч скрыты. Нажми <b>＋ Publish</b> или жди свежий поток с базара.</span></div>';
         return;
     }
+    // Freshest at the top.
     rows.sort(function(a,b){
         return (b.data.published_at||'').localeCompare(a.data.published_at||'');
     });
@@ -942,9 +951,14 @@ function renderP2(){
         return;
     }
     rows.sort(function(a,b){
-        // Pinned always first; then smallest size; then score desc.
+        // Pinned always first; then freshest (smallest age) — fresh
+        // signals = highest fix probability; older ones (within the
+        // 12h visibility window) sink to the bottom. Score is the
+        // final tie-breaker.
         if(a._pinned !== b._pinned) return a._pinned ? -1 : 1;
-        if(a._size !== b._size) return a._size - b._size;
+        var aA = a._ageH == null ? 99 : a._ageH;
+        var bA = b._ageH == null ? 99 : b._ageH;
+        if(aA !== bA) return aA - bA;
         return b.score - a.score;
     });
     body.innerHTML = rows.map(function(r){
