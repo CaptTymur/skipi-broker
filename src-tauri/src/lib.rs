@@ -49,6 +49,11 @@ pub struct Settings {
     /// Recipient list for circular emails. One email per line in the
     /// settings UI; persisted as Vec<String>.
     pub recipients: Vec<String>,
+
+    /// Team chat nickname — short label sent as `sender_nickname`
+    /// when posting to /api/team/messages. Empty falls back to
+    /// `display_name`. Local-only field, never sent to listings.
+    pub team_nickname: String,
 }
 
 impl Settings {
@@ -631,6 +636,69 @@ fn send_circular_email(
     send_smtp_circular(&s.smtp, &s.recipients, &subject, &body)
 }
 
+// ---------- Team chat (operators sharing one broker_id) ----------
+
+#[tauri::command]
+fn send_team_message(
+    state: tauri::State<'_, AppState>,
+    body: String,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    if s.broker_id.is_empty() {
+        return Err("Broker not registered — open Settings and register first.".into());
+    }
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        return Err("Empty message.".into());
+    }
+    let nickname = if !s.team_nickname.trim().is_empty() {
+        s.team_nickname.trim().to_string()
+    } else if !s.display_name.trim().is_empty() {
+        s.display_name.trim().to_string()
+    } else {
+        "anon".to_string()
+    };
+    let payload = serde_json::json!({
+        "broker_id": s.broker_id,
+        "sender_nickname": nickname,
+        "body": trimmed,
+    });
+    request_api(
+        &state,
+        &s,
+        reqwest::Method::POST,
+        "/api/team/messages",
+        &s.bearer_token,
+        Some(&payload),
+    )
+}
+
+#[tauri::command]
+fn fetch_team_messages(
+    state: tauri::State<'_, AppState>,
+    since: Option<String>,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    if s.broker_id.is_empty() {
+        return Err("Broker not registered — open Settings and register first.".into());
+    }
+    let mut path = format!("/api/team/messages?broker_id={}", s.broker_id);
+    if let Some(ts) = since.as_deref().map(str::trim).filter(|x| !x.is_empty()) {
+        // ISO timestamps may carry `+` (e.g. `+00:00`) which a raw
+        // query string would decode as space — percent-encode the
+        // whole value to keep FastAPI's datetime parser happy.
+        path.push_str(&format!("&since={}", url_percent_encode(ts)));
+    }
+    request_api(
+        &state,
+        &s,
+        reqwest::Method::GET,
+        &path,
+        &s.bearer_token,
+        None,
+    )
+}
+
 // ---------- Counterparty channels: .eml + WhatsApp deep-link ----------
 //
 // Two viral, ToS-safe outbound channels alongside the conditional E2E
@@ -1074,6 +1142,8 @@ pub fn run() {
             pin_bazaar_match,
             unpin_bazaar_match,
             send_circular_email,
+            send_team_message,
+            fetch_team_messages,
             generate_eml,
             open_whatsapp,
             open_wa_chat,
