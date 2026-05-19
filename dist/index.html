@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.26';
+var APP_VERSION='0.1.27';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -138,24 +138,32 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .chat-stub { padding:24px 20px; text-align:center; color:var(--text3); font-size:12px; line-height:1.5; }
 .chat-stub .icon { font-size:30px; opacity:.4; margin-bottom:10px; }
 
-/* Team chat modal */
-.team-modal { width:520px; height:600px; max-width:96vw; max-height:90vh; }
-.team-stream { flex:1; overflow-y:auto; padding:14px 16px; display:flex; flex-direction:column; gap:8px;
-    background:var(--surface2); }
-.team-empty { color:var(--text3); font-size:12px; text-align:center; margin:auto 0; }
-.team-msg { display:flex; flex-direction:column; max-width:78%; padding:7px 11px; border-radius:8px;
+/* Team chat — inline at the bottom of P1 */
+.team-pane { display:flex; flex-direction:column; flex:1; min-height:180px; border-top:1px solid var(--border);
+    overflow:hidden; }
+.team-name-row { display:flex; align-items:center; gap:6px; padding:5px 8px; background:var(--surface);
+    border-bottom:1px solid var(--border); flex-shrink:0; }
+.team-name-row label { font-size:10px; color:var(--text3); text-transform:uppercase; letter-spacing:.05em; }
+.team-name-row input { flex:1; padding:3px 6px; background:var(--surface2); border:1px solid var(--border);
+    border-radius:3px; outline:none; font-size:11px; color:var(--text); }
+.team-name-row input:focus { border-color:var(--accent); }
+.team-stream { flex:1; overflow-y:auto; padding:8px 10px; display:flex; flex-direction:column; gap:6px;
+    background:var(--surface2); min-height:0; }
+.team-empty { color:var(--text3); font-size:11px; text-align:center; padding:18px 12px; line-height:1.5; }
+.team-msg { display:flex; flex-direction:column; max-width:88%; padding:5px 9px; border-radius:7px;
     background:var(--surface); border:1px solid var(--border); }
 .team-msg.mine { align-self:flex-end; background:rgba(70,130,180,.18); border-color:rgba(70,130,180,.4); }
-.team-msg-meta { font-size:10px; color:var(--text3); margin-bottom:2px; display:flex; gap:8px; }
+.team-msg-meta { font-size:9px; color:var(--text3); margin-bottom:1px; display:flex; gap:6px; }
 .team-msg-meta .nick { color:var(--text2); font-weight:600; }
-.team-msg-body { font-size:12px; line-height:1.4; white-space:pre-wrap; word-break:break-word; }
-.team-day-sep { text-align:center; color:var(--text3); font-size:10px; margin:6px 0; text-transform:uppercase;
+.team-msg-body { font-size:11px; line-height:1.4; white-space:pre-wrap; word-break:break-word; }
+.team-day-sep { text-align:center; color:var(--text3); font-size:9px; margin:4px 0; text-transform:uppercase;
     letter-spacing:.06em; }
-.team-composer { display:flex; gap:8px; padding:10px 12px; border-top:1px solid var(--border); }
-.team-composer textarea { flex:1; resize:none; min-height:38px; max-height:140px; padding:8px 10px;
-    background:var(--surface); border:1px solid var(--border); border-radius:5px; outline:none;
-    font-family:var(--font-ui); font-size:12px; color:var(--text); }
+.team-composer { display:flex; gap:6px; padding:6px 8px; border-top:1px solid var(--border); flex-shrink:0; }
+.team-composer textarea { flex:1; resize:none; min-height:30px; max-height:80px; padding:5px 7px;
+    background:var(--surface); border:1px solid var(--border); border-radius:3px; outline:none;
+    font-family:var(--font-ui); font-size:11px; color:var(--text); }
 .team-composer textarea:focus { border-color:var(--accent); }
+.team-composer .btn-sm { padding:0 10px; align-self:stretch; }
 
 /* Modal — used for + Publish wizard */
 .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:50;
@@ -222,7 +230,6 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 <div class="modules-bar">
     <div class="mod-tab active" id="nav-bazaar" onclick="showView('bazaar')">🛒 Базар</div>
     <div class="mod-tab" id="nav-publish" onclick="openPublishModal()">＋ Опубликовать</div>
-    <div class="mod-tab" id="nav-team" onclick="openTeamChat()" title="Командный чат на одном broker_id">👥 Команда <span id="team-unread" class="count" style="display:none;">0</span></div>
     <div class="mb-spacer"></div>
     <div class="mb-identity" id="mb-identity">Не зарегистрирован</div>
     <div class="mb-gear" onclick="openSettings()" title="Settings">⚙</div>
@@ -238,13 +245,28 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
             </div>
             <div class="col-body" id="p0-body"></div>
         </div>
-        <!-- P1 — my listings -->
+        <!-- P1 — my listings (top) + team chat (bottom) -->
         <div class="col" style="flex:1.0">
             <div class="col-head">
                 <span>Мои циркуляции</span>
                 <span class="count" id="p1-count">0</span>
             </div>
-            <div class="col-body" id="p1-body"></div>
+            <div class="col-body" id="p1-body" style="flex:1.4 1 0;"></div>
+            <div class="col-head" style="background:var(--surface2);">
+                <span>👥 Команда</span>
+                <span class="count" id="team-unread"></span>
+            </div>
+            <div class="team-pane">
+                <div class="team-name-row">
+                    <label>Имя</label>
+                    <input id="team-name" placeholder="Ваше имя" oninput="onTeamNameInput()" onblur="saveTeamNameInline()">
+                </div>
+                <div class="team-stream" id="team-stream"></div>
+                <div class="team-composer">
+                    <textarea id="team-input" placeholder="Сообщение… (Enter — отправить)" onkeydown="teamKeyDown(event)"></textarea>
+                    <button class="btn btn-accent btn-sm" onclick="teamSend()">▶</button>
+                </div>
+            </div>
         </div>
         <!-- P2 — matches for selected P1 -->
         <div class="col" style="flex:1.4">
@@ -311,21 +333,6 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
     </div>
 </div>
 
-<!-- Team chat modal -->
-<div class="modal-overlay" id="team-overlay" onclick="if(event.target===this)closeTeamChat();">
-    <div class="modal team-modal">
-        <div class="modal-head">
-            <h2>👥 Командный чат <span id="team-room" style="font-size:11px; color:var(--text3); font-weight:normal; margin-left:8px;"></span></h2>
-            <div class="close-x" onclick="closeTeamChat()">×</div>
-        </div>
-        <div class="team-stream" id="team-stream"></div>
-        <div class="team-composer">
-            <textarea id="team-input" placeholder="Сообщение для команды… (Enter — отправить, Shift+Enter — новая строка)" onkeydown="teamKeyDown(event)"></textarea>
-            <button class="btn btn-accent" onclick="teamSend()">▶</button>
-        </div>
-    </div>
-</div>
-
 <!-- Feedback modal -->
 <div class="modal-overlay" id="feedback-overlay" onclick="if(event.target===this)postponeFeedback();">
     <div class="modal" style="width:520px;">
@@ -359,13 +366,11 @@ var state = {
     publish: { side:null },  // null | 'cargo' | 'tonnage'
     settingsTab: 'connection',
     team: {
-        open: false,
         messages: [],        // chronological asc
-        lastTs: null,        // ISO timestamp of newest message we've seen
-        pollTimer: null,     // setInterval id while modal open
-        bgTimer: null,       // background unread poll
-        unread: 0,           // count since last open
-        lastSeenTs: null,    // newest ts when user last looked at chat
+        lastTs: null,        // ISO timestamp of newest message we have
+        pollTimer: null,     // setInterval id; 4s while broker registered
+        unread: 0,           // unread badge in P1 team header
+        lastSeenTs: null,    // newest ts at last "scrolled to bottom"
     },
 };
 
@@ -619,59 +624,50 @@ function refreshIdentityBadge(){
 
 // ---------- Team chat ----------
 //
-// Polling-based chat between operators sharing one broker_id. The
-// modal owns the foreground 4s poll; a slower background poll runs
-// while the app is open so the 👥 Команда tab can show an unread
-// badge even with the modal closed. Server scopes all reads/writes
-// by the calling client's broker_id (set in Settings → Identity).
+// Inline polling-based chat between operators sharing one broker_id.
+// Lives in the lower half of P1; always visible while the broker is
+// registered. The chat polls every 4s when the app is in focus.
+// Nickname is the visible label on each message and gets persisted
+// to settings the moment the user blurs the input.
 
-function openTeamChat(){
-    if(!state.settings.broker_id){
-        showToast('Сначала зарегистрируй брокера в Настройках.', 'error');
-        openSettings();
-        return;
+function initTeamChat(){
+    if(!state.settings.broker_id) return;
+    // Seed nickname input from saved settings; if empty, fall back to
+    // display_name so the user has something usable on first run.
+    var nameEl = document.getElementById('team-name');
+    if(nameEl){
+        var saved = (state.settings.team_nickname || '').trim();
+        nameEl.value = saved || (state.settings.display_name || '');
     }
-    state.team.open = true;
-    document.getElementById('team-overlay').classList.add('open');
-    var room = document.getElementById('team-room');
-    if(room) room.textContent = state.settings.broker_id.slice(0,8) + '…';
-    // Reset unread immediately so badge clears as soon as user clicks in.
-    state.team.unread = 0;
-    state.team.lastSeenTs = state.team.lastTs;
-    renderTeamUnread();
     renderTeamStream();
-    // Kick a fresh fetch + focus composer.
-    teamPollOnce(true).then(function(){
-        var ta = document.getElementById('team-input');
-        if(ta) ta.focus();
-    });
+    teamPollOnce(true);
     if(!state.team.pollTimer){
-        state.team.pollTimer = setInterval(function(){ teamPollOnce(false); }, 4000);
+        state.team.pollTimer = setInterval(function(){
+            if(document.hidden) return;
+            teamPollOnce(false);
+        }, 4000);
     }
 }
 
-function closeTeamChat(){
-    state.team.open = false;
-    document.getElementById('team-overlay').classList.remove('open');
-    if(state.team.pollTimer){
-        clearInterval(state.team.pollTimer);
-        state.team.pollTimer = null;
-    }
-    state.team.lastSeenTs = state.team.lastTs;
-    state.team.unread = 0;
-    renderTeamUnread();
+function onTeamNameInput(){
+    // Live in-memory update so renderTeamStream knows what's "mine"
+    // without waiting for the blur-save round-trip.
+    var nameEl = document.getElementById('team-name');
+    if(!nameEl) return;
+    state.settings.team_nickname = (nameEl.value || '').trim();
+    renderTeamStream();
 }
 
-function startTeamBackgroundPoll(){
-    if(state.team.bgTimer) return;
-    // Cheap unread check every 15s while app is open. Foreground poll
-    // (when modal is open) runs at 4s, so this is just for the badge.
-    state.team.bgTimer = setInterval(function(){
-        if(state.team.open) return;       // foreground poll covers it
-        if(document.hidden) return;
-        if(!state.settings.broker_id) return;
-        teamPollOnce(false).catch(function(){});
-    }, 15000);
+async function saveTeamNameInline(){
+    var nameEl = document.getElementById('team-name');
+    if(!nameEl) return;
+    var s = state.settings;
+    s.team_nickname = (nameEl.value || '').trim();
+    try {
+        state.settings = await invoke('save_settings', { incoming:s });
+    } catch(e){
+        showToast('Имя: '+e, 'error');
+    }
 }
 
 async function teamPollOnce(initial){
@@ -681,33 +677,42 @@ async function teamPollOnce(initial){
         if(state.team.lastTs && !initial){ args.since = state.team.lastTs; }
         var rows = await invoke('fetch_team_messages', args);
         if(!Array.isArray(rows)) return;
+        var hadNew = false;
         if(initial){
-            // Full reload — replace the buffer.
             state.team.messages = rows;
+            hadNew = rows.length > 0;
         } else if(rows.length > 0){
-            // Incremental — append, dedup defensively by id.
             var existing = {};
             state.team.messages.forEach(function(m){ existing[m.id] = true; });
-            rows.forEach(function(m){ if(!existing[m.id]) state.team.messages.push(m); });
+            rows.forEach(function(m){
+                if(!existing[m.id]){ state.team.messages.push(m); hadNew = true; }
+            });
         }
         if(state.team.messages.length > 0){
             state.team.lastTs = state.team.messages[state.team.messages.length - 1].created_at;
         }
-        // Unread = messages strictly newer than what user has seen.
+        // Unread badge: messages from someone else newer than the last
+        // time the user's chat scroll was at the bottom. The simplest
+        // proxy is "received while not at bottom" — accept the
+        // slightly coarser definition and just always-clear when the
+        // chat scrolls to bottom (handled in renderTeamStream).
         if(state.team.lastSeenTs == null){
             state.team.lastSeenTs = state.team.lastTs;
         }
+        var mine = _myNickname();
         var unread = 0;
         state.team.messages.forEach(function(m){
-            if(m.created_at > state.team.lastSeenTs && m.sender_nickname !== _myNickname()){
+            if(m.created_at > state.team.lastSeenTs && m.sender_nickname !== mine){
                 unread++;
             }
         });
         state.team.unread = unread;
         renderTeamUnread();
-        if(state.team.open) renderTeamStream();
+        if(hadNew) renderTeamStream();
     } catch(e){
-        if(state.team.open) showToast('Чат: '+e, 'error');
+        // Silent in the inline pane — error toast on every 4s poll
+        // would be obnoxious if the server is briefly unreachable.
+        console.warn('team poll', e);
     }
 }
 
@@ -721,12 +726,7 @@ function _myNickname(){
 function renderTeamUnread(){
     var el = document.getElementById('team-unread');
     if(!el) return;
-    if(state.team.unread > 0){
-        el.textContent = state.team.unread;
-        el.style.display = '';
-    } else {
-        el.style.display = 'none';
-    }
+    el.textContent = state.team.unread > 0 ? state.team.unread : '';
 }
 
 function renderTeamStream(){
@@ -734,7 +734,7 @@ function renderTeamStream(){
     if(!stream) return;
     var msgs = state.team.messages || [];
     if(msgs.length === 0){
-        stream.innerHTML = '<div class="team-empty">Пока пусто. Напиши первое сообщение — оно появится у напарника, у которого тот же <code>broker_id</code>.</div>';
+        stream.innerHTML = '<div class="team-empty">Чат с теми, кто работает под тем же <code>broker_id</code>. Напиши первое сообщение.</div>';
         return;
     }
     var mine = _myNickname();
@@ -752,11 +752,14 @@ function renderTeamStream(){
               + '<div class="team-msg-body">'+esc(m.body||'')+'</div>'
               + '</div>';
     });
-    // Preserve scroll position if user has scrolled up; otherwise stick to bottom.
     var nearBottom = (stream.scrollHeight - stream.scrollTop - stream.clientHeight) < 80;
     stream.innerHTML = html;
     if(nearBottom){
         stream.scrollTop = stream.scrollHeight;
+        // Treat "scrolled to bottom" as "user has seen everything".
+        state.team.lastSeenTs = state.team.lastTs;
+        state.team.unread = 0;
+        renderTeamUnread();
     }
 }
 
@@ -818,7 +821,7 @@ async function boot(){
     }
     await refreshAll();
     startAutoRefresh();
-    startTeamBackgroundPoll();
+    initTeamChat();
     maybePromptForFeedback('broker-board');
 }
 
@@ -1877,7 +1880,6 @@ function renderSettingsNav(){
     var tabs = [
         {id:'connection', label:'Подключение'},
         {id:'identity',   label:'Профиль брокера'},
-        {id:'team',       label:'Команда'},
         {id:'reply',      label:'Reply-to'},
         {id:'appearance', label:'Внешний вид'},
         {id:'about',      label:'О программе'},
@@ -1917,13 +1919,6 @@ function renderSettingsBody(){
                 '<div class="field full"><label>Team broker_id</label><input id="set-team-bid" value="'+esc(s.broker_id||'')+'" placeholder="вставь UUID"></div>'+
             '</div>'+
             '<div style="margin-top:10px;"><button class="btn" onclick="overrideBrokerId()">Использовать этот ID</button></div>';
-    } else if(t==='team'){
-        body.innerHTML = '<h3>Командный чат</h3><div class="sub">Чат между операторами, работающими под одним <code>broker_id</code>. Ник — это короткая подпись, которую увидит напарник. Если пусто — используется имя из профиля брокера.</div>'+
-            '<div class="field-grid">'+
-                '<div class="field full"><label>Ник в чате</label><input id="set-nickname" value="'+esc(s.team_nickname||'')+'" placeholder="например: Тимур"></div>'+
-            '</div>'+
-            '<div style="margin-top:18px;"><button class="btn btn-accent" onclick="saveTeamNickname()">Сохранить</button></div>'+
-            '<div class="sub" style="margin-top:18px;">⚠ Сообщения хранятся на сервере в открытом виде (не E2E). Не пиши то, что не должно увидеть третье лицо с админ-доступом к серверу.</div>';
     } else if(t==='reply'){
         body.innerHTML = '<h3>Reply-to</h3><div class="sub">Отправитель в подготовленных .eml письмах.</div>'+
             '<div class="field-grid">'+
@@ -1972,13 +1967,6 @@ async function registerBroker(){
         renderSettingsBody();
         await refreshAll();
     } catch(e){ showToast('Register: '+e, 'error'); }
-}
-
-async function saveTeamNickname(){
-    var s = state.settings;
-    s.team_nickname = val('set-nickname');
-    try { state.settings = await invoke('save_settings', { incoming:s }); showToast('Сохранено.', 'ok'); }
-    catch(e){ showToast('Save: '+e, 'error'); }
 }
 
 async function overrideBrokerId(){
