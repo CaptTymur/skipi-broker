@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.30';
+var APP_VERSION='0.1.31';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -271,15 +271,16 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 </div>
 
 <div class="app">
-    <!-- View 1: Эксклюзивы — my listings (left) + selected listing detail (right) -->
+    <!-- View 1: Эксклюзивы — 4-column drill-down mirroring view-match, but indexed
+         by MY listing instead of by bazaar signal. -->
     <div class="columns view-pane" id="view-ex">
-        <!-- Left: my listings + team chat slot -->
+        <!-- Col 1: top = selected exclusive detail; bottom = team chat -->
         <div class="col" style="flex:1.0">
             <div class="col-head">
-                <span>📋 Мои эксклюзивные циркуляции</span>
-                <span class="count" id="p1-count">0</span>
+                <span>📋 Моя циркуляция</span>
+                <span class="count" id="p0-age"></span>
             </div>
-            <div class="col-body" id="p1-body" style="flex:1.4 1 0;"></div>
+            <div class="col-body" id="p0-body" style="flex:1.4 1 0;"></div>
             <div class="team-mount" id="team-mount-ex">
                 <!-- Team chat lives here by default; showView() moves it to view-match's mount when needed. -->
                 <div id="team-block" class="team-block">
@@ -301,13 +302,33 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
                 </div>
             </div>
         </div>
-        <!-- Right: selected listing detail + actions -->
-        <div class="col" style="flex:2.0">
+        <!-- Col 2: my exclusive listings -->
+        <div class="col" style="flex:1.0">
             <div class="col-head">
-                <span>Циркуляция</span>
-                <span class="count" id="p0-age"></span>
+                <span>📋 Эксклюзивы</span>
+                <span class="count" id="p1-count">0</span>
             </div>
-            <div class="col-body" id="p0-body"></div>
+            <div class="col-body" id="p1-body"></div>
+        </div>
+        <!-- Col 3: bazaar signals matching the selected exclusive -->
+        <div class="col" style="flex:1.2">
+            <div class="col-head">
+                <span>Совпадения из базара</span>
+                <span style="display:flex; gap:4px;">
+                    <span class="p2-tab" id="ex-tab-all" onclick="exSetFilter('all')">All</span>
+                    <span class="p2-tab" id="ex-tab-work" onclick="exSetFilter('work')">📌 В работе</span>
+                </span>
+                <span class="count" id="ex-matches-count">0</span>
+            </div>
+            <div class="col-body" id="ex-matches-body"></div>
+        </div>
+        <!-- Col 4: details of selected match — raw signal text + counterparty contact -->
+        <div class="col" style="flex:1.5">
+            <div class="col-head">
+                <span>Детали сигнала</span>
+                <span class="count" id="ex-signal-meta"></span>
+            </div>
+            <div class="col-body" id="ex-signal-body"></div>
         </div>
     </div>
 
@@ -992,6 +1013,7 @@ async function refreshAll(){
     // Both views re-render from the same state — render them all so
     // switching tabs is instant, no stale frame.
     renderP0(); renderP1();
+    renderExMatchesForSelectedListing();
     renderSignalsFeed(); renderSelectedSignalDetail();
     renderMatchesForSelectedSignal(); renderSelectedMatchDetail();
     renderStatusBar(); renderMatchBadge();
@@ -1019,7 +1041,30 @@ function showView(name){
     // Re-render the active view's data (cheap; everything is already
     // in state, this just ensures freshness after a long idle).
     if(name === 'ex'){
+        // Auto-pick the first exclusive listing on first entry so col 3/4 start populated.
+        if(!state.selectedListing){
+            var allMine = (state.myCargo || []).concat(state.myTonnage || [])
+                .sort(function(a, b){ return Date.parse(b.published_at || '') - Date.parse(a.published_at || ''); });
+            if(allMine.length > 0){
+                var first = allMine[0];
+                var kind = (state.myCargo || []).indexOf(first) >= 0 ? 'cargo' : 'tonnage';
+                state.selectedListing = { kind:kind, id:first.id };
+                refreshInbox().then(function(){
+                    renderP0(); renderP1();
+                    // Auto-pick best bazaar match for col 4.
+                    var cand = (state.inbox.bazaar_matches || []).slice()
+                        .sort(function(a, b){ return Number(b.score || 0) - Number(a.score || 0); });
+                    if(cand.length > 0){
+                        state.selectedMatch = { type:'bazaar', data: cand[0] };
+                    }
+                    renderExMatchesForSelectedListing();
+                    renderSelectedMatchDetail();
+                });
+            }
+        }
         renderP0(); renderP1();
+        renderExMatchesForSelectedListing();
+        renderSelectedMatchDetail();
     } else {
         // Auto-pick the freshest signal on first entry so col 3/4 aren't empty.
         if(!state.selectedSignal){
@@ -1154,7 +1199,9 @@ function selectMatchInCol3(matchId){
     var m = _findBazaarMatchById(matchId);
     if(!m) return;
     state.selectedMatch = { type:'bazaar', data:m };
+    // Both views render col 3 — call both, the inactive view is hidden anyway.
     renderMatchesForSelectedSignal();
+    renderExMatchesForSelectedListing();
     renderSelectedMatchDetail();
 }
 
@@ -1214,12 +1261,18 @@ function renderSelectedSignalDetail(){
 
 // ---------- View-match: column 4 — full details of selected match ----------
 function renderSelectedMatchDetail(){
-    var body = document.getElementById('match-detail-body');
-    var meta = document.getElementById('match-detail-meta');
-    if(!body) return;
+    // The match detail panel lives in col 4 of BOTH tabs (view-match
+    // and view-ex). Each has its own DOM ids; render into whichever
+    // exists so switching tabs is instant and either view shows the
+    // currently selected match.
+    var bodies = [
+        { body: document.getElementById('match-detail-body'), meta: document.getElementById('match-detail-meta') },
+        { body: document.getElementById('ex-signal-body'),    meta: document.getElementById('ex-signal-meta') },
+    ].filter(function(b){ return b.body; });
+    if(bodies.length === 0) return;
     if(!state.selectedMatch || state.selectedMatch.type !== 'bazaar'){
-        body.innerHTML = '<div class="col-empty">Выбери совпадение в соседней колонке чтобы увидеть оригинальное сообщение и контакты.</div>';
-        if(meta) meta.textContent = '';
+        var emptyHtml = '<div class="col-empty">Выбери совпадение в соседней колонке чтобы увидеть оригинальное сообщение и контакты.</div>';
+        bodies.forEach(function(b){ b.body.innerHTML = emptyHtml; if(b.meta) b.meta.textContent = ''; });
         return;
     }
     var m = state.selectedMatch.data;
@@ -1231,7 +1284,7 @@ function renderSelectedMatchDetail(){
     var contactEmail = reasons.contact_email || sig.posted_by_email || '';
     var contactPhone = reasons.contact_phone || '';
     var contactName = reasons.contact_name || sig.posted_by_name || '';
-    if(meta) meta.textContent = 'score ' + Number(m.score || 0);
+    var scoreLabel = 'score ' + Number(m.score || 0);
 
     var html = '';
 
@@ -1292,7 +1345,10 @@ function renderSelectedMatchDetail(){
         }
     }
 
-    body.innerHTML = html;
+    bodies.forEach(function(b){
+        b.body.innerHTML = html;
+        if(b.meta) b.meta.textContent = scoreLabel;
+    });
 }
 
 // ---------- View-match: matches list for selected signal (right column) ----------
@@ -1372,6 +1428,80 @@ function _findBazaarMatchById(matchId){
     return (state.inbox.bazaar_matches || []).filter(function(m){ return m.id === matchId; })[0] || null;
 }
 
+// ---------- View-ex (Эксклюзивы): col 3 — bazaar signals matching the selected exclusive ----------
+//
+// Mirror of renderMatchesForSelectedSignal, but indexed by my listing
+// instead of by signal. The data is the same state.inbox.bazaar_matches
+// — already server-scoped by selectedListing.id, so we just render all
+// of them, displaying the SIGNAL side (since my listing is constant
+// across all rows here).
+function renderExMatchesForSelectedListing(){
+    var body = document.getElementById('ex-matches-body');
+    var count = document.getElementById('ex-matches-count');
+    if(!body) return;
+
+    if(!state.selectedListing){
+        body.innerHTML = '<div class="col-empty">Выбери эксклюзив в соседней колонке чтобы увидеть какие сигналы из базара ему подходят.</div>';
+        if(count) count.textContent = '0';
+        return;
+    }
+
+    var matches = (state.inbox.bazaar_matches || []).slice();
+    // Sort by score desc — best-fit signals at the top.
+    matches.sort(function(a, b){ return Number(b.score || 0) - Number(a.score || 0); });
+
+    var filter = state.exFilter || 'all';
+    var tabAll  = document.getElementById('ex-tab-all');
+    var tabWork = document.getElementById('ex-tab-work');
+    if(tabAll) tabAll.classList.toggle('active', filter === 'all');
+    if(tabWork) tabWork.classList.toggle('active', filter === 'work');
+    if(filter === 'work'){
+        matches = matches.filter(function(m){ return !!m.pinned_at; });
+    }
+    if(count) count.textContent = matches.length;
+
+    if(matches.length === 0){
+        body.innerHTML = '<div class="col-empty">Под этот эксклюзив пока нет совпадений из базара.<br><span class="hint">Нажми 🔄 в шапке базара (Совпадения), чтобы агент обновился.</span></div>';
+        return;
+    }
+
+    var selMatchId = (state.selectedMatch && state.selectedMatch.type === 'bazaar')
+        ? state.selectedMatch.data.id : null;
+    var html = matches.map(function(m){
+        var pinned = !!m.pinned_at;
+        var score = Number(m.score || 0);
+        var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal || {};
+        var sigKind = m.bazaar_cargo_signal ? 'cargo' : 'tonnage';
+        var sigTitle = sig.title || (sigKind === 'cargo'
+            ? ((sig.cargo_type || '?') + ' ' + (sig.load_port || '') + '→' + (sig.disch_port || ''))
+            : ((sig.vessel_name || sig.vessel_type || '?') + ' ' + (sig.open_port || '')));
+        var phone = (m.reasons && m.reasons.contact_phone) || '';
+        var email = (m.reasons && m.reasons.contact_email) || sig.posted_by_email || '';
+        var sel = (m.id === selMatchId);
+        var ageMin = sig.first_seen_at ? Math.floor((Date.now() - Date.parse(sig.first_seen_at)) / 60000) : null;
+        var ageLabel = ageMin == null ? '' : (ageMin < 60 ? (ageMin + 'м') : (Math.floor(ageMin / 60) + 'ч'));
+
+        return '<div class="match-card '+(pinned ? 'pinned ' : '')+(sel ? 'active' : '')+'" onclick="selectMatchInCol3(\''+esc(m.id)+'\')">'
+            + '<div class="mc-head">'
+            + '<span class="mc-title">'+(sigKind === 'cargo' ? '📦' : '🚢')+' '+esc(truncate(sigTitle, 46))+'</span>'
+            + '<span class="mc-score">'+score+' · '+esc(ageLabel)+'</span>'
+            + '</div>'
+            + '<div class="mc-meta">' + (email ? 'от: '+esc(email) : 'источник: ' + esc(sig.source || '—')) + '</div>'
+            + '<div class="mc-actions" onclick="event.stopPropagation();">'
+            + '<button class="btn btn-sm" onclick="quickEml(\''+esc(m.id)+'\')" title="Сгенерировать .eml — предложить мой эксклюзив контрагенту">📧 .eml</button>'
+            + (phone ? '<button class="btn btn-sm" onclick="quickWa(\''+esc(m.id)+'\')" title="Открыть WhatsApp">💬 WA</button>' : '')
+            + '<button class="btn btn-sm" onclick="quickPin(\''+esc(m.id)+'\')" title="' + (pinned ? 'Открепить' : 'Закрепить — пометить в работе') + '">' + (pinned ? '📍' : '📌') + '</button>'
+            + '</div>'
+            + '</div>';
+    }).join('');
+    body.innerHTML = html;
+}
+
+function exSetFilter(mode){
+    state.exFilter = mode;
+    renderExMatchesForSelectedListing();
+}
+
 async function quickEml(matchId){
     var m = _findBazaarMatchById(matchId);
     if(!m) return;
@@ -1404,6 +1534,7 @@ async function quickPin(matchId){
         Object.assign(m, updated);
         renderSignalsFeed();
         renderMatchesForSelectedSignal();
+        renderExMatchesForSelectedListing();
         renderSelectedMatchDetail();
         showToast(m.pinned_at ? '📌 в работе' : 'Откреплено', 'ok');
     } catch(e){
@@ -1656,7 +1787,21 @@ async function selectListing(kind, id){
     state.selectedListing = { kind:kind, id:id };
     state.selectedMatch = null;
     await refreshInbox();
-    renderP0(); renderP1(); renderP2(); renderP3(); renderP4();
+    renderP0(); renderP1();
+    // View-ex (Эксклюзивы) col 3/4 — bazaar matches against this listing.
+    renderExMatchesForSelectedListing();
+    // Auto-pick the best-scoring bazaar match so col 4 starts populated.
+    var candidates = (state.inbox.bazaar_matches || []).slice().sort(function(a, b){
+        return Number(b.score || 0) - Number(a.score || 0);
+    });
+    if(candidates.length > 0){
+        state.selectedMatch = { type:'bazaar', data: candidates[0] };
+        renderExMatchesForSelectedListing();
+    }
+    renderSelectedMatchDetail();
+    // Keep view-match in sync too (the legacy bridge: renderP2/3/4
+    // routes to the right place via the no-op guards we added earlier).
+    renderP2(); renderP3(); renderP4();
 }
 
 // ---------- P2 — matches feed ----------
