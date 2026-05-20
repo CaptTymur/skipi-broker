@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.28';
+var APP_VERSION='0.1.29';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -138,6 +138,23 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .chat-stub { padding:24px 20px; text-align:center; color:var(--text3); font-size:12px; line-height:1.5; }
 .chat-stub .icon { font-size:30px; opacity:.4; margin-bottom:10px; }
 
+/* Tab view containers — only one visible at a time */
+.view-pane { flex:1; display:flex; overflow:hidden; }
+.team-mount { display:flex; flex-direction:column; min-height:200px; flex:1.0 1 0; border-top:1px solid var(--border); overflow:hidden; }
+.team-block { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
+
+/* View-match: signal-feed rows + match cards in right column */
+.r-top { display:flex; justify-content:space-between; align-items:baseline; gap:6px; }
+.r-top .r-score { font-size:10px; color:var(--text3); white-space:nowrap; }
+.match-card { padding:10px 12px; border-bottom:1px solid var(--border); }
+.match-card.pinned { background:linear-gradient(90deg, var(--accent-bg, rgba(70,130,180,.12)) 0%, transparent 60%); }
+.mc-head { display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:3px; }
+.mc-title { font-size:12px; font-weight:600; color:var(--text); }
+.mc-score { font-size:11px; color:var(--text3); white-space:nowrap; }
+.mc-meta { font-size:11px; color:var(--text2); margin-bottom:8px; }
+.mc-actions { display:flex; gap:6px; flex-wrap:wrap; }
+.mc-actions .btn { font-size:11px; padding:4px 9px; }
+
 /* Update banner — slim bar above modules-bar */
 .update-banner { display:flex; align-items:center; gap:12px; padding:7px 14px;
     background:linear-gradient(90deg, rgba(70,130,180,.18), rgba(70,130,180,.06));
@@ -242,7 +259,8 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 <div id="update-banner-host"></div>
 
 <div class="modules-bar">
-    <div class="mod-tab active" id="nav-bazaar" onclick="showView('bazaar')">🛒 Базар</div>
+    <div class="mod-tab active" id="nav-ex" onclick="showView('ex')">📋 Эксклюзивы</div>
+    <div class="mod-tab" id="nav-match" onclick="showView('match')">🎯 Совпадения <span id="match-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-publish" onclick="openPublishModal()">＋ Опубликовать</div>
     <div class="mb-spacer"></div>
     <div class="mb-identity" id="mb-identity">Не зарегистрирован</div>
@@ -250,66 +268,69 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 </div>
 
 <div class="app">
-    <div class="columns" id="columns">
-        <!-- P0 — details of selected own listing (sticky anchor across panels) -->
-        <div class="col" style="flex:1.3">
+    <!-- View 1: Эксклюзивы — my listings (left) + selected listing detail (right) -->
+    <div class="columns view-pane" id="view-ex">
+        <!-- Left: my listings + team chat slot -->
+        <div class="col" style="flex:1.0">
             <div class="col-head">
-                <span>Моя циркуляция</span>
+                <span>📋 Мои эксклюзивные циркуляции</span>
+                <span class="count" id="p1-count">0</span>
+            </div>
+            <div class="col-body" id="p1-body" style="flex:1.4 1 0;"></div>
+            <div class="team-mount" id="team-mount-ex">
+                <!-- Team chat lives here by default; showView() moves it to view-match's mount when needed. -->
+                <div id="team-block" class="team-block">
+                    <div class="col-head" style="background:var(--surface2);">
+                        <span>👥 Команда</span>
+                        <span class="count" id="team-unread"></span>
+                    </div>
+                    <div class="team-pane">
+                        <div class="team-name-row">
+                            <label>Имя</label>
+                            <input id="team-name" placeholder="Ваше имя" oninput="onTeamNameInput()" onblur="saveTeamNameInline()">
+                        </div>
+                        <div class="team-stream" id="team-stream"></div>
+                        <div class="team-composer">
+                            <textarea id="team-input" placeholder="Сообщение… (Enter — отправить)" onkeydown="teamKeyDown(event)"></textarea>
+                            <button class="btn btn-accent btn-sm" onclick="teamSend()">▶</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- Right: selected listing detail + actions -->
+        <div class="col" style="flex:2.0">
+            <div class="col-head">
+                <span>Циркуляция</span>
                 <span class="count" id="p0-age"></span>
             </div>
             <div class="col-body" id="p0-body"></div>
         </div>
-        <!-- P1 — my listings (top) + team chat (bottom) -->
+    </div>
+
+    <!-- View 2: Совпадения — signals feed (left) + matches for selected signal (right) -->
+    <div class="columns view-pane" id="view-match" style="display:none;">
+        <!-- Left: bazaar signals feed + team chat slot (empty until showView('match') migrates #team-block here) -->
         <div class="col" style="flex:1.0">
             <div class="col-head">
-                <span>Мои циркуляции</span>
-                <span class="count" id="p1-count">0</span>
+                <span>🎯 Свежие сигналы</span>
+                <span class="count" id="signals-count">0</span>
+                <span class="p2-refresh" id="p2-refresh" title="Запросить апдейт у агента — подтянуть свежие сигналы из mbox/ShipNext и пересчитать совпадения. Закреплённые (📌) сохранятся." onclick="actionAgentUpdate()">🔄</span>
             </div>
-            <div class="col-body" id="p1-body" style="flex:1.4 1 0;"></div>
-            <div class="col-head" style="background:var(--surface2);">
-                <span>👥 Команда</span>
-                <span class="count" id="team-unread"></span>
-            </div>
-            <div class="team-pane">
-                <div class="team-name-row">
-                    <label>Имя</label>
-                    <input id="team-name" placeholder="Ваше имя" oninput="onTeamNameInput()" onblur="saveTeamNameInline()">
-                </div>
-                <div class="team-stream" id="team-stream"></div>
-                <div class="team-composer">
-                    <textarea id="team-input" placeholder="Сообщение… (Enter — отправить)" onkeydown="teamKeyDown(event)"></textarea>
-                    <button class="btn btn-accent btn-sm" onclick="teamSend()">▶</button>
-                </div>
-            </div>
+            <div class="col-body" id="signals-body" style="flex:1.4 1 0;"></div>
+            <div class="team-mount" id="team-mount-match"></div>
         </div>
-        <!-- P2 — matches for selected P1 -->
-        <div class="col" style="flex:1.4">
+        <!-- Right: matches for selected signal -->
+        <div class="col" style="flex:2.0">
             <div class="col-head">
-                <span>Совпадения</span>
+                <span>Совпадения по сигналу</span>
                 <span style="display:flex; gap:4px;">
                     <span class="p2-tab" id="p2-tab-all" onclick="p2SetFilter('all')">All</span>
                     <span class="p2-tab" id="p2-tab-work" onclick="p2SetFilter('work')">📌 В работе</span>
                 </span>
-                <span class="p2-refresh" id="p2-refresh" title="Запросить апдейт у агента — подтянуть свежие сигналы из mbox/ShipNext и пересчитать совпадения. Закреплённые (📌) сохранятся." onclick="actionAgentUpdate()">🔄</span>
-                <span class="count" id="p2-count">0</span>
+                <span class="count" id="matches-for-signal-count">0</span>
             </div>
-            <div class="col-body" id="p2-body"></div>
-        </div>
-        <!-- P3 — counterparty details for selected match -->
-        <div class="col" style="flex:1.6">
-            <div class="col-head">
-                <span>Детали контрагента</span>
-                <span class="count" id="p3-score"></span>
-            </div>
-            <div class="col-body" id="p3-body"></div>
-        </div>
-        <!-- P4 — chat (E2E or fallback) -->
-        <div class="col" style="flex:1.2">
-            <div class="col-head">
-                <span>Чат</span>
-                <span class="count" id="p4-status"></span>
-            </div>
-            <div class="col-body" id="p4-body"></div>
+            <div class="col-body" id="matches-for-signal-body"></div>
         </div>
     </div>
     <div class="statusbar" id="statusbar">
@@ -379,6 +400,8 @@ var state = {
     selectedMatch: null,     // { type:'own'|'bazaar', data:{...} }
     publish: { side:null },  // null | 'cargo' | 'tonnage'
     settingsTab: 'connection',
+    view: 'ex',              // 'ex' = Эксклюзивы tab, 'match' = Совпадения tab
+    selectedSignal: null,    // { kind:'cargo'|'tonnage', id:'...' } — driver of view-match right column
     team: {
         messages: [],        // chronological asc
         lastTs: null,        // ISO timestamp of newest message we have
@@ -939,6 +962,7 @@ async function boot(){
     await refreshAll();
     startAutoRefresh();
     initTeamChat();
+    showView(state.view || 'ex');
     // Silent background check; banner appears only if a newer release is live.
     checkForUpdates();
     maybePromptForFeedback('broker-board');
@@ -946,7 +970,244 @@ async function boot(){
 
 async function refreshAll(){
     await Promise.all([refreshMyListings(), refreshInbox()]);
-    renderP0(); renderP1(); renderP2(); renderP3(); renderP4(); renderStatusBar();
+    // Both views re-render from the same state — render them all so
+    // switching tabs is instant, no stale frame.
+    renderP0(); renderP1();
+    renderSignalsFeed(); renderMatchesForSelectedSignal();
+    renderStatusBar(); renderMatchBadge();
+}
+
+// ---------- View switching (Эксклюзивы ↔ Совпадения) ----------
+function showView(name){
+    if(name !== 'ex' && name !== 'match') return;
+    state.view = name;
+    document.getElementById('view-ex').style.display = (name === 'ex') ? '' : 'none';
+    document.getElementById('view-match').style.display = (name === 'match') ? '' : 'none';
+    var navEx = document.getElementById('nav-ex');
+    var navMatch = document.getElementById('nav-match');
+    if(navEx) navEx.classList.toggle('active', name === 'ex');
+    if(navMatch) navMatch.classList.toggle('active', name === 'match');
+
+    // Single team-chat DOM hops between the two view mounts so the
+    // chat state (poll timer, scroll position) survives view switches.
+    var teamBlock = document.getElementById('team-block');
+    var mount = document.getElementById(name === 'ex' ? 'team-mount-ex' : 'team-mount-match');
+    if(teamBlock && mount && teamBlock.parentNode !== mount){
+        mount.appendChild(teamBlock);
+    }
+
+    // Re-render the active view's data (cheap; everything is already
+    // in state, this just ensures freshness after a long idle).
+    if(name === 'ex'){ renderP0(); renderP1(); }
+    else { renderSignalsFeed(); renderMatchesForSelectedSignal(); }
+    // Chat dom moved → repaint to restore the message list and scroll.
+    renderTeamStream();
+}
+
+function renderMatchBadge(){
+    var el = document.getElementById('match-badge');
+    if(!el) return;
+    var freshThreshold = Date.now() - 24 * 3600 * 1000;
+    var fresh = (state.inbox.bazaar_matches || []).filter(function(m){
+        var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal;
+        if(!sig || !sig.first_seen_at) return false;
+        return Date.parse(sig.first_seen_at) >= freshThreshold;
+    }).length;
+    if(fresh > 0){
+        el.textContent = fresh;
+        el.style.display = '';
+    } else {
+        el.style.display = 'none';
+    }
+}
+
+// ---------- View-match: signals feed (left column) ----------
+//
+// Groups state.inbox.bazaar_matches by signal so the left column shows
+// each unique signal once, ordered by first_seen_at desc. The same
+// signal may be matched against several of my listings — those become
+// the right-column rows after the user picks one signal.
+
+function _groupBazaarBySignal(){
+    var groups = {};   // signalKey -> { sig, kind, matches: [], best_score }
+    (state.inbox.bazaar_matches || []).forEach(function(m){
+        var kind = m.bazaar_cargo_signal ? 'cargo' : (m.bazaar_tonnage_signal ? 'tonnage' : null);
+        var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal;
+        if(!kind || !sig || !sig.id) return;
+        var key = kind + ':' + sig.id;
+        if(!groups[key]) groups[key] = { key:key, kind:kind, sig:sig, matches:[], best_score:0, fresh_at:sig.first_seen_at || '' };
+        groups[key].matches.push(m);
+        var score = Number(m.score || 0);
+        if(score > groups[key].best_score) groups[key].best_score = score;
+    });
+    return Object.keys(groups).map(function(k){ return groups[k]; })
+        .sort(function(a, b){
+            // Newest first; fall back to score when timestamps tie.
+            var ta = Date.parse(a.fresh_at || '') || 0;
+            var tb = Date.parse(b.fresh_at || '') || 0;
+            if(tb !== ta) return tb - ta;
+            return b.best_score - a.best_score;
+        });
+}
+
+function renderSignalsFeed(){
+    var body = document.getElementById('signals-body');
+    var count = document.getElementById('signals-count');
+    if(!body) return;
+    var groups = _groupBazaarBySignal();
+    if(count) count.textContent = groups.length;
+
+    if(groups.length === 0){
+        body.innerHTML = '<div class="col-empty">Агент пока не нашёл сигналов с совпадениями.<br><span class="hint">Нажми 🔄 в шапке колонки чтобы обновить.</span></div>';
+        return;
+    }
+
+    var selKey = state.selectedSignal ? (state.selectedSignal.kind + ':' + state.selectedSignal.id) : null;
+    var html = groups.map(function(g){
+        var sig = g.sig;
+        var kindIcon = g.kind === 'cargo' ? '📦' : '🚢';
+        var title = sig.title || (g.kind === 'cargo'
+            ? ((sig.cargo_type || '?') + ' ' + (sig.load_port || '') + '→' + (sig.disch_port || ''))
+            : ((sig.vessel_name || sig.vessel_type || '?') + ' ' + (sig.open_port || '')));
+        var meta = (sig.source || '—') + ' · ' + g.matches.length + ' матч' + (g.matches.length === 1 ? '' : 'ей') + ' · score ' + g.best_score;
+        var ageMin = sig.first_seen_at ? Math.floor((Date.now() - Date.parse(sig.first_seen_at)) / 60000) : null;
+        var ageLabel = ageMin == null ? '' : (ageMin < 60 ? (ageMin + 'м') : (Math.floor(ageMin / 60) + 'ч'));
+        var sel = (selKey === g.key);
+        return '<div class="row '+(sel?'active':'')+'" onclick="selectSignal(\''+g.kind+'\',\''+esc(sig.id)+'\')">'
+            + '<div class="r-top">'
+            + '<span class="r-title">'+kindIcon+' '+esc(truncate(title, 42))+'</span>'
+            + '<span class="r-score">'+esc(ageLabel)+'</span>'
+            + '</div>'
+            + '<div class="r-meta">'+esc(meta)+'</div>'
+            + '</div>';
+    }).join('');
+    body.innerHTML = html;
+}
+
+function selectSignal(kind, id){
+    state.selectedSignal = { kind:kind, id:id };
+    state.selectedMatch = null;
+    renderSignalsFeed();
+    renderMatchesForSelectedSignal();
+}
+
+// ---------- View-match: matches list for selected signal (right column) ----------
+//
+// Filters state.inbox.bazaar_matches to those tied to the currently-
+// selected signal, then renders each as a match card showing the
+// matched listing (mine) and inline counterparty actions.
+
+function renderMatchesForSelectedSignal(){
+    var body = document.getElementById('matches-for-signal-body');
+    var count = document.getElementById('matches-for-signal-count');
+    if(!body) return;
+
+    var selSig = state.selectedSignal;
+    if(!selSig){
+        body.innerHTML = '<div class="col-empty">Выбери сигнал слева чтобы увидеть свои эксклюзивы которые с ним матчатся.<br><span class="hint">Совпадения подбираются по типу, объёму, гео-зоне и laycan-окну.</span></div>';
+        if(count) count.textContent = '0';
+        return;
+    }
+
+    var matches = (state.inbox.bazaar_matches || []).filter(function(m){
+        var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal;
+        var kind = m.bazaar_cargo_signal ? 'cargo' : 'tonnage';
+        return sig && sig.id === selSig.id && kind === selSig.kind;
+    });
+    // Honour the All / 📌 В работе tab filter from the right-column header.
+    var filter = state.p2Filter || 'all';
+    var tabAll = document.getElementById('p2-tab-all');
+    var tabWork = document.getElementById('p2-tab-work');
+    if(tabAll) tabAll.classList.toggle('active', filter === 'all');
+    if(tabWork) tabWork.classList.toggle('active', filter === 'work');
+    if(filter === 'work'){
+        matches = matches.filter(function(m){ return !!m.pinned_at; });
+    }
+    if(count) count.textContent = matches.length;
+
+    if(matches.length === 0){
+        body.innerHTML = '<div class="col-empty">Этот сигнал больше не имеет совпадений (мог быть снят с матчинга).</div>';
+        return;
+    }
+
+    // Render each matching listing of mine + per-row inline action buttons.
+    var html = matches.map(function(m){
+        var pinned = !!m.pinned_at;
+        var score = Number(m.score || 0);
+        var listingKind = m.cargo_listing ? 'cargo' : (m.tonnage_listing ? 'tonnage' : null);
+        var listing = m.cargo_listing || m.tonnage_listing || {};
+        var listingTitle = listing.title || (listingKind === 'cargo'
+            ? ((listing.cargo_type || '?') + ' ' + (listing.load_port || '') + '→' + (listing.disch_port || ''))
+            : ((listing.vessel_name || listing.vessel_type || '?') + ' ' + (listing.open_port || '')));
+        var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal || {};
+        var phone = (m.reasons && m.reasons.contact_phone) || '';
+        var email = (m.reasons && m.reasons.contact_email) || sig.posted_by_email || '';
+
+        return '<div class="match-card '+(pinned ? 'pinned' : '')+'">'
+            + '<div class="mc-head">'
+            + '<span class="mc-title">'+(listingKind === 'cargo' ? '📦' : '🚢')+' '+esc(truncate(listingTitle, 50))+'</span>'
+            + '<span class="mc-score">score '+score+'</span>'
+            + '</div>'
+            + '<div class="mc-meta">' + (email ? 'к: '+esc(email) : 'контрагент: ' + esc(truncate(sig.posted_by_name || '—', 30))) + '</div>'
+            + '<div class="mc-actions">'
+            + '<button class="btn btn-sm" onclick="quickEml(\''+esc(m.id)+'\')" title="Сгенерировать .eml для ответа на сигнал">📧 .eml</button>'
+            + (phone ? '<button class="btn btn-sm" onclick="quickWa(\''+esc(m.id)+'\')" title="Открыть WhatsApp">💬 WA</button>' : '')
+            + '<button class="btn btn-sm" onclick="quickPin(\''+esc(m.id)+'\')" title="' + (pinned ? 'Открепить' : 'Закрепить — пометить в работе') + '">' + (pinned ? '📍' : '📌') + '</button>'
+            + '<button class="btn btn-sm btn-outline" onclick="quickOpenDetails(\''+esc(m.id)+'\')" title="Раскрыть карточку матча">🔍</button>'
+            + '</div>'
+            + '</div>';
+    }).join('');
+    body.innerHTML = html;
+}
+
+function _findBazaarMatchById(matchId){
+    return (state.inbox.bazaar_matches || []).filter(function(m){ return m.id === matchId; })[0] || null;
+}
+
+async function quickEml(matchId){
+    var m = _findBazaarMatchById(matchId);
+    if(!m) return;
+    state.selectedMatch = { type:'bazaar', data:m };
+    if(typeof actionEml === 'function'){
+        await actionEml();
+    } else {
+        showToast('Composer недоступен в этой сборке.', 'error');
+    }
+}
+
+async function quickWa(matchId){
+    var m = _findBazaarMatchById(matchId);
+    if(!m) return;
+    state.selectedMatch = { type:'bazaar', data:m };
+    if(typeof actionWhatsApp === 'function'){
+        await actionWhatsApp();
+    } else {
+        showToast('WhatsApp недоступен в этой сборке.', 'error');
+    }
+}
+
+async function quickPin(matchId){
+    var m = _findBazaarMatchById(matchId);
+    if(!m) return;
+    try {
+        var fn = m.pinned_at ? 'unpin_bazaar_match' : 'pin_bazaar_match';
+        var updated = await invoke(fn, { matchId:matchId });
+        // Mutate in place so we don't lose the embedded signal/listing objects.
+        Object.assign(m, updated);
+        renderSignalsFeed();
+        renderMatchesForSelectedSignal();
+        showToast(m.pinned_at ? '📌 в работе' : 'Откреплено', 'ok');
+    } catch(e){
+        showToast('Pin: '+e, 'error');
+    }
+}
+
+function quickOpenDetails(matchId){
+    var m = _findBazaarMatchById(matchId);
+    if(!m) return;
+    state.selectedMatch = { type:'bazaar', data:m };
+    // Toast a hint until the popup is built.
+    showToast('Детали матча — попап в следующей итерации.', 'ok');
 }
 
 // Background poll every 60s: pull fresh listings + matches from the
@@ -1246,6 +1507,14 @@ function _isPinned(type, m){
 
 function renderP2(){
     var body = document.getElementById('p2-body');
+    if(!body){
+        // P2/P3/P4 columns were removed in the 2-tab refactor; route
+        // all the existing action-handler callers through the new
+        // view-match render path so pin/dismiss/engage still repaints.
+        renderSignalsFeed();
+        renderMatchesForSelectedSignal();
+        return;
+    }
     // Hide ALL own × own matches. Tymur + Sasha (and future team-mates)
     // work as one team — matches between team brokers are not
     // actionable deals. Will revisit when external brokers register and
@@ -1408,6 +1677,7 @@ function selectMatch(type, id){
 // ---------- P3 — counterparty details ----------
 function renderP3(){
     var body = document.getElementById('p3-body');
+    if(!body) return;  // 2-tab refactor: P3 column removed.
     var scoreEl = document.getElementById('p3-score');
     if(!state.selectedMatch){
         body.innerHTML = '<div class="col-empty">Выбери совпадение в средней панели чтобы увидеть детали контрагента.</div>';
@@ -1547,6 +1817,7 @@ function renderP3Own(body, m){
 // ---------- P4 — chat ----------
 function renderP4(){
     var body = document.getElementById('p4-body');
+    if(!body) return;  // 2-tab refactor: P4 column removed.
     var statusEl = document.getElementById('p4-status');
     if(!state.selectedMatch){
         body.innerHTML = '<div class="chat-stub"><div class="icon">💬</div>Выбери совпадение чтобы открыть чат.</div>';
