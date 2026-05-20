@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.29';
+var APP_VERSION='0.1.30';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -146,8 +146,11 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 /* View-match: signal-feed rows + match cards in right column */
 .r-top { display:flex; justify-content:space-between; align-items:baseline; gap:6px; }
 .r-top .r-score { font-size:10px; color:var(--text3); white-space:nowrap; }
-.match-card { padding:10px 12px; border-bottom:1px solid var(--border); }
+.match-card { padding:10px 12px; border-bottom:1px solid var(--border); cursor:pointer; }
+.match-card:hover { background:var(--hover); }
+.match-card.active { background:rgba(70,130,180,.18); border-left:2px solid var(--accent); padding-left:10px; }
 .match-card.pinned { background:linear-gradient(90deg, var(--accent-bg, rgba(70,130,180,.12)) 0%, transparent 60%); }
+.match-card.pinned.active { background:linear-gradient(90deg, rgba(70,130,180,.28) 0%, rgba(70,130,180,.12) 100%); }
 .mc-head { display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:3px; }
 .mc-title { font-size:12px; font-weight:600; color:var(--text); }
 .mc-score { font-size:11px; color:var(--text3); white-space:nowrap; }
@@ -308,22 +311,30 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
         </div>
     </div>
 
-    <!-- View 2: Совпадения — signals feed (left) + matches for selected signal (right) -->
+    <!-- View 2: Совпадения — 4-column drill-down: signal detail / signals feed / matches / match detail -->
     <div class="columns view-pane" id="view-match" style="display:none;">
-        <!-- Left: bazaar signals feed + team chat slot (empty until showView('match') migrates #team-block here) -->
+        <!-- Col 1: top = selected signal detail; bottom = team chat (mount target) -->
+        <div class="col" style="flex:1.0">
+            <div class="col-head">
+                <span>📨 Сигнал</span>
+                <span class="count" id="signal-detail-meta"></span>
+            </div>
+            <div class="col-body" id="signal-detail-body" style="flex:1.4 1 0;"></div>
+            <div class="team-mount" id="team-mount-match"></div>
+        </div>
+        <!-- Col 2: bazaar signals feed (newest first) -->
         <div class="col" style="flex:1.0">
             <div class="col-head">
                 <span>🎯 Свежие сигналы</span>
                 <span class="count" id="signals-count">0</span>
                 <span class="p2-refresh" id="p2-refresh" title="Запросить апдейт у агента — подтянуть свежие сигналы из mbox/ShipNext и пересчитать совпадения. Закреплённые (📌) сохранятся." onclick="actionAgentUpdate()">🔄</span>
             </div>
-            <div class="col-body" id="signals-body" style="flex:1.4 1 0;"></div>
-            <div class="team-mount" id="team-mount-match"></div>
+            <div class="col-body" id="signals-body"></div>
         </div>
-        <!-- Right: matches for selected signal -->
-        <div class="col" style="flex:2.0">
+        <!-- Col 3: matches for selected signal -->
+        <div class="col" style="flex:1.2">
             <div class="col-head">
-                <span>Совпадения по сигналу</span>
+                <span>Совпадения</span>
                 <span style="display:flex; gap:4px;">
                     <span class="p2-tab" id="p2-tab-all" onclick="p2SetFilter('all')">All</span>
                     <span class="p2-tab" id="p2-tab-work" onclick="p2SetFilter('work')">📌 В работе</span>
@@ -331,6 +342,14 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
                 <span class="count" id="matches-for-signal-count">0</span>
             </div>
             <div class="col-body" id="matches-for-signal-body"></div>
+        </div>
+        <!-- Col 4: details of selected match (raw text, contact, my matching listing) -->
+        <div class="col" style="flex:1.5">
+            <div class="col-head">
+                <span>Детали</span>
+                <span class="count" id="match-detail-meta"></span>
+            </div>
+            <div class="col-body" id="match-detail-body"></div>
         </div>
     </div>
     <div class="statusbar" id="statusbar">
@@ -973,7 +992,8 @@ async function refreshAll(){
     // Both views re-render from the same state — render them all so
     // switching tabs is instant, no stale frame.
     renderP0(); renderP1();
-    renderSignalsFeed(); renderMatchesForSelectedSignal();
+    renderSignalsFeed(); renderSelectedSignalDetail();
+    renderMatchesForSelectedSignal(); renderSelectedMatchDetail();
     renderStatusBar(); renderMatchBadge();
 }
 
@@ -998,8 +1018,33 @@ function showView(name){
 
     // Re-render the active view's data (cheap; everything is already
     // in state, this just ensures freshness after a long idle).
-    if(name === 'ex'){ renderP0(); renderP1(); }
-    else { renderSignalsFeed(); renderMatchesForSelectedSignal(); }
+    if(name === 'ex'){
+        renderP0(); renderP1();
+    } else {
+        // Auto-pick the freshest signal on first entry so col 3/4 aren't empty.
+        if(!state.selectedSignal){
+            var groups = _groupBazaarBySignal();
+            if(groups.length > 0){
+                state.selectedSignal = { kind: groups[0].kind, id: groups[0].sig.id };
+            }
+        }
+        renderSignalsFeed();
+        renderSelectedSignalDetail();
+        renderMatchesForSelectedSignal();
+        // Auto-pick best match for the selected signal so col 4 starts populated.
+        if(state.selectedSignal && !state.selectedMatch){
+            var cand = (state.inbox.bazaar_matches || []).filter(function(m){
+                var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal;
+                var k = m.bazaar_cargo_signal ? 'cargo' : 'tonnage';
+                return sig && sig.id === state.selectedSignal.id && k === state.selectedSignal.kind;
+            }).sort(function(a, b){ return Number(b.score || 0) - Number(a.score || 0); });
+            if(cand.length > 0){
+                state.selectedMatch = { type:'bazaar', data: cand[0] };
+                renderMatchesForSelectedSignal();
+            }
+        }
+        renderSelectedMatchDetail();
+    }
     // Chat dom moved → repaint to restore the message list and scroll.
     renderTeamStream();
 }
@@ -1086,9 +1131,168 @@ function renderSignalsFeed(){
 
 function selectSignal(kind, id){
     state.selectedSignal = { kind:kind, id:id };
+    // Drop any prior col-3 selection — list will change with the new signal.
     state.selectedMatch = null;
     renderSignalsFeed();
+    renderSelectedSignalDetail();
     renderMatchesForSelectedSignal();
+    // Auto-pick the top-scoring match so col 4 isn't empty after every
+    // signal switch — the user can always click another row in col 3.
+    var candidates = (state.inbox.bazaar_matches || []).filter(function(m){
+        var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal;
+        var k = m.bazaar_cargo_signal ? 'cargo' : 'tonnage';
+        return sig && sig.id === id && k === kind;
+    }).sort(function(a, b){ return Number(b.score || 0) - Number(a.score || 0); });
+    if(candidates.length > 0){
+        state.selectedMatch = { type:'bazaar', data: candidates[0] };
+        renderMatchesForSelectedSignal();
+    }
+    renderSelectedMatchDetail();
+}
+
+function selectMatchInCol3(matchId){
+    var m = _findBazaarMatchById(matchId);
+    if(!m) return;
+    state.selectedMatch = { type:'bazaar', data:m };
+    renderMatchesForSelectedSignal();
+    renderSelectedMatchDetail();
+}
+
+// ---------- View-match: column 1 top — selected signal brief ----------
+function renderSelectedSignalDetail(){
+    var body = document.getElementById('signal-detail-body');
+    var meta = document.getElementById('signal-detail-meta');
+    if(!body) return;
+    var selSig = state.selectedSignal;
+    if(!selSig){
+        body.innerHTML = '<div class="col-empty">Выбери сигнал в соседней колонке.</div>';
+        if(meta) meta.textContent = '';
+        return;
+    }
+    // Locate the signal object via any match referencing it.
+    var sig = null, kind = selSig.kind;
+    (state.inbox.bazaar_matches || []).some(function(m){
+        var s = m.bazaar_cargo_signal || m.bazaar_tonnage_signal;
+        var k = m.bazaar_cargo_signal ? 'cargo' : 'tonnage';
+        if(s && s.id === selSig.id && k === selSig.kind){ sig = s; return true; }
+        return false;
+    });
+    if(!sig){
+        body.innerHTML = '<div class="col-empty">Сигнал больше не в матчинге.</div>';
+        if(meta) meta.textContent = '';
+        return;
+    }
+    var fields = [];
+    if(kind === 'cargo'){
+        if(sig.cargo_type) fields.push(['Груз', sig.cargo_type]);
+        if(sig.quantity_mt) fields.push(['Кол-во', sig.quantity_mt + ' MT']);
+        if(sig.load_port || sig.disch_port) fields.push(['Маршрут', (sig.load_port || '?') + ' → ' + (sig.disch_port || '?')]);
+        if(sig.laycan_from || sig.laycan_to) fields.push(['Laycan', (sig.laycan_from || '').slice(0,10) + ' — ' + (sig.laycan_to || '').slice(0,10)]);
+        if(sig.rate_indication) fields.push(['Рейт', sig.rate_indication]);
+    } else {
+        if(sig.vessel_name) fields.push(['Судно', sig.vessel_name]);
+        if(sig.vessel_type) fields.push(['Тип', sig.vessel_type]);
+        if(sig.dwt) fields.push(['DWT', sig.dwt]);
+        if(sig.open_port) fields.push(['Open', sig.open_port]);
+        if(sig.open_from || sig.open_to) fields.push(['Окно', (sig.open_from || '').slice(0,10) + ' — ' + (sig.open_to || '').slice(0,10)]);
+        if(sig.commercial_manager) fields.push(['Manager', sig.commercial_manager]);
+    }
+    var title = sig.title || (kind === 'cargo'
+        ? ((sig.cargo_type || '?') + ' ' + (sig.load_port || '') + '→' + (sig.disch_port || ''))
+        : ((sig.vessel_name || sig.vessel_type || '?') + ' ' + (sig.open_port || '')));
+    var ageMin = sig.first_seen_at ? Math.floor((Date.now() - Date.parse(sig.first_seen_at)) / 60000) : null;
+    var ageLabel = ageMin == null ? '' : (ageMin < 60 ? (ageMin + 'м назад') : (Math.floor(ageMin / 60) + 'ч назад'));
+    if(meta) meta.textContent = ageLabel;
+
+    var html = '<h2>'+(kind === 'cargo' ? '📦' : '🚢')+' '+esc(title)+'</h2>'
+        + '<div class="sub">источник: '+esc(sig.source || '—')+(sig.signal_provenance ? ' · ' + esc(sig.signal_provenance) : '')+'</div>'
+        + '<div class="detail-block">'
+        + fields.map(function(f){ return '<div class="detail-row"><span class="k">'+esc(f[0])+'</span><span class="v">'+esc(f[1])+'</span></div>'; }).join('')
+        + '</div>';
+    body.innerHTML = html;
+}
+
+// ---------- View-match: column 4 — full details of selected match ----------
+function renderSelectedMatchDetail(){
+    var body = document.getElementById('match-detail-body');
+    var meta = document.getElementById('match-detail-meta');
+    if(!body) return;
+    if(!state.selectedMatch || state.selectedMatch.type !== 'bazaar'){
+        body.innerHTML = '<div class="col-empty">Выбери совпадение в соседней колонке чтобы увидеть оригинальное сообщение и контакты.</div>';
+        if(meta) meta.textContent = '';
+        return;
+    }
+    var m = state.selectedMatch.data;
+    var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal || {};
+    var sigKind = m.bazaar_cargo_signal ? 'cargo' : 'tonnage';
+    var listingKind = m.cargo_listing ? 'cargo' : (m.tonnage_listing ? 'tonnage' : null);
+    var listing = m.cargo_listing || m.tonnage_listing || {};
+    var reasons = m.reasons || {};
+    var contactEmail = reasons.contact_email || sig.posted_by_email || '';
+    var contactPhone = reasons.contact_phone || '';
+    var contactName = reasons.contact_name || sig.posted_by_name || '';
+    if(meta) meta.textContent = 'score ' + Number(m.score || 0);
+
+    var html = '';
+
+    // Counterparty contact block — first because it's the actionable bit.
+    html += '<h3 style="margin-bottom:6px;">Контрагент</h3>';
+    html += '<div class="detail-block">';
+    if(contactName) html += '<div class="detail-row"><span class="k">Имя</span><span class="v">'+esc(contactName)+'</span></div>';
+    html += '<div class="detail-row"><span class="k">Email</span><span class="v">'+esc(contactEmail || '—')+'</span></div>';
+    if(contactPhone) html += '<div class="detail-row"><span class="k">Phone</span><span class="v">'+esc(contactPhone)+'</span></div>';
+    html += '<div class="detail-row"><span class="k">Источник</span><span class="v">'+esc(sig.source || '—')+'</span></div>';
+    html += '</div>';
+
+    // Inline action buttons — same set as the row buttons, but room here is wider.
+    var pinned = !!m.pinned_at;
+    html += '<div class="mc-actions" style="margin-bottom:14px;">';
+    html += '<button class="btn btn-sm btn-accent" '+(contactEmail ? '' : 'disabled')+' onclick="quickEml(\''+esc(m.id)+'\')">📧 .eml</button>';
+    if(contactPhone) html += '<button class="btn btn-sm" onclick="quickWa(\''+esc(m.id)+'\')">💬 WhatsApp</button>';
+    html += '<button class="btn btn-sm" onclick="quickPin(\''+esc(m.id)+'\')">'+(pinned ? '📍 Открепить' : '📌 В работу')+'</button>';
+    html += '</div>';
+
+    // The original message — what came in over email. Folded into a raw
+    // text block; this is the bit the user actually verifies against.
+    if(sig.description){
+        html += '<h3 style="margin-bottom:6px;">Оригинальное сообщение</h3>';
+        html += '<div class="raw-text" style="max-height:none;">'+esc(sig.description)+'</div>';
+        html += '<div style="height:14px;"></div>';
+    }
+
+    // What of mine matched, for cross-reference without leaving col 4.
+    if(listing && listing.id){
+        var listingTitle = listing.title || (listingKind === 'cargo'
+            ? ((listing.cargo_type || '?') + ' ' + (listing.load_port || '') + '→' + (listing.disch_port || ''))
+            : ((listing.vessel_name || listing.vessel_type || '?') + ' ' + (listing.open_port || '')));
+        html += '<h3 style="margin-bottom:6px;">Моя циркуляция (что матчится)</h3>';
+        html += '<div class="detail-block">';
+        html += '<div class="detail-row"><span class="k">'+(listingKind === 'cargo' ? '📦' : '🚢')+'</span><span class="v">'+esc(listingTitle)+'</span></div>';
+        if(listingKind === 'cargo'){
+            if(listing.quantity_mt) html += '<div class="detail-row"><span class="k">Кол-во</span><span class="v">'+esc(listing.quantity_mt + ' MT')+'</span></div>';
+            if(listing.laycan_from) html += '<div class="detail-row"><span class="k">Laycan</span><span class="v">'+esc((listing.laycan_from || '').slice(0,10)+' — '+(listing.laycan_to || '').slice(0,10))+'</span></div>';
+            if(listing.rate_indication) html += '<div class="detail-row"><span class="k">Рейт</span><span class="v">'+esc(listing.rate_indication)+'</span></div>';
+        } else {
+            if(listing.dwt) html += '<div class="detail-row"><span class="k">DWT</span><span class="v">'+esc(String(listing.dwt))+'</span></div>';
+            if(listing.open_from) html += '<div class="detail-row"><span class="k">Окно</span><span class="v">'+esc((listing.open_from || '').slice(0,10)+' — '+(listing.open_to || '').slice(0,10))+'</span></div>';
+        }
+        html += '</div>';
+    }
+
+    // Reasons the matcher fired (debug-ish but useful when scoring is unintuitive).
+    if(reasons && Object.keys(reasons).length){
+        var reasonRows = Object.keys(reasons).filter(function(k){
+            return ['contact_email','contact_phone','contact_name','contact_source'].indexOf(k) === -1;
+        }).map(function(k){
+            return '<div class="detail-row"><span class="k">'+esc(k)+'</span><span class="v">'+esc(String(reasons[k]))+'</span></div>';
+        }).join('');
+        if(reasonRows){
+            html += '<h3 style="margin-bottom:6px;">Почему матчит</h3>';
+            html += '<div class="detail-block">'+reasonRows+'</div>';
+        }
+    }
+
+    body.innerHTML = html;
 }
 
 // ---------- View-match: matches list for selected signal (right column) ----------
@@ -1131,6 +1335,10 @@ function renderMatchesForSelectedSignal(){
     }
 
     // Render each matching listing of mine + per-row inline action buttons.
+    // Card click selects the match → populates col 4. Action buttons inside
+    // .mc-actions stop propagation so click on a button doesn't also select.
+    var selMatchId = (state.selectedMatch && state.selectedMatch.type === 'bazaar')
+        ? state.selectedMatch.data.id : null;
     var html = matches.map(function(m){
         var pinned = !!m.pinned_at;
         var score = Number(m.score || 0);
@@ -1142,18 +1350,18 @@ function renderMatchesForSelectedSignal(){
         var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal || {};
         var phone = (m.reasons && m.reasons.contact_phone) || '';
         var email = (m.reasons && m.reasons.contact_email) || sig.posted_by_email || '';
+        var sel = (m.id === selMatchId);
 
-        return '<div class="match-card '+(pinned ? 'pinned' : '')+'">'
+        return '<div class="match-card '+(pinned ? 'pinned ' : '')+(sel ? 'active' : '')+'" onclick="selectMatchInCol3(\''+esc(m.id)+'\')">'
             + '<div class="mc-head">'
             + '<span class="mc-title">'+(listingKind === 'cargo' ? '📦' : '🚢')+' '+esc(truncate(listingTitle, 50))+'</span>'
             + '<span class="mc-score">score '+score+'</span>'
             + '</div>'
             + '<div class="mc-meta">' + (email ? 'к: '+esc(email) : 'контрагент: ' + esc(truncate(sig.posted_by_name || '—', 30))) + '</div>'
-            + '<div class="mc-actions">'
+            + '<div class="mc-actions" onclick="event.stopPropagation();">'
             + '<button class="btn btn-sm" onclick="quickEml(\''+esc(m.id)+'\')" title="Сгенерировать .eml для ответа на сигнал">📧 .eml</button>'
             + (phone ? '<button class="btn btn-sm" onclick="quickWa(\''+esc(m.id)+'\')" title="Открыть WhatsApp">💬 WA</button>' : '')
             + '<button class="btn btn-sm" onclick="quickPin(\''+esc(m.id)+'\')" title="' + (pinned ? 'Открепить' : 'Закрепить — пометить в работе') + '">' + (pinned ? '📍' : '📌') + '</button>'
-            + '<button class="btn btn-sm btn-outline" onclick="quickOpenDetails(\''+esc(m.id)+'\')" title="Раскрыть карточку матча">🔍</button>'
             + '</div>'
             + '</div>';
     }).join('');
@@ -1196,19 +1404,13 @@ async function quickPin(matchId){
         Object.assign(m, updated);
         renderSignalsFeed();
         renderMatchesForSelectedSignal();
+        renderSelectedMatchDetail();
         showToast(m.pinned_at ? '📌 в работе' : 'Откреплено', 'ok');
     } catch(e){
         showToast('Pin: '+e, 'error');
     }
 }
 
-function quickOpenDetails(matchId){
-    var m = _findBazaarMatchById(matchId);
-    if(!m) return;
-    state.selectedMatch = { type:'bazaar', data:m };
-    // Toast a hint until the popup is built.
-    showToast('Детали матча — попап в следующей итерации.', 'ok');
-}
 
 // Background poll every 60s: pull fresh listings + matches from the
 // server without user interaction. Server-side auto_adopt runs every
@@ -1512,7 +1714,9 @@ function renderP2(){
         // all the existing action-handler callers through the new
         // view-match render path so pin/dismiss/engage still repaints.
         renderSignalsFeed();
+        renderSelectedSignalDetail();
         renderMatchesForSelectedSignal();
+        renderSelectedMatchDetail();
         return;
     }
     // Hide ALL own × own matches. Tymur + Sasha (and future team-mates)
