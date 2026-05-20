@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.31';
+var APP_VERSION='0.1.32';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -1010,13 +1010,26 @@ async function boot(){
 
 async function refreshAll(){
     await Promise.all([refreshMyListings(), refreshInbox()]);
-    // Both views re-render from the same state — render them all so
-    // switching tabs is instant, no stale frame.
-    renderP0(); renderP1();
-    renderExMatchesForSelectedListing();
-    renderSignalsFeed(); renderSelectedSignalDetail();
-    renderMatchesForSelectedSignal(); renderSelectedMatchDetail();
+    renderActiveView();
     renderStatusBar(); renderMatchBadge();
+}
+
+// Single entrypoint for "redraw the active tab" — replaces the old
+// cascade of renderP0+P1+P2+P3+P4 calls scattered across action
+// handlers. The hidden view stays stale on purpose; showView() repaints
+// it on switch, so we save the per-action DOM work.
+function renderActiveView(){
+    if(state.view === 'ex'){
+        renderP0();
+        renderP1();
+        renderExMatchesForSelectedListing();
+        renderSelectedMatchDetail();
+    } else {
+        renderSignalsFeed();
+        renderSelectedSignalDetail();
+        renderMatchesForSelectedSignal();
+        renderSelectedMatchDetail();
+    }
 }
 
 // ---------- View switching (Эксклюзивы ↔ Совпадения) ----------
@@ -1038,58 +1051,45 @@ function showView(name){
         mount.appendChild(teamBlock);
     }
 
-    // Re-render the active view's data (cheap; everything is already
-    // in state, this just ensures freshness after a long idle).
-    if(name === 'ex'){
-        // Auto-pick the first exclusive listing on first entry so col 3/4 start populated.
-        if(!state.selectedListing){
-            var allMine = (state.myCargo || []).concat(state.myTonnage || [])
-                .sort(function(a, b){ return Date.parse(b.published_at || '') - Date.parse(a.published_at || ''); });
-            if(allMine.length > 0){
-                var first = allMine[0];
-                var kind = (state.myCargo || []).indexOf(first) >= 0 ? 'cargo' : 'tonnage';
-                state.selectedListing = { kind:kind, id:first.id };
-                refreshInbox().then(function(){
-                    renderP0(); renderP1();
-                    // Auto-pick best bazaar match for col 4.
-                    var cand = (state.inbox.bazaar_matches || []).slice()
-                        .sort(function(a, b){ return Number(b.score || 0) - Number(a.score || 0); });
-                    if(cand.length > 0){
-                        state.selectedMatch = { type:'bazaar', data: cand[0] };
-                    }
-                    renderExMatchesForSelectedListing();
-                    renderSelectedMatchDetail();
-                });
+    // Auto-select sensible defaults the first time each view opens so
+    // every column is populated without a click. We do this BEFORE the
+    // active-view render so renderActiveView reads the chosen state.
+    if(name === 'ex' && !state.selectedListing){
+        var allMine = (state.myCargo || []).concat(state.myTonnage || [])
+            .sort(function(a, b){ return Date.parse(b.published_at || '') - Date.parse(a.published_at || ''); });
+        if(allMine.length > 0){
+            var first = allMine[0];
+            var kind = (state.myCargo || []).indexOf(first) >= 0 ? 'cargo' : 'tonnage';
+            state.selectedListing = { kind:kind, id:first.id };
+            // Defer the inbox refresh + final render — runs after the
+            // first paint so the tab switch itself feels instant.
+            refreshInbox().then(function(){
+                var cand = (state.inbox.bazaar_matches || []).slice()
+                    .sort(function(a, b){ return Number(b.score || 0) - Number(a.score || 0); });
+                if(cand.length > 0){
+                    state.selectedMatch = { type:'bazaar', data: cand[0] };
+                }
+                renderActiveView();
+            });
+        }
+    } else if(name === 'match' && !state.selectedSignal){
+        var groups = _groupBazaarBySignal();
+        if(groups.length > 0){
+            state.selectedSignal = { kind: groups[0].kind, id: groups[0].sig.id };
+            if(!state.selectedMatch){
+                var cand = (state.inbox.bazaar_matches || []).filter(function(m){
+                    var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal;
+                    var k = m.bazaar_cargo_signal ? 'cargo' : 'tonnage';
+                    return sig && sig.id === state.selectedSignal.id && k === state.selectedSignal.kind;
+                }).sort(function(a, b){ return Number(b.score || 0) - Number(a.score || 0); });
+                if(cand.length > 0){
+                    state.selectedMatch = { type:'bazaar', data: cand[0] };
+                }
             }
         }
-        renderP0(); renderP1();
-        renderExMatchesForSelectedListing();
-        renderSelectedMatchDetail();
-    } else {
-        // Auto-pick the freshest signal on first entry so col 3/4 aren't empty.
-        if(!state.selectedSignal){
-            var groups = _groupBazaarBySignal();
-            if(groups.length > 0){
-                state.selectedSignal = { kind: groups[0].kind, id: groups[0].sig.id };
-            }
-        }
-        renderSignalsFeed();
-        renderSelectedSignalDetail();
-        renderMatchesForSelectedSignal();
-        // Auto-pick best match for the selected signal so col 4 starts populated.
-        if(state.selectedSignal && !state.selectedMatch){
-            var cand = (state.inbox.bazaar_matches || []).filter(function(m){
-                var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal;
-                var k = m.bazaar_cargo_signal ? 'cargo' : 'tonnage';
-                return sig && sig.id === state.selectedSignal.id && k === state.selectedSignal.kind;
-            }).sort(function(a, b){ return Number(b.score || 0) - Number(a.score || 0); });
-            if(cand.length > 0){
-                state.selectedMatch = { type:'bazaar', data: cand[0] };
-                renderMatchesForSelectedSignal();
-            }
-        }
-        renderSelectedMatchDetail();
     }
+
+    renderActiveView();
     // Chat dom moved → repaint to restore the message list and scroll.
     renderTeamStream();
 }
@@ -1176,11 +1176,7 @@ function renderSignalsFeed(){
 
 function selectSignal(kind, id){
     state.selectedSignal = { kind:kind, id:id };
-    // Drop any prior col-3 selection — list will change with the new signal.
     state.selectedMatch = null;
-    renderSignalsFeed();
-    renderSelectedSignalDetail();
-    renderMatchesForSelectedSignal();
     // Auto-pick the top-scoring match so col 4 isn't empty after every
     // signal switch — the user can always click another row in col 3.
     var candidates = (state.inbox.bazaar_matches || []).filter(function(m){
@@ -1190,19 +1186,15 @@ function selectSignal(kind, id){
     }).sort(function(a, b){ return Number(b.score || 0) - Number(a.score || 0); });
     if(candidates.length > 0){
         state.selectedMatch = { type:'bazaar', data: candidates[0] };
-        renderMatchesForSelectedSignal();
     }
-    renderSelectedMatchDetail();
+    renderActiveView();
 }
 
 function selectMatchInCol3(matchId){
     var m = _findBazaarMatchById(matchId);
     if(!m) return;
     state.selectedMatch = { type:'bazaar', data:m };
-    // Both views render col 3 — call both, the inactive view is hidden anyway.
-    renderMatchesForSelectedSignal();
-    renderExMatchesForSelectedListing();
-    renderSelectedMatchDetail();
+    renderActiveView();
 }
 
 // ---------- View-match: column 1 top — selected signal brief ----------
@@ -1261,14 +1253,18 @@ function renderSelectedSignalDetail(){
 
 // ---------- View-match: column 4 — full details of selected match ----------
 function renderSelectedMatchDetail(){
-    // The match detail panel lives in col 4 of BOTH tabs (view-match
-    // and view-ex). Each has its own DOM ids; render into whichever
-    // exists so switching tabs is instant and either view shows the
-    // currently selected match.
-    var bodies = [
-        { body: document.getElementById('match-detail-body'), meta: document.getElementById('match-detail-meta') },
-        { body: document.getElementById('ex-signal-body'),    meta: document.getElementById('ex-signal-meta') },
-    ].filter(function(b){ return b.body; });
+    // The match detail panel lives in col 4 of BOTH tabs but only one
+    // tab is visible at a time — paint just the active one. Switching
+    // tabs goes through showView() which calls renderActiveView, so the
+    // newly-active body picks up the latest state on switch.
+    var bodies;
+    if(state.view === 'ex'){
+        var exBody = document.getElementById('ex-signal-body');
+        bodies = exBody ? [{ body: exBody, meta: document.getElementById('ex-signal-meta') }] : [];
+    } else {
+        var mBody = document.getElementById('match-detail-body');
+        bodies = mBody ? [{ body: mBody, meta: document.getElementById('match-detail-meta') }] : [];
+    }
     if(bodies.length === 0) return;
     if(!state.selectedMatch || state.selectedMatch.type !== 'bazaar'){
         var emptyHtml = '<div class="col-empty">Выбери совпадение в соседней колонке чтобы увидеть оригинальное сообщение и контакты.</div>';
@@ -1532,10 +1528,7 @@ async function quickPin(matchId){
         var updated = await invoke(fn, { matchId:matchId });
         // Mutate in place so we don't lose the embedded signal/listing objects.
         Object.assign(m, updated);
-        renderSignalsFeed();
-        renderMatchesForSelectedSignal();
-        renderExMatchesForSelectedListing();
-        renderSelectedMatchDetail();
+        renderActiveView();
         showToast(m.pinned_at ? '📌 в работе' : 'Откреплено', 'ok');
     } catch(e){
         showToast('Pin: '+e, 'error');
@@ -1787,21 +1780,14 @@ async function selectListing(kind, id){
     state.selectedListing = { kind:kind, id:id };
     state.selectedMatch = null;
     await refreshInbox();
-    renderP0(); renderP1();
-    // View-ex (Эксклюзивы) col 3/4 — bazaar matches against this listing.
-    renderExMatchesForSelectedListing();
     // Auto-pick the best-scoring bazaar match so col 4 starts populated.
     var candidates = (state.inbox.bazaar_matches || []).slice().sort(function(a, b){
         return Number(b.score || 0) - Number(a.score || 0);
     });
     if(candidates.length > 0){
         state.selectedMatch = { type:'bazaar', data: candidates[0] };
-        renderExMatchesForSelectedListing();
     }
-    renderSelectedMatchDetail();
-    // Keep view-match in sync too (the legacy bridge: renderP2/3/4
-    // routes to the right place via the no-op guards we added earlier).
-    renderP2(); renderP3(); renderP4();
+    renderActiveView();
 }
 
 // ---------- P2 — matches feed ----------
@@ -1855,13 +1841,10 @@ function _isPinned(type, m){
 function renderP2(){
     var body = document.getElementById('p2-body');
     if(!body){
-        // P2/P3/P4 columns were removed in the 2-tab refactor; route
-        // all the existing action-handler callers through the new
-        // view-match render path so pin/dismiss/engage still repaints.
-        renderSignalsFeed();
-        renderSelectedSignalDetail();
-        renderMatchesForSelectedSignal();
-        renderSelectedMatchDetail();
+        // P2/P3/P4 columns were removed in the 2-tab refactor — route
+        // every legacy action-handler caller into the single active-view
+        // pass so we don't rebuild HIDDEN view DOM on every click.
+        renderActiveView();
         return;
     }
     // Hide ALL own × own matches. Tymur + Sasha (and future team-mates)
