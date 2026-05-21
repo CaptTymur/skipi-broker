@@ -642,6 +642,7 @@ fn send_circular_email(
 fn send_team_message(
     state: tauri::State<'_, AppState>,
     body: String,
+    event_type: Option<String>,
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     if s.broker_id.is_empty() {
@@ -658,11 +659,14 @@ fn send_team_message(
     } else {
         "anon".to_string()
     };
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "broker_id": s.broker_id,
         "sender_nickname": nickname,
         "body": trimmed,
     });
+    if let Some(et) = event_type.as_deref().map(str::trim).filter(|x| !x.is_empty()) {
+        payload["event_type"] = JsonValue::String(et.to_string());
+    }
     request_api(
         &state,
         &s,

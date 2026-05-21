@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.33';
+var APP_VERSION='0.1.34';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -192,6 +192,10 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .team-msg-body { font-size:11px; line-height:1.4; white-space:pre-wrap; word-break:break-word; }
 .team-day-sep { text-align:center; color:var(--text3); font-size:9px; margin:4px 0; text-transform:uppercase;
     letter-spacing:.06em; }
+.team-event { font-size:10px; color:var(--text3); text-align:center; padding:2px 8px;
+    line-height:1.4; font-style:italic; }
+.team-event .te-nick { color:var(--text2); font-style:normal; font-weight:600; }
+.team-event .te-time { color:var(--text3); margin-left:4px; opacity:.7; }
 .team-composer { display:flex; gap:6px; padding:6px 8px; border-top:1px solid var(--border); flex-shrink:0; }
 .team-composer textarea { flex:1; resize:none; min-height:30px; max-height:80px; padding:5px 7px;
     background:var(--surface); border:1px solid var(--border); border-radius:3px; outline:none;
@@ -826,6 +830,13 @@ function renderTeamStream(){
             html += '<div class="team-day-sep">'+esc(day)+'</div>';
             lastDay = day;
         }
+        if(m.event_type){
+            // System event — compact single-line entry, no bubble, no
+            // sender highlight; the action verb is already in the body.
+            html += '<div class="team-event"><span class="te-nick">'+esc(m.sender_nickname || 'anon')+'</span> '
+                  + esc(m.body || '') + ' <span class="te-time">'+esc(_fmtTime(m.created_at))+'</span></div>';
+            return;
+        }
         var isMine = (m.sender_nickname === mine);
         html += '<div class="team-msg'+(isMine?' mine':'')+'">'
               + '<div class="team-msg-meta"><span class="nick">'+esc(m.sender_nickname||'anon')+'</span><span>'+esc(_fmtTime(m.created_at))+'</span></div>'
@@ -856,6 +867,18 @@ function teamKeyDown(ev){
         ev.preventDefault();
         teamSend();
     }
+}
+
+// Fire-and-forget system-event poster — the chat doubles as a team
+// activity feed (zashёl / opublikoval / snyal / svyazalsya). Failures
+// are silent because losing a system event must never block a real
+// action; the chat poll picks them up within 4s on every other client.
+function emitTeamEvent(eventType, summary){
+    if(!state.settings || !state.settings.broker_id) return;
+    if(!summary) return;
+    invoke('send_team_message', { body: summary, eventType: eventType }).catch(function(e){
+        console.warn('team event failed', eventType, e);
+    });
 }
 
 async function teamSend(){
@@ -1005,6 +1028,9 @@ async function boot(){
     startAutoRefresh();
     initTeamChat();
     showView(state.view || 'ex');
+    // Tell the team you're online — fires once per app start; idle sessions
+    // don't spam because there's no second boot until restart.
+    emitTeamEvent('user_opened', '🚪 зашёл в Skipi (v' + APP_VERSION + ')');
     // Silent background check; banner appears only if a newer release is live.
     checkForUpdates();
     maybePromptForFeedback('broker-board');
@@ -1725,12 +1751,21 @@ function renderP0(){
 async function actionCloseListing(){
     if(!state.selectedListing) return;
     if(!confirm('Снять циркуляцию с базара? Все её совпадения удалятся.')) return;
+    var sel = state.selectedListing;
+    var pool = sel.kind === 'cargo' ? state.myCargo : state.myTonnage;
+    var listing = (pool || []).filter(function(l){ return l.id === sel.id; })[0];
+    var label = '';
+    if(listing){
+        label = listing.title || (sel.kind === 'cargo'
+            ? ((listing.cargo_type || '?') + ' ' + (listing.load_port || '') + '→' + (listing.disch_port || ''))
+            : ((listing.vessel_name || ('IMO ' + listing.vessel_imo)) + ' @ ' + (listing.open_port || '?')));
+    }
     try {
-        await invoke('close_listing', { kind:state.selectedListing.kind, listingId:state.selectedListing.id });
+        await invoke('close_listing', { kind:sel.kind, listingId:sel.id });
         state.selectedListing = null;
         state.selectedMatch = null;
+        emitTeamEvent('user_closed_listing', '✕ снял с базара: ' + (label || sel.id.slice(0,8)));
         await refreshAll();
-        renderP0(); renderP1(); renderP2(); renderP3(); renderP4(); renderStatusBar();
         showToast('Циркуляция снята', 'success');
     } catch(e){
         showToast('Close failed: '+e, 'error');
@@ -1789,14 +1824,22 @@ function renderP1(){
 
 async function closeListingFromRow(kind, id){
     if(!confirm('Снять циркуляцию с базара? Все её совпадения удалятся.')) return;
+    // Capture title BEFORE the close so the team-event has a label.
+    var pool = kind === 'cargo' ? state.myCargo : state.myTonnage;
+    var listing = (pool || []).filter(function(l){ return l.id === id; })[0];
+    var label = '';
+    if(listing){
+        label = listing.title || (kind === 'cargo'
+            ? ((listing.cargo_type || '?') + ' ' + (listing.load_port || '') + '→' + (listing.disch_port || ''))
+            : ((listing.vessel_name || ('IMO ' + listing.vessel_imo)) + ' @ ' + (listing.open_port || '?')));
+    }
     try {
         await invoke('close_listing', { kind:kind, listingId:id });
-        // If user closed the currently-selected listing, clear selection
-        // so col 1 top / col 3 / col 4 reset cleanly.
         if(state.selectedListing && state.selectedListing.id === id){
             state.selectedListing = null;
             state.selectedMatch = null;
         }
+        emitTeamEvent('user_closed_listing', '✕ снял с базара: ' + (label || id.slice(0,8)));
         await refreshAll();
         showToast('Циркуляция снята', 'success');
     } catch(e){
@@ -2288,6 +2331,7 @@ async function actionEml(){
             subject: draft.subject,
             body: draft.body
         });
+        emitTeamEvent('user_engaged_email', '📧 написал .eml: ' + esc(email));
         showToast('.eml opened in your mail client. Review and send.', 'ok');
     } catch(e){
         showToast('eml: '+e, 'error');
@@ -2305,6 +2349,7 @@ async function actionWhatsApp(){
     }
     try {
         await invoke('open_whatsapp', { phone:phone, message: draft.subject+'\n\n'+draft.body });
+        emitTeamEvent('user_engaged_wa', '💬 открыл WhatsApp: ' + phone);
         showToast('WhatsApp opened. Review and send.', 'ok');
     } catch(e){
         showToast('WhatsApp: '+e, 'error');
@@ -2579,6 +2624,8 @@ async function submitCargo(){
     try {
         await invoke('publish_cargo', { draft:draft });
         showToast('Груз опубликован.', 'ok');
+        var label = draft.title || (draft.cargo_type + ' ' + draft.load_port + ' → ' + draft.disch_port);
+        emitTeamEvent('user_published_cargo', '📦 опубликовал груз: ' + label);
         closePublishModal();
         await refreshAll();
     } catch(e){ showToast('Публикация не удалась: '+e, 'error'); }
@@ -2613,6 +2660,8 @@ async function submitTonnage(){
     try {
         await invoke('publish_tonnage', { draft:draft });
         showToast('Тоннаж опубликован.', 'ok');
+        var label = draft.title || (draft.vessel_name || ('IMO ' + draft.vessel_imo)) + ' @ ' + draft.open_port;
+        emitTeamEvent('user_published_tonnage', '🚢 опубликовал тоннаж: ' + label);
         closePublishModal();
         await refreshAll();
     } catch(e){ showToast('Публикация не удалась: '+e, 'error'); }
