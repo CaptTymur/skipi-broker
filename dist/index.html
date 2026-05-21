@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.32';
+var APP_VERSION='0.1.33';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -100,6 +100,8 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .row .r-title { flex:1; font-size:13px; font-weight:600; color:var(--text);
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .row .r-score { font-size:11px; padding:1px 6px; border-radius:8px; background:var(--accent-bg2); color:var(--accent); font-weight:600; }
+.row .r-age { display:inline-flex; align-items:center; gap:4px; font-size:11px;
+    color:var(--text3); white-space:nowrap; font-variant-numeric:tabular-nums; }
 .row .r-dismiss { font-size:14px; color:var(--text3); cursor:pointer; padding:1px 6px;
     user-select:none; line-height:1; border-radius:3px; }
 .row .r-dismiss:hover { color:var(--red); background:var(--surface2); }
@@ -1735,22 +1737,29 @@ async function actionCloseListing(){
     }
 }
 
+// Compact human age label ("12м", "5ч", "2д") for inline display.
+function fmtAgeShort(ts){
+    if(!ts) return '';
+    var ms = Date.now() - new Date(ts).getTime();
+    if(isNaN(ms) || ms < 0) return '';
+    var m = Math.floor(ms / 60000);
+    if(m < 60) return m + 'м';
+    var h = Math.floor(m / 60);
+    if(h < 24) return h + 'ч';
+    return Math.floor(h / 24) + 'д';
+}
+
 function renderP1(){
     var body = document.getElementById('p1-body');
     var rows = [];
     state.myCargo.forEach(function(c){ rows.push({kind:'cargo', data:c}); });
     state.myTonnage.forEach(function(t){ rows.push({kind:'tonnage', data:t}); });
-    // Hide circulations older than 12h: stale data only adds noise,
-    // counterparties have moved on. Mirrors the P2 freshness rule.
-    rows = rows.filter(function(r){
-        var ts = r.data.published_at;
-        if(!ts) return true;
-        var ageH = (Date.now() - new Date(ts).getTime()) / 3600000;
-        return ageH <= 12;
-    });
+    // No client-side age cutoff: the user controls when to retire a
+    // circulation. The server still enforces its hard TTL (broker_listing_ttl_hours,
+    // currently 48h) as a fallback so dead listings don't accumulate forever.
     document.getElementById('p1-count').textContent = rows.length;
     if(rows.length===0){
-        body.innerHTML = '<div class="col-empty">Нет свежих циркуляций.<span class="hint">Старее 12ч скрыты. Нажми <b>＋ Publish</b> или жди свежий поток с базара.</span></div>';
+        body.innerHTML = '<div class="col-empty">Пока нет эксклюзивов.<span class="hint">Нажми <b>＋ Опубликовать</b> чтобы внести цирку­ляцию которая пришла на твой имейл.</span></div>';
         return;
     }
     // Freshest at the top.
@@ -1765,15 +1774,34 @@ function renderP1(){
         var meta = r.kind==='cargo'
             ? (d.quantity_mt?d.quantity_mt+'mt · ':'')+'laycan '+fmtRange(d.laycan_from, d.laycan_to)
             : (d.dwt?d.dwt+' DWT · ':'')+'open '+(d.open_port||'?')+' '+fmtRange(d.open_from, d.open_to);
-        var ageHtml = ageRingSvg(d.published_at, 14);
+        var ringHtml = ageRingSvg(d.published_at, 14);
+        var ageText = fmtAgeShort(d.published_at);
         return '<div class="row '+(sel?'active':'')+'" onclick="selectListing(\''+r.kind+'\',\''+esc(d.id)+'\')">'
             +'<div class="r-top"><span class="r-icon">'+icon+'</span>'
-            +'<span class="r-title">'+esc(truncate(title,42))+'</span>'
-            +ageHtml
+            +'<span class="r-title">'+esc(truncate(title,38))+'</span>'
+            +'<span class="r-age" title="опубликовано '+esc(fmtDate(d.published_at))+'">'+ringHtml+' '+esc(ageText)+'</span>'
+            +'<span class="r-dismiss" title="Снять с базара" onclick="event.stopPropagation(); closeListingFromRow(\''+r.kind+'\',\''+esc(d.id)+'\')">✕</span>'
             +'</div>'
             +'<div class="r-meta">'+esc(meta)+'</div>'
             +'</div>';
     }).join('');
+}
+
+async function closeListingFromRow(kind, id){
+    if(!confirm('Снять циркуляцию с базара? Все её совпадения удалятся.')) return;
+    try {
+        await invoke('close_listing', { kind:kind, listingId:id });
+        // If user closed the currently-selected listing, clear selection
+        // so col 1 top / col 3 / col 4 reset cleanly.
+        if(state.selectedListing && state.selectedListing.id === id){
+            state.selectedListing = null;
+            state.selectedMatch = null;
+        }
+        await refreshAll();
+        showToast('Циркуляция снята', 'success');
+    } catch(e){
+        showToast('Close failed: '+e, 'error');
+    }
 }
 
 async function selectListing(kind, id){
