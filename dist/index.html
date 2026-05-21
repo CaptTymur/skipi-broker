@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.34';
+var APP_VERSION='0.1.35';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -762,16 +762,28 @@ async function teamPollOnce(initial){
         var rows = await invoke('fetch_team_messages', args);
         if(!Array.isArray(rows)) return;
         var hadNew = false;
+        var notifyForUser = false;
+        var mineCheck = _myNickname();
         if(initial){
             state.team.messages = rows;
             hadNew = rows.length > 0;
+            // No beep on first load — that's just the back-scroll, not "new".
         } else if(rows.length > 0){
             var existing = {};
             state.team.messages.forEach(function(m){ existing[m.id] = true; });
             rows.forEach(function(m){
-                if(!existing[m.id]){ state.team.messages.push(m); hadNew = true; }
+                if(!existing[m.id]){
+                    state.team.messages.push(m);
+                    hadNew = true;
+                    // Beep only on real chat messages from someone else — system
+                    // events (event_type set) and own echoes are too noisy.
+                    if(m.sender_nickname !== mineCheck && !m.event_type){
+                        notifyForUser = true;
+                    }
+                }
             });
         }
+        if(notifyForUser) _playChatBeep();
         if(state.team.messages.length > 0){
             state.team.lastTs = state.team.messages[state.team.messages.length - 1].created_at;
         }
@@ -867,6 +879,32 @@ function teamKeyDown(ev){
         ev.preventDefault();
         teamSend();
     }
+}
+
+// Web Audio: short chirp for inbound team chat messages from another
+// operator. Uses one shared AudioContext lazily created on first
+// notification — first call needs a user gesture in some browsers.
+var _audioCtx = null;
+function _playChatBeep(){
+    try {
+        if(!_audioCtx){
+            var Ctor = window.AudioContext || window.webkitAudioContext;
+            if(!Ctor) return;
+            _audioCtx = new Ctor();
+        }
+        var t0 = _audioCtx.currentTime;
+        var o = _audioCtx.createOscillator();
+        var g = _audioCtx.createGain();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(880, t0);
+        o.frequency.exponentialRampToValueAtTime(660, t0 + 0.18);
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(0.18, t0 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.22);
+        o.connect(g); g.connect(_audioCtx.destination);
+        o.start(t0);
+        o.stop(t0 + 0.25);
+    } catch(e){ /* swallow — audio is non-critical */ }
 }
 
 // Fire-and-forget system-event poster — the chat doubles as a team
@@ -1742,6 +1780,7 @@ function renderP0(){
     }
 
     html += '<div class="actions-row">';
+    html += '<button class="btn btn-accent" onclick="openEditModal()">✎ Редактировать</button>';
     html += '<button class="btn btn-outline" onclick="actionCloseListing()">✕ Снять с базара</button>';
     html += '</div>';
     html += '</div>';
@@ -2516,13 +2555,88 @@ function renderStatusBar(){
 }
 
 // ---------- Publish modal ----------
+// Persistence keys for the publish form draft — survives app focus
+// switches, accidental modal close, even a full restart. Cleared on
+// successful submit or explicit cancel.
+var PUBLISH_DRAFT_KEY = 'skipi-broker:publish-draft:v1';
+
+function _publishDraftSave(){
+    var keys = ['pf-title','pf-cargo-type','pf-qty','pf-load-port','pf-load-country',
+        'pf-disch-port','pf-disch-country','pf-laycan-from','pf-laycan-to',
+        'pf-rate','pf-russia','pf-desc','pf-posted-as','pf-rep-principal',
+        'pf-imo','pf-vname','pf-vtype','pf-dwt','pf-flag','pf-cmm',
+        'pf-open-port','pf-open-country','pf-open-from','pf-open-to','pf-redelivery'];
+    var snap = { side: state.publish.side, editing: state.publish.editing, values: {} };
+    keys.forEach(function(k){
+        var el = document.getElementById(k);
+        if(el) snap.values[k] = el.value;
+    });
+    try { localStorage.setItem(PUBLISH_DRAFT_KEY, JSON.stringify(snap)); } catch(_) {}
+}
+
+function _publishDraftLoad(){
+    try {
+        var raw = localStorage.getItem(PUBLISH_DRAFT_KEY);
+        if(!raw) return null;
+        return JSON.parse(raw);
+    } catch(_) { return null; }
+}
+
+function _publishDraftClear(){
+    try { localStorage.removeItem(PUBLISH_DRAFT_KEY); } catch(_) {}
+}
+
+function _publishDraftWireAutoSave(){
+    // Save on every keystroke (debounced) so quitting/switching apps
+    // mid-fill never loses what's been typed.
+    var formEls = document.querySelectorAll('#publish-body input, #publish-body select, #publish-body textarea');
+    formEls.forEach(function(el){
+        var fn = function(){
+            if(_publishDraftSaveTimer) clearTimeout(_publishDraftSaveTimer);
+            _publishDraftSaveTimer = setTimeout(_publishDraftSave, 250);
+        };
+        el.addEventListener('input', fn);
+        el.addEventListener('change', fn);
+    });
+}
+var _publishDraftSaveTimer = null;
+
 function openPublishModal(){
-    state.publish = { side:null };
+    // Restore an in-flight draft if there is one (form auto-save). Edit
+    // mode never carries forward to a fresh «+ Опубликовать» click —
+    // only same-side new-listing drafts resume.
+    var saved = _publishDraftLoad();
+    if(saved && saved.side && !saved.editing){
+        state.publish = { side: saved.side, editing: null, restoreValues: saved.values };
+    } else {
+        state.publish = { side:null };
+    }
     document.getElementById('publish-overlay').classList.add('open');
     renderPublishBody();
 }
+
+function openEditModal(){
+    if(!state.selectedListing){ showToast('Сначала выбери циркуляцию.', 'error'); return; }
+    var sel = state.selectedListing;
+    var pool = sel.kind === 'cargo' ? state.myCargo : state.myTonnage;
+    var listing = (pool || []).filter(function(l){ return l.id === sel.id; })[0];
+    if(!listing){ showToast('Циркуляция не найдена.', 'error'); return; }
+    state.publish = { side: sel.kind, editing: { kind: sel.kind, id: sel.id }, restoreValues: null, original: listing };
+    _publishDraftClear(); // edit starts clean — don't merge with a new-listing draft
+    document.getElementById('publish-overlay').classList.add('open');
+    renderPublishBody();
+}
+
 function closePublishModal(){
     document.getElementById('publish-overlay').classList.remove('open');
+    // Don't clear draft on overlay-click close — user might have hit
+    // overlay by accident. Only explicit Cancel button clears.
+}
+
+function cancelPublishModal(){
+    _publishDraftClear();
+    state.publish = { side:null };
+    closePublishModal();
 }
 function renderPublishBody(){
     var body = document.getElementById('publish-body');
@@ -2555,8 +2669,60 @@ function postureBlock(){
         '</div>';
 }
 
+function _publishFormPrefill(){
+    var src = state.publish.editing ? state.publish.original : null;
+    var restoreValues = state.publish.restoreValues;
+    state.publish.restoreValues = null; // one-shot
+    if(src){
+        var map = state.publish.side === 'cargo' ? {
+            'pf-title': src.title,
+            'pf-cargo-type': src.cargo_type,
+            'pf-qty': src.quantity_mt,
+            'pf-load-port': src.load_port,
+            'pf-load-country': src.load_country,
+            'pf-disch-port': src.disch_port,
+            'pf-disch-country': src.disch_country,
+            'pf-laycan-from': (src.laycan_from || '').slice(0,10),
+            'pf-laycan-to': (src.laycan_to || '').slice(0,10),
+            'pf-rate': src.rate_indication,
+            'pf-russia': src.russia_trading ? 'true' : 'false',
+            'pf-desc': src.description,
+            'pf-posted-as': src.posted_as,
+            'pf-rep-principal': src.representing_principal,
+        } : {
+            'pf-title': src.title,
+            'pf-imo': src.vessel_imo,
+            'pf-vname': src.vessel_name,
+            'pf-vtype': src.vessel_type,
+            'pf-dwt': src.dwt,
+            'pf-flag': src.flag,
+            'pf-cmm': src.commercial_manager,
+            'pf-open-port': src.open_port,
+            'pf-open-country': src.open_country,
+            'pf-open-from': (src.open_from || '').slice(0,10),
+            'pf-open-to': (src.open_to || '').slice(0,10),
+            'pf-redelivery': src.redelivery_area,
+            'pf-rate': src.rate_indication,
+            'pf-russia': src.russia_trading ? 'true' : 'false',
+            'pf-desc': src.description,
+            'pf-posted-as': src.posted_as,
+            'pf-rep-principal': src.representing_principal,
+        };
+        Object.keys(map).forEach(function(k){
+            var el = document.getElementById(k);
+            if(el && map[k] != null && map[k] !== '') el.value = map[k];
+        });
+    } else if(restoreValues){
+        Object.keys(restoreValues).forEach(function(k){
+            var el = document.getElementById(k);
+            if(el && restoreValues[k]) el.value = restoreValues[k];
+        });
+    }
+}
+
 function renderCargoForm(body, foot, title){
-    title.textContent = '+ Опубликовать груз';
+    var editing = !!state.publish.editing;
+    title.textContent = editing ? '✎ Редактировать груз' : '+ Опубликовать груз';
     body.innerHTML = postureBlock() +
         '<div class="field-grid">'+
             '<div class="field full"><label>Заголовок</label><input id="pf-title" placeholder="25/10 wheat NVS/MER"></div>'+
@@ -2572,12 +2738,18 @@ function renderCargoForm(body, foot, title){
             '<div class="field"><label>Россия трейдинг</label><select id="pf-russia"><option value="false">нет</option><option value="true">да</option></select></div>'+
             '<div class="field full"><label>Описание</label><textarea id="pf-desc"></textarea></div>'+
         '</div>';
-    foot.innerHTML = '<button class="btn btn-outline" onclick="state.publish.side=null; renderPublishBody();">← Назад</button>'+
-        '<button class="btn btn-accent" onclick="submitCargo()">Опубликовать</button>';
+    var btnLabel = editing ? 'Сохранить' : 'Опубликовать';
+    var backBtn = editing
+        ? '<button class="btn btn-outline" onclick="cancelPublishModal()">Отмена</button>'
+        : '<button class="btn btn-outline" onclick="state.publish.side=null; renderPublishBody();">← Назад</button>';
+    foot.innerHTML = backBtn + '<button class="btn btn-accent" onclick="submitCargo()">'+btnLabel+'</button>';
+    _publishFormPrefill();
+    _publishDraftWireAutoSave();
 }
 
 function renderTonnageForm(body, foot, title){
-    title.textContent = '+ Опубликовать тоннаж';
+    var editing = !!state.publish.editing;
+    title.textContent = editing ? '✎ Редактировать тоннаж' : '+ Опубликовать тоннаж';
     body.innerHTML = postureBlock() +
         '<div class="field-grid">'+
             '<div class="field full"><label>Заголовок</label><input id="pf-title" placeholder="Supra open CTA 5-12 Jun"></div>'+
@@ -2596,8 +2768,13 @@ function renderTonnageForm(body, foot, title){
             '<div class="field"><label>Россия трейдинг</label><select id="pf-russia"><option value="false">нет</option><option value="true">да</option></select></div>'+
             '<div class="field full"><label>Описание</label><textarea id="pf-desc"></textarea></div>'+
         '</div>';
-    foot.innerHTML = '<button class="btn btn-outline" onclick="state.publish.side=null; renderPublishBody();">← Назад</button>'+
-        '<button class="btn btn-accent" onclick="submitTonnage()">Опубликовать</button>';
+    var btnLabel = editing ? 'Сохранить' : 'Опубликовать';
+    var backBtn = editing
+        ? '<button class="btn btn-outline" onclick="cancelPublishModal()">Отмена</button>'
+        : '<button class="btn btn-outline" onclick="state.publish.side=null; renderPublishBody();">← Назад</button>';
+    foot.innerHTML = backBtn + '<button class="btn btn-accent" onclick="submitTonnage()">'+btnLabel+'</button>';
+    _publishFormPrefill();
+    _publishDraftWireAutoSave();
 }
 
 async function submitCargo(){
@@ -2622,13 +2799,21 @@ async function submitCargo(){
         return;
     }
     try {
-        await invoke('publish_cargo', { draft:draft });
-        showToast('Груз опубликован.', 'ok');
         var label = draft.title || (draft.cargo_type + ' ' + draft.load_port + ' → ' + draft.disch_port);
-        emitTeamEvent('user_published_cargo', '📦 опубликовал груз: ' + label);
+        if(state.publish.editing){
+            await invoke('update_cargo', { listingId: state.publish.editing.id, patch: draft });
+            emitTeamEvent('user_edited_listing', '✎ отредактировал груз: ' + label);
+            showToast('Груз обновлён.', 'ok');
+        } else {
+            await invoke('publish_cargo', { draft:draft });
+            emitTeamEvent('user_published_cargo', '📦 опубликовал груз: ' + label);
+            showToast('Груз опубликован.', 'ok');
+        }
+        _publishDraftClear();
+        state.publish = { side:null };
         closePublishModal();
         await refreshAll();
-    } catch(e){ showToast('Публикация не удалась: '+e, 'error'); }
+    } catch(e){ showToast(state.publish.editing ? 'Сохранение не удалось: '+e : 'Публикация не удалась: '+e, 'error'); }
 }
 
 async function submitTonnage(){
@@ -2658,13 +2843,21 @@ async function submitTonnage(){
     };
     if(!draft.open_port){ showToast('Укажите порт открытия.', 'error'); return; }
     try {
-        await invoke('publish_tonnage', { draft:draft });
-        showToast('Тоннаж опубликован.', 'ok');
-        var label = draft.title || (draft.vessel_name || ('IMO ' + draft.vessel_imo)) + ' @ ' + draft.open_port;
-        emitTeamEvent('user_published_tonnage', '🚢 опубликовал тоннаж: ' + label);
+        var label = draft.title || ((draft.vessel_name || ('IMO ' + draft.vessel_imo)) + ' @ ' + draft.open_port);
+        if(state.publish.editing){
+            await invoke('update_tonnage', { listingId: state.publish.editing.id, patch: draft });
+            emitTeamEvent('user_edited_listing', '✎ отредактировал тоннаж: ' + label);
+            showToast('Тоннаж обновлён.', 'ok');
+        } else {
+            await invoke('publish_tonnage', { draft:draft });
+            emitTeamEvent('user_published_tonnage', '🚢 опубликовал тоннаж: ' + label);
+            showToast('Тоннаж опубликован.', 'ok');
+        }
+        _publishDraftClear();
+        state.publish = { side:null };
         closePublishModal();
         await refreshAll();
-    } catch(e){ showToast('Публикация не удалась: '+e, 'error'); }
+    } catch(e){ showToast(state.publish.editing ? 'Сохранение не удалось: '+e : 'Публикация не удалась: '+e, 'error'); }
 }
 
 // ---------- Settings ----------

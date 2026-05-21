@@ -413,6 +413,38 @@ fn publish_tonnage(
 }
 
 #[tauri::command]
+fn update_cargo(
+    state: tauri::State<'_, AppState>,
+    listing_id: String,
+    patch: JsonValue,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    if s.broker_id.is_empty() {
+        return Err("Broker not registered — open Settings and register first.".into());
+    }
+    let mut body = patch;
+    body["broker_id"] = JsonValue::String(s.broker_id.clone());
+    let path = format!("/api/cargo-listings/{}", listing_id);
+    request_api(&state, &s, reqwest::Method::PATCH, &path, &s.bearer_token, Some(&body))
+}
+
+#[tauri::command]
+fn update_tonnage(
+    state: tauri::State<'_, AppState>,
+    listing_id: String,
+    patch: JsonValue,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    if s.broker_id.is_empty() {
+        return Err("Broker not registered — open Settings and register first.".into());
+    }
+    let mut body = patch;
+    body["broker_id"] = JsonValue::String(s.broker_id.clone());
+    let path = format!("/api/tonnage-listings/{}", listing_id);
+    request_api(&state, &s, reqwest::Method::PATCH, &path, &s.bearer_token, Some(&body))
+}
+
+#[tauri::command]
 fn fetch_my_cargo(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/cargo-listings?broker_id={}", s.broker_id);
@@ -1130,6 +1162,8 @@ pub fn run() {
             register_broker,
             publish_cargo,
             publish_tonnage,
+            update_cargo,
+            update_tonnage,
             fetch_my_cargo,
             fetch_my_tonnage,
             fetch_matches,
