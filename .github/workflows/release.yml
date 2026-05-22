@@ -11,6 +11,10 @@
 #   * Windows — windows-latest, .msi + .exe NSIS installer (for Sasha's
 #     Windows machine; unsigned, SmartScreen will warn until SignPath
 #     Foundation cert is wired up — Rail 2).
+#   * macOS  — macos-latest, universal-apple-darwin .dmg + .app.tar.gz
+#     (Tymur's MacBook). Unsigned: first launch needs right-click →
+#     Open → Open, or `xattr -d com.apple.quarantine` to bypass
+#     Gatekeeper. Apple Developer ID notarisation is a later phase.
 #
 # Tauri updater minisign signatures are produced for both platforms via
 # TAURI_SIGNING_PRIVATE_KEY repo secret (the same minisign key whose
@@ -135,8 +139,43 @@ jobs:
             |----------|------|-------|
             | Linux (.deb / .AppImage) | see assets | minisign signed |
             | Windows (.msi / .exe) | see assets | unsigned — SmartScreen warns first run |
+            | macOS (.dmg, universal) | see assets | unsigned — Gatekeeper warns; `xattr -d com.apple.quarantine /Applications/Skipi\\ Broker.app` to bypass |
 
             **Auto-update:** existing installs see this version on next launch.
+          releaseDraft: false
+          prerelease: false
+
+  build-macos:
+    name: Build (macOS universal, unsigned)
+    needs: [syntax-check, version-check]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-registry-
+
+      - name: Build (macOS universal)
+        uses: tauri-apps/tauri-action@v0
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: src-tauri
+          tagName: ${{ github.ref_name }}
+          releaseName: "Skipi Broker ${{ github.ref_name }}"
+          args: --target universal-apple-darwin
           releaseDraft: false
           prerelease: false
 
@@ -175,7 +214,7 @@ jobs:
 
   publish-latest-json:
     name: Publish latest.json
-    needs: [build-linux, build-windows]
+    needs: [build-linux, build-windows, build-macos]
     # Linux is mandatory; Windows is best-effort while code-signing is
     # not wired up. Manifest publishes as long as Linux succeeded.
     if: needs.build-linux.result == 'success'
@@ -225,6 +264,17 @@ jobs:
             NSIS_SIG="$(cat "sigs/$NSIS_FILE")"
             NSIS_NAME="${NSIS_FILE%.sig}"
             PLATFORMS="$PLATFORMS, \"windows-x86_64\": { \"signature\": \"$NSIS_SIG\", \"url\": \"$BASE_URL/$NSIS_NAME\" }"
+          fi
+
+          # macOS — universal binary, both intel + Apple Silicon entries
+          # point to the same .app.tar.gz so the updater finds it on
+          # either architecture. DMG is for fresh installs (not updater).
+          APP_TAR_FILE="$(ls sigs | grep -E '\.app\.tar\.gz\.sig$' | head -1 || true)"
+          if [ -n "$APP_TAR_FILE" ]; then
+            APP_TAR_SIG="$(cat "sigs/$APP_TAR_FILE")"
+            APP_TAR_NAME="${APP_TAR_FILE%.sig}"
+            PLATFORMS="$PLATFORMS, \"darwin-x86_64\": { \"signature\": \"$APP_TAR_SIG\", \"url\": \"$BASE_URL/$APP_TAR_NAME\" }"
+            PLATFORMS="$PLATFORMS, \"darwin-aarch64\": { \"signature\": \"$APP_TAR_SIG\", \"url\": \"$BASE_URL/$APP_TAR_NAME\" }"
           fi
 
           cat > latest.json <<JSON
