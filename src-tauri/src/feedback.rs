@@ -3,6 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use uuid::Uuid;
 
 const APP_SLUG: &str = "broker";
@@ -197,6 +198,30 @@ fn feedback_api_bases() -> [&'static str; 2] {
     [RU_API, PRIMARY_API]
 }
 
+static FEEDBACK_HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+
+fn feedback_http_client() -> reqwest::blocking::Client {
+    FEEDBACK_HTTP_CLIENT
+        .get_or_init(|| {
+            reqwest::blocking::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(4))
+                .timeout(std::time::Duration::from_secs(12))
+                .build()
+                .expect("build feedback HTTP client")
+        })
+        .clone()
+}
+
+async fn spawn_blocking_result<T, F>(f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 fn sync_feedback_to_server(feedback: &AppFeedback) -> Result<(), String> {
     let payload = ServerFeedback {
         id: &feedback.id,
@@ -208,11 +233,7 @@ fn sync_feedback_to_server(feedback: &AppFeedback) -> Result<(), String> {
         context: feedback.context.as_deref(),
         client_created_at: &feedback.created_at,
     };
-    let client = reqwest::blocking::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(4))
-        .timeout(std::time::Duration::from_secs(12))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = feedback_http_client();
 
     let mut last_err = String::from("no feedback endpoint configured");
     for base in feedback_api_bases() {
@@ -288,11 +309,7 @@ fn sync_diagnostic_to_server(diagnostic: &AppDiagnostic) -> Result<(), String> {
         details: details_value(diagnostic.details_json.as_deref()),
         client_created_at: &diagnostic.created_at,
     };
-    let client = reqwest::blocking::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(4))
-        .timeout(std::time::Duration::from_secs(12))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = feedback_http_client();
 
     let mut last_err = String::from("no diagnostics endpoint configured");
     for base in feedback_api_bases() {
@@ -445,44 +462,47 @@ pub fn get_feedback_prompt_state(app_version: String) -> Result<FeedbackPromptSt
 }
 
 #[tauri::command]
-pub fn init_app_diagnostics(
+pub async fn init_app_diagnostics(
     app_version: String,
     locale: Option<String>,
     context: Option<String>,
 ) -> Result<(), String> {
-    let conn = open_feedback_db()?;
-    let install_id = ensure_install_id(&conn)?;
-    if get_state(&conn, "session_active")?.as_deref() == Some("1") {
-        let previous_session = get_state(&conn, "session_id")?;
-        let last_heartbeat_at = get_state(&conn, "last_heartbeat_at")?;
-        let last_screen = get_state(&conn, "last_screen")?;
-        let details = json!({
-            "previous_session_id": previous_session,
-            "last_heartbeat_at": last_heartbeat_at,
-            "last_screen": last_screen
-        })
-        .to_string();
-        let _ = store_diagnostic(
-            &conn,
-            app_version.clone(),
-            "unclean_shutdown".to_string(),
-            "warn".to_string(),
-            "Previous app session did not close cleanly".to_string(),
-            locale.clone(),
-            context.clone(),
-            Some(details),
-            get_state(&conn, "session_id")?,
-            Some(install_id.clone()),
-        );
-    }
-    let session_id = Uuid::new_v4().to_string();
-    let now = Utc::now().to_rfc3339();
-    set_state(&conn, "session_id", &session_id)?;
-    set_state(&conn, "session_active", "1")?;
-    set_state(&conn, "session_started_at", &now)?;
-    set_state(&conn, "last_heartbeat_at", &now)?;
-    set_state(&conn, "last_app_version", &app_version)?;
-    Ok(())
+    spawn_blocking_result(move || {
+        let conn = open_feedback_db()?;
+        let install_id = ensure_install_id(&conn)?;
+        if get_state(&conn, "session_active")?.as_deref() == Some("1") {
+            let previous_session = get_state(&conn, "session_id")?;
+            let last_heartbeat_at = get_state(&conn, "last_heartbeat_at")?;
+            let last_screen = get_state(&conn, "last_screen")?;
+            let details = json!({
+                "previous_session_id": previous_session,
+                "last_heartbeat_at": last_heartbeat_at,
+                "last_screen": last_screen
+            })
+            .to_string();
+            let _ = store_diagnostic(
+                &conn,
+                app_version.clone(),
+                "unclean_shutdown".to_string(),
+                "warn".to_string(),
+                "Previous app session did not close cleanly".to_string(),
+                locale.clone(),
+                context.clone(),
+                Some(details),
+                get_state(&conn, "session_id")?,
+                Some(install_id.clone()),
+            );
+        }
+        let session_id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+        set_state(&conn, "session_id", &session_id)?;
+        set_state(&conn, "session_active", "1")?;
+        set_state(&conn, "session_started_at", &now)?;
+        set_state(&conn, "last_heartbeat_at", &now)?;
+        set_state(&conn, "last_app_version", &app_version)?;
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -506,7 +526,7 @@ pub fn mark_app_shutdown() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn record_app_diagnostic(
+pub async fn record_app_diagnostic(
     app_version: String,
     event_type: String,
     severity: String,
@@ -515,20 +535,23 @@ pub fn record_app_diagnostic(
     context: Option<String>,
     details_json: Option<String>,
 ) -> Result<DiagnosticSubmitResult, String> {
-    let conn = open_feedback_db()?;
-    let install_id = ensure_install_id(&conn)?;
-    store_diagnostic(
-        &conn,
-        app_version,
-        event_type,
-        severity,
-        message,
-        locale,
-        context,
-        details_json,
-        current_session_id(&conn)?,
-        Some(install_id),
-    )
+    spawn_blocking_result(move || {
+        let conn = open_feedback_db()?;
+        let install_id = ensure_install_id(&conn)?;
+        store_diagnostic(
+            &conn,
+            app_version,
+            event_type,
+            severity,
+            message,
+            locale,
+            context,
+            details_json,
+            current_session_id(&conn)?,
+            Some(install_id),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
@@ -538,88 +561,91 @@ pub fn postpone_app_feedback() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn submit_app_feedback(
+pub async fn submit_app_feedback(
     app_version: String,
     rating: i64,
     comment: String,
     locale: Option<String>,
     context: Option<String>,
 ) -> Result<FeedbackSubmitResult, String> {
-    if !(1..=5).contains(&rating) {
-        return Err("rating must be between 1 and 5".to_string());
-    }
-    let comment = comment.trim().to_string();
-    if comment.len() < 2 {
-        return Err("comment is required".to_string());
-    }
-    let conn = open_feedback_db()?;
-    let id = Uuid::new_v4().to_string();
-    let created_at = Utc::now().to_rfc3339();
-    let locale = locale
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    let context = context
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
+    spawn_blocking_result(move || {
+        if !(1..=5).contains(&rating) {
+            return Err("rating must be between 1 and 5".to_string());
+        }
+        let comment = comment.trim().to_string();
+        if comment.len() < 2 {
+            return Err("comment is required".to_string());
+        }
+        let conn = open_feedback_db()?;
+        let id = Uuid::new_v4().to_string();
+        let created_at = Utc::now().to_rfc3339();
+        let locale = locale
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let context = context
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
 
-    let mut feedback = AppFeedback {
-        id,
-        app: APP_SLUG.to_string(),
-        app_version,
-        rating,
-        comment,
-        locale,
-        context,
-        created_at,
-        synced_at: None,
-        sync_error: None,
-    };
+        let mut feedback = AppFeedback {
+            id,
+            app: APP_SLUG.to_string(),
+            app_version,
+            rating,
+            comment,
+            locale,
+            context,
+            created_at,
+            synced_at: None,
+            sync_error: None,
+        };
 
-    conn.execute(
-        "INSERT INTO app_feedback
-         (id, app, app_version, rating, comment, locale, context, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![
-            feedback.id,
-            feedback.app,
-            feedback.app_version,
-            feedback.rating,
-            feedback.comment,
-            feedback.locale,
-            feedback.context,
-            feedback.created_at
-        ],
-    )
-    .map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT INTO app_feedback
+             (id, app, app_version, rating, comment, locale, context, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                feedback.id,
+                feedback.app,
+                feedback.app_version,
+                feedback.rating,
+                feedback.comment,
+                feedback.locale,
+                feedback.context,
+                feedback.created_at
+            ],
+        )
+        .map_err(|e| e.to_string())?;
 
-    let sync_result = sync_feedback_to_server(&feedback);
-    let synced = sync_result.is_ok();
-    let sync_error = sync_result.err();
-    let synced_at = if synced {
-        Some(Utc::now().to_rfc3339())
-    } else {
-        None
-    };
-    feedback.synced_at = synced_at.clone();
-    feedback.sync_error = sync_error.clone();
-    conn.execute(
-        "UPDATE app_feedback SET synced_at=?2, sync_error=?3 WHERE id=?1",
-        params![feedback.id, synced_at, sync_error],
-    )
-    .map_err(|e| e.to_string())?;
-    set_state(
-        &conn,
-        "submitted_count",
-        &(state_i64(&conn, "submitted_count")? + 1).to_string(),
-    )?;
-    set_state(&conn, "last_submitted_at", &Utc::now().to_rfc3339())?;
+        let sync_result = sync_feedback_to_server(&feedback);
+        let synced = sync_result.is_ok();
+        let sync_error = sync_result.err();
+        let synced_at = if synced {
+            Some(Utc::now().to_rfc3339())
+        } else {
+            None
+        };
+        feedback.synced_at = synced_at.clone();
+        feedback.sync_error = sync_error.clone();
+        conn.execute(
+            "UPDATE app_feedback SET synced_at=?2, sync_error=?3 WHERE id=?1",
+            params![feedback.id, synced_at, sync_error],
+        )
+        .map_err(|e| e.to_string())?;
+        set_state(
+            &conn,
+            "submitted_count",
+            &(state_i64(&conn, "submitted_count")? + 1).to_string(),
+        )?;
+        set_state(&conn, "last_submitted_at", &Utc::now().to_rfc3339())?;
 
-    Ok(FeedbackSubmitResult {
-        id: feedback.id,
-        synced,
-        sync_error: feedback.sync_error,
-        db_path: feedback_db_path().to_string_lossy().to_string(),
+        Ok(FeedbackSubmitResult {
+            id: feedback.id,
+            synced,
+            sync_error: feedback.sync_error,
+            db_path: feedback_db_path().to_string_lossy().to_string(),
+        })
     })
+    .await
 }
 
 #[tauri::command]

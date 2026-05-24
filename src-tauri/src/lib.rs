@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 mod feedback;
 
@@ -109,25 +109,36 @@ const RU_API: &str = "https://api-ru.skipi.app";
 
 fn api_bases(s: &Settings) -> Vec<String> {
     let configured = s.server_url.trim_end_matches('/').to_string();
-    if configured.is_empty() || configured == PRIMARY_API || configured == RU_API {
-        // Automatic production: RF bridge first, origin as fallback.
+    if configured.is_empty() || configured == RU_API {
+        // Empty/default RF production: RF bridge first, origin as fallback.
         return vec![RU_API.to_string(), PRIMARY_API.to_string()];
+    }
+    if configured == PRIMARY_API {
+        // If the operator explicitly selected origin, don't pay the RF
+        // bridge timeout on every cold start.
+        return vec![PRIMARY_API.to_string(), RU_API.to_string()];
     }
     // Manual override — respect verbatim, single candidate.
     vec![configured]
 }
 
-fn http_client() -> Result<reqwest::blocking::Client, String> {
-    reqwest::blocking::Client::builder()
-        // Short connect timeout so a blocked primary endpoint does not
-        // freeze the Trade Desk — failover to RU bridge kicks in fast.
-        .connect_timeout(std::time::Duration::from_secs(4))
-        .timeout(std::time::Duration::from_secs(20))
-        // Self-signed certs on dev / api.skipi.app:8443 fallback —
-        // accept invalid certs only when targeting a non-public host.
-        .danger_accept_invalid_certs(true)
-        .build()
-        .map_err(|e| e.to_string())
+static HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+
+fn http_client() -> reqwest::blocking::Client {
+    HTTP_CLIENT
+        .get_or_init(|| {
+            reqwest::blocking::Client::builder()
+                // Short connect timeout so a blocked primary endpoint does not
+                // freeze the Trade Desk — failover to RU bridge kicks in fast.
+                .connect_timeout(std::time::Duration::from_secs(4))
+                .timeout(std::time::Duration::from_secs(12))
+                // Self-signed certs on dev / api.skipi.app:8443 fallback —
+                // accept invalid certs only when targeting a non-public host.
+                .danger_accept_invalid_certs(true)
+                .build()
+                .expect("build broker HTTP client")
+        })
+        .clone()
 }
 
 /// True if the failure happened before we received an HTTP response
@@ -150,20 +161,28 @@ fn is_pre_response_error(e: &reqwest::Error) -> bool {
 ///
 /// POSTs do NOT fall back once a server has actually replied —
 /// publish/engage/close/pin would otherwise risk duplicate execution.
-fn request_api(
-    state: &tauri::State<'_, AppState>,
-    s: &Settings,
+async fn spawn_blocking_result<T, F>(f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn request_api_blocking(
+    s: Settings,
     method: reqwest::Method,
-    path_and_query: &str,
-    bearer: &str,
-    body: Option<&JsonValue>,
-) -> Result<JsonValue, String> {
-    let all_bases = api_bases(s);
-    let client = http_client()?;
+    path_and_query: String,
+    body: Option<JsonValue>,
+    cached: Option<String>,
+) -> Result<(JsonValue, String), String> {
+    let all_bases = api_bases(&s);
+    let client = http_client();
 
     // Build the candidate order: cached active base first (if any and
     // still allowed by current settings), then the rest of the list.
-    let cached: Option<String> = state.active_api_base.lock().unwrap().clone();
     let mut bases: Vec<String> = Vec::with_capacity(all_bases.len());
     if let Some(c) = cached
         .as_ref()
@@ -184,34 +203,29 @@ fn request_api(
     for (i, base) in bases.iter().enumerate() {
         let url = format!("{}{}", base.trim_end_matches('/'), path_and_query);
         let mut req = client.request(method.clone(), &url);
-        if !bearer.is_empty() {
-            req = req.bearer_auth(bearer);
+        if !s.bearer_token.is_empty() {
+            req = req.bearer_auth(&s.bearer_token);
         }
-        if let Some(b) = body {
+        if let Some(b) = body.as_ref() {
             req = req.json(b);
         }
         match req.send() {
             Ok(resp) => {
-                // We got a server response — promote this base to cache.
-                *state.active_api_base.lock().unwrap() = Some(base.clone());
                 let status = resp.status();
                 let text = resp.text().unwrap_or_default();
                 if !status.is_success() {
                     return Err(format!("HTTP {}: {}", status.as_u16(), text));
                 }
                 if text.is_empty() {
-                    return Ok(JsonValue::Null);
+                    return Ok((JsonValue::Null, base.clone()));
                 }
-                return serde_json::from_str(&text)
-                    .map_err(|e| format!("decode: {} (body: {})", e, text));
+                let value = serde_json::from_str(&text)
+                    .map_err(|e| format!("decode: {} (body: {})", e, text))?;
+                return Ok((value, base.clone()));
             }
             Err(e) => {
                 last_err = format!("{base}: {e}");
                 if is_pre_response_error(&e) && i < last {
-                    // Clear stale cache if it was the active base.
-                    if cached.as_deref() == Some(base.as_str()) {
-                        *state.active_api_base.lock().unwrap() = None;
-                    }
                     continue;
                 }
                 return Err(last_err);
@@ -219,6 +233,31 @@ fn request_api(
         }
     }
     Err(last_err)
+}
+
+async fn request_api(
+    state: &tauri::State<'_, AppState>,
+    s: Settings,
+    method: reqwest::Method,
+    path_and_query: String,
+    body: Option<JsonValue>,
+) -> Result<JsonValue, String> {
+    let cached = state.active_api_base.lock().unwrap().clone();
+    let result = spawn_blocking_result(move || {
+        request_api_blocking(s, method, path_and_query, body, cached)
+    })
+    .await;
+
+    match result {
+        Ok((value, active_base)) => {
+            *state.active_api_base.lock().unwrap() = Some(active_base);
+            Ok(value)
+        }
+        Err(e) => {
+            *state.active_api_base.lock().unwrap() = None;
+            Err(e)
+        }
+    }
 }
 
 fn settings_snapshot(state: &AppState) -> Settings {
@@ -331,7 +370,7 @@ fn save_settings(
 }
 
 #[tauri::command]
-fn register_broker(
+async fn register_broker(
     state: tauri::State<'_, AppState>,
     display_name: String,
     contact_email: String,
@@ -349,12 +388,12 @@ fn register_broker(
     });
     let resp = request_api(
         &state,
-        &s,
+        s.clone(),
         reqwest::Method::POST,
-        "/api/brokers",
-        &s.bearer_token,
-        Some(&body),
-    )?;
+        "/api/brokers".to_string(),
+        Some(body),
+    )
+    .await?;
     // Auto-persist the new broker_id so the user doesn't have to copy it.
     if let Some(id) = resp.get("id").and_then(|v| v.as_str()) {
         let mut updated = s.clone();
@@ -368,28 +407,7 @@ fn register_broker(
 }
 
 #[tauri::command]
-fn publish_cargo(state: tauri::State<'_, AppState>, draft: JsonValue) -> Result<JsonValue, String> {
-    let s = settings_snapshot(&state);
-    if s.broker_id.is_empty() {
-        return Err("Broker not registered — open Settings and register first.".into());
-    }
-    let mut body = draft;
-    body["broker_id"] = JsonValue::String(s.broker_id.clone());
-    if body.get("reply_to").is_none() && !s.reply_to.is_empty() {
-        body["reply_to"] = JsonValue::String(s.reply_to.clone());
-    }
-    request_api(
-        &state,
-        &s,
-        reqwest::Method::POST,
-        "/api/cargo-listings",
-        &s.bearer_token,
-        Some(&body),
-    )
-}
-
-#[tauri::command]
-fn publish_tonnage(
+async fn publish_cargo(
     state: tauri::State<'_, AppState>,
     draft: JsonValue,
 ) -> Result<JsonValue, String> {
@@ -404,16 +422,40 @@ fn publish_tonnage(
     }
     request_api(
         &state,
-        &s,
+        s,
         reqwest::Method::POST,
-        "/api/tonnage-listings",
-        &s.bearer_token,
-        Some(&body),
+        "/api/cargo-listings".to_string(),
+        Some(body),
     )
+    .await
 }
 
 #[tauri::command]
-fn update_cargo(
+async fn publish_tonnage(
+    state: tauri::State<'_, AppState>,
+    draft: JsonValue,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    if s.broker_id.is_empty() {
+        return Err("Broker not registered — open Settings and register first.".into());
+    }
+    let mut body = draft;
+    body["broker_id"] = JsonValue::String(s.broker_id.clone());
+    if body.get("reply_to").is_none() && !s.reply_to.is_empty() {
+        body["reply_to"] = JsonValue::String(s.reply_to.clone());
+    }
+    request_api(
+        &state,
+        s,
+        reqwest::Method::POST,
+        "/api/tonnage-listings".to_string(),
+        Some(body),
+    )
+    .await
+}
+
+#[tauri::command]
+async fn update_cargo(
     state: tauri::State<'_, AppState>,
     listing_id: String,
     patch: JsonValue,
@@ -425,11 +467,11 @@ fn update_cargo(
     let mut body = patch;
     body["broker_id"] = JsonValue::String(s.broker_id.clone());
     let path = format!("/api/cargo-listings/{}", listing_id);
-    request_api(&state, &s, reqwest::Method::PATCH, &path, &s.bearer_token, Some(&body))
+    request_api(&state, s, reqwest::Method::PATCH, path, Some(body)).await
 }
 
 #[tauri::command]
-fn update_tonnage(
+async fn update_tonnage(
     state: tauri::State<'_, AppState>,
     listing_id: String,
     patch: JsonValue,
@@ -441,49 +483,42 @@ fn update_tonnage(
     let mut body = patch;
     body["broker_id"] = JsonValue::String(s.broker_id.clone());
     let path = format!("/api/tonnage-listings/{}", listing_id);
-    request_api(&state, &s, reqwest::Method::PATCH, &path, &s.bearer_token, Some(&body))
+    request_api(&state, s, reqwest::Method::PATCH, path, Some(body)).await
 }
 
 #[tauri::command]
-fn fetch_my_cargo(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
+async fn fetch_my_cargo(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/cargo-listings?broker_id={}", s.broker_id);
-    request_api(
-        &state,
-        &s,
-        reqwest::Method::GET,
-        &path,
-        &s.bearer_token,
-        None,
-    )
+    request_api(&state, s, reqwest::Method::GET, path, None).await
+}
+
+/// Bazaar × bazaar matches — opposite-side bazaar signals that the
+/// engine paired with the given signal (universal, no broker scoping).
+#[tauri::command]
+async fn fetch_bazaar_cross_matches(
+    state: tauri::State<'_, AppState>,
+    signal_kind: String,
+    signal_id: String,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let kind = if signal_kind == "tonnage" { "tonnage" } else { "cargo" };
+    let path = format!("/api/bazaar-signals/{}/{}/matches?limit=200", kind, signal_id);
+    request_api(&state, s, reqwest::Method::GET, path, None).await
 }
 
 #[tauri::command]
-fn fetch_my_tonnage(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
+async fn fetch_my_tonnage(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/tonnage-listings?broker_id={}", s.broker_id);
-    request_api(
-        &state,
-        &s,
-        reqwest::Method::GET,
-        &path,
-        &s.bearer_token,
-        None,
-    )
+    request_api(&state, s, reqwest::Method::GET, path, None).await
 }
 
 #[tauri::command]
-fn fetch_matches(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
+async fn fetch_matches(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/matches?broker_id={}", s.broker_id);
-    request_api(
-        &state,
-        &s,
-        reqwest::Method::GET,
-        &path,
-        &s.bearer_token,
-        None,
-    )
+    request_api(&state, s, reqwest::Method::GET, path, None).await
 }
 
 /// 4-panel UX inbox: returns own × own + own × bazaar matches with
@@ -491,7 +526,7 @@ fn fetch_matches(state: tauri::State<'_, AppState>) -> Result<JsonValue, String>
 /// single P1 row's match feed. Empty `listing_id` returns the full
 /// queue across all of the broker's listings.
 #[tauri::command]
-fn fetch_matches_inbox(
+async fn fetch_matches_inbox(
     state: tauri::State<'_, AppState>,
     listing_id: Option<String>,
     listing_kind: Option<String>,
@@ -511,86 +546,51 @@ fn fetch_matches_inbox(
     if include_dismissed.unwrap_or(false) {
         path.push_str("&include_dismissed=true");
     }
-    request_api(
-        &state,
-        &s,
-        reqwest::Method::GET,
-        &path,
-        &s.bearer_token,
-        None,
-    )
+    request_api(&state, s, reqwest::Method::GET, path, None).await
 }
 
 #[tauri::command]
-fn mark_bazaar_match_seen(
+async fn mark_bazaar_match_seen(
     state: tauri::State<'_, AppState>,
     match_id: String,
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/bazaar-matches/{}/seen", match_id);
-    request_api(
-        &state,
-        &s,
-        reqwest::Method::POST,
-        &path,
-        &s.bearer_token,
-        None,
-    )
+    request_api(&state, s, reqwest::Method::POST, path, None).await
 }
 
 #[tauri::command]
-fn dismiss_bazaar_match(
+async fn dismiss_bazaar_match(
     state: tauri::State<'_, AppState>,
     match_id: String,
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/bazaar-matches/{}/dismiss", match_id);
-    request_api(
-        &state,
-        &s,
-        reqwest::Method::POST,
-        &path,
-        &s.bearer_token,
-        None,
-    )
+    request_api(&state, s, reqwest::Method::POST, path, None).await
 }
 
 #[tauri::command]
-fn pin_bazaar_match(
+async fn pin_bazaar_match(
     state: tauri::State<'_, AppState>,
     match_id: String,
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/bazaar-matches/{}/pin", match_id);
-    request_api(
-        &state,
-        &s,
-        reqwest::Method::POST,
-        &path,
-        &s.bearer_token,
-        None,
-    )
+    request_api(&state, s, reqwest::Method::POST, path, None).await
 }
 
 #[tauri::command]
-fn unpin_bazaar_match(
+async fn unpin_bazaar_match(
     state: tauri::State<'_, AppState>,
     match_id: String,
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/bazaar-matches/{}/unpin", match_id);
-    request_api(
-        &state,
-        &s,
-        reqwest::Method::POST,
-        &path,
-        &s.bearer_token,
-        None,
-    )
+    request_api(&state, s, reqwest::Method::POST, path, None).await
 }
 
 #[tauri::command]
-fn engage_listing(
+async fn engage_listing(
     state: tauri::State<'_, AppState>,
     kind: String,
     listing_id: String,
@@ -607,18 +607,11 @@ fn engage_listing(
         "viewer_broker_id": s.broker_id,
         "action": action,
     });
-    request_api(
-        &state,
-        &s,
-        reqwest::Method::POST,
-        &path,
-        &s.bearer_token,
-        Some(&body),
-    )
+    request_api(&state, s, reqwest::Method::POST, path, Some(body)).await
 }
 
 #[tauri::command]
-fn close_listing(
+async fn close_listing(
     state: tauri::State<'_, AppState>,
     kind: String,
     listing_id: String,
@@ -630,48 +623,34 @@ fn close_listing(
         "tonnage-listings"
     };
     let path = format!("/api/{}/{}/close", endpoint, listing_id);
-    request_api(
-        &state,
-        &s,
-        reqwest::Method::POST,
-        &path,
-        &s.bearer_token,
-        None,
-    )
+    request_api(&state, s, reqwest::Method::POST, path, None).await
 }
 
 #[tauri::command]
-fn mark_match_seen(
+async fn mark_match_seen(
     state: tauri::State<'_, AppState>,
     match_id: String,
     side: String,
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/matches/{}/seen?side={}", match_id, side);
-    request_api(
-        &state,
-        &s,
-        reqwest::Method::POST,
-        &path,
-        &s.bearer_token,
-        None,
-    )
+    request_api(&state, s, reqwest::Method::POST, path, None).await
 }
 
 #[tauri::command]
-fn send_circular_email(
+async fn send_circular_email(
     state: tauri::State<'_, AppState>,
     subject: String,
     body: String,
 ) -> Result<usize, String> {
     let s = settings_snapshot(&state);
-    send_smtp_circular(&s.smtp, &s.recipients, &subject, &body)
+    spawn_blocking_result(move || send_smtp_circular(&s.smtp, &s.recipients, &subject, &body)).await
 }
 
 // ---------- Team chat (operators sharing one broker_id) ----------
 
 #[tauri::command]
-fn send_team_message(
+async fn send_team_message(
     state: tauri::State<'_, AppState>,
     body: String,
     event_type: Option<String>,
@@ -696,21 +675,25 @@ fn send_team_message(
         "sender_nickname": nickname,
         "body": trimmed,
     });
-    if let Some(et) = event_type.as_deref().map(str::trim).filter(|x| !x.is_empty()) {
+    if let Some(et) = event_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|x| !x.is_empty())
+    {
         payload["event_type"] = JsonValue::String(et.to_string());
     }
     request_api(
         &state,
-        &s,
+        s,
         reqwest::Method::POST,
-        "/api/team/messages",
-        &s.bearer_token,
-        Some(&payload),
+        "/api/team/messages".to_string(),
+        Some(payload),
     )
+    .await
 }
 
 #[tauri::command]
-fn fetch_team_messages(
+async fn fetch_team_messages(
     state: tauri::State<'_, AppState>,
     since: Option<String>,
 ) -> Result<JsonValue, String> {
@@ -725,14 +708,7 @@ fn fetch_team_messages(
         // whole value to keep FastAPI's datetime parser happy.
         path.push_str(&format!("&since={}", url_percent_encode(ts)));
     }
-    request_api(
-        &state,
-        &s,
-        reqwest::Method::GET,
-        &path,
-        &s.bearer_token,
-        None,
-    )
+    request_api(&state, s, reqwest::Method::GET, path, None).await
 }
 
 // ---------- Counterparty channels: .eml + WhatsApp deep-link ----------
@@ -898,10 +874,7 @@ fn open_external(_state: tauri::State<'_, AppState>, url: String) -> Result<(), 
 ///
 /// First run requires QR-code scan (one-time per Tauri WebKit profile).
 #[tauri::command]
-fn open_wa_chat(
-    app: tauri::AppHandle,
-    phone: String,
-) -> Result<(), String> {
+fn open_wa_chat(app: tauri::AppHandle, phone: String) -> Result<(), String> {
     use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
     let digits: String = phone.chars().filter(|c| c.is_ascii_digit()).collect();
@@ -963,57 +936,36 @@ fn open_wa_chat(
 }
 
 #[tauri::command]
-fn dismiss_match(
+async fn dismiss_match(
     state: tauri::State<'_, AppState>,
     match_id: String,
     side: String,
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/matches/{}/dismiss?side={}", match_id, side);
-    request_api(
-        &state,
-        &s,
-        reqwest::Method::POST,
-        &path,
-        &s.bearer_token,
-        None,
-    )
+    request_api(&state, s, reqwest::Method::POST, path, None).await
 }
 
 #[tauri::command]
-fn pin_match(
+async fn pin_match(
     state: tauri::State<'_, AppState>,
     match_id: String,
     side: String,
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/matches/{}/pin?side={}", match_id, side);
-    request_api(
-        &state,
-        &s,
-        reqwest::Method::POST,
-        &path,
-        &s.bearer_token,
-        None,
-    )
+    request_api(&state, s, reqwest::Method::POST, path, None).await
 }
 
 #[tauri::command]
-fn unpin_match(
+async fn unpin_match(
     state: tauri::State<'_, AppState>,
     match_id: String,
     side: String,
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/matches/{}/unpin?side={}", match_id, side);
-    request_api(
-        &state,
-        &s,
-        reqwest::Method::POST,
-        &path,
-        &s.bearer_token,
-        None,
-    )
+    request_api(&state, s, reqwest::Method::POST, path, None).await
 }
 
 /// Trigger the local freight agent (bazaar_push) to scrape mailbox +
@@ -1026,7 +978,7 @@ fn unpin_match(
 /// (Sasha's Windows) the agent isn't present and the command returns
 /// a friendly error so the UI can show "agent not available here".
 #[tauri::command]
-fn request_agent_update(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
+async fn request_agent_update(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
     use std::process::Command;
 
     let agent_dir = std::path::Path::new("/home/linux/scripts");
@@ -1051,52 +1003,66 @@ fn request_agent_update(state: tauri::State<'_, AppState>) -> Result<JsonValue, 
     // pointed at prod (api.skipi.app) — bazaar_push wrote into local
     // while the app read from prod.
     let s = settings_snapshot(&state);
-    let url = s.server_url.trim_end_matches('/').to_string();
-    let targets_prod = url.is_empty()
-        || url.contains("api.skipi.app")
-        || url.contains("api-ru.skipi.app");
+    let output = spawn_blocking_result(move || {
+        let url = s.server_url.trim_end_matches('/').to_string();
+        let targets_prod =
+            url.is_empty() || url.contains("api.skipi.app") || url.contains("api-ru.skipi.app");
 
-    // Spawn the right script. The PROD path goes through the shell
-    // wrapper that swaps in `bazaar_state.prod.json` so it doesn't
-    // collide with the local cursor.
-    let output = if targets_prod {
-        let prod_script = agent_dir.join("freight_agent/bazaar_push_prod.sh");
-        if !prod_script.exists() {
-            return Err("Prod push скрипт не найден на этой машине.".into());
+        // Spawn the right script. The PROD path goes through the shell
+        // wrapper that swaps in `bazaar_state.prod.json` so it doesn't
+        // collide with the local cursor.
+        if targets_prod {
+            let prod_script = agent_dir.join("freight_agent/bazaar_push_prod.sh");
+            if !prod_script.exists() {
+                return Err("Prod push скрипт не найден на этой машине.".into());
+            }
+            Command::new("bash")
+                .arg(&prod_script)
+                .current_dir(agent_dir)
+                .env_remove("PYTHONHOME")
+                .env_remove("PYTHONPATH")
+                .env_remove("PYTHONSTARTUP")
+                .env_remove("PYTHONNOUSERSITE")
+                .env_remove("LD_LIBRARY_PATH")
+                .env_remove("LD_PRELOAD")
+                .env_remove("PERLLIB")
+                .env_remove("GTK_DATA_PREFIX")
+                .env_remove("GTK_EXE_PREFIX")
+                .env_remove("GTK_PATH")
+                .env_remove("GDK_PIXBUF_MODULEDIR")
+                .env_remove("GDK_PIXBUF_MODULE_FILE")
+                .env_remove("GI_TYPELIB_PATH")
+                .env_remove("XDG_DATA_DIRS")
+                .output()
+                .map_err(|e| format!("spawn agent (prod) failed: {e}"))
+        } else {
+            // Local dev — push to whatever Settings.server_url points at.
+            let admin_token = std::env::var("SKIPI_ADMIN_TOKEN")
+                .unwrap_or_else(|_| "aCjVedJo87SrtUdNGCcseO9Qtv3R0vpoAlOMkR7xikg".to_string());
+            Command::new(&venv_python)
+                .args(["-m", "freight_agent.bazaar_push"])
+                .current_dir(agent_dir)
+                .env_remove("PYTHONHOME")
+                .env_remove("PYTHONPATH")
+                .env_remove("PYTHONSTARTUP")
+                .env_remove("PYTHONNOUSERSITE")
+                .env_remove("LD_LIBRARY_PATH")
+                .env_remove("LD_PRELOAD")
+                .env_remove("PERLLIB")
+                .env_remove("GTK_DATA_PREFIX")
+                .env_remove("GTK_EXE_PREFIX")
+                .env_remove("GTK_PATH")
+                .env_remove("GDK_PIXBUF_MODULEDIR")
+                .env_remove("GDK_PIXBUF_MODULE_FILE")
+                .env_remove("GI_TYPELIB_PATH")
+                .env_remove("XDG_DATA_DIRS")
+                .env("SKIPI_BAZAAR_URL", &url)
+                .env("SKIPI_ADMIN_TOKEN", &admin_token)
+                .output()
+                .map_err(|e| format!("spawn agent (local) failed: {e}"))
         }
-        Command::new("bash")
-            .arg(&prod_script)
-            .current_dir(agent_dir)
-            .env_remove("PYTHONHOME").env_remove("PYTHONPATH")
-            .env_remove("PYTHONSTARTUP").env_remove("PYTHONNOUSERSITE")
-            .env_remove("LD_LIBRARY_PATH").env_remove("LD_PRELOAD")
-            .env_remove("PERLLIB")
-            .env_remove("GTK_DATA_PREFIX").env_remove("GTK_EXE_PREFIX")
-            .env_remove("GTK_PATH")
-            .env_remove("GDK_PIXBUF_MODULEDIR").env_remove("GDK_PIXBUF_MODULE_FILE")
-            .env_remove("GI_TYPELIB_PATH").env_remove("XDG_DATA_DIRS")
-            .output()
-            .map_err(|e| format!("spawn agent (prod) failed: {e}"))?
-    } else {
-        // Local dev — push to whatever Settings.server_url points at.
-        let admin_token = std::env::var("SKIPI_ADMIN_TOKEN")
-            .unwrap_or_else(|_| "aCjVedJo87SrtUdNGCcseO9Qtv3R0vpoAlOMkR7xikg".to_string());
-        Command::new(&venv_python)
-            .args(["-m", "freight_agent.bazaar_push"])
-            .current_dir(agent_dir)
-            .env_remove("PYTHONHOME").env_remove("PYTHONPATH")
-            .env_remove("PYTHONSTARTUP").env_remove("PYTHONNOUSERSITE")
-            .env_remove("LD_LIBRARY_PATH").env_remove("LD_PRELOAD")
-            .env_remove("PERLLIB")
-            .env_remove("GTK_DATA_PREFIX").env_remove("GTK_EXE_PREFIX")
-            .env_remove("GTK_PATH")
-            .env_remove("GDK_PIXBUF_MODULEDIR").env_remove("GDK_PIXBUF_MODULE_FILE")
-            .env_remove("GI_TYPELIB_PATH").env_remove("XDG_DATA_DIRS")
-            .env("SKIPI_BAZAAR_URL", &url)
-            .env("SKIPI_ADMIN_TOKEN", &admin_token)
-            .output()
-            .map_err(|e| format!("spawn agent (local) failed: {e}"))?
-    };
+    })
+    .await?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -1166,6 +1132,7 @@ pub fn run() {
             update_tonnage,
             fetch_my_cargo,
             fetch_my_tonnage,
+            fetch_bazaar_cross_matches,
             fetch_matches,
             fetch_matches_inbox,
             engage_listing,
