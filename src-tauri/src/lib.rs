@@ -54,6 +54,13 @@ pub struct Settings {
     /// when posting to /api/team/messages. Empty falls back to
     /// `display_name`. Local-only field, never sent to listings.
     pub team_nickname: String,
+
+    /// Ollama-compatible base URL for the broker-LLM consultant.
+    /// Empty / unset means `http://localhost:11434` (the default for
+    /// Tymur on the Linux box where broker-qwen lives). Sasha and the
+    /// Mac install need to point to a reachable host (Tailscale IP,
+    /// LAN address, or proxy URL) — same model name `broker-qwen`.
+    pub llm_url: String,
 }
 
 impl Settings {
@@ -493,39 +500,58 @@ async fn fetch_my_cargo(state: tauri::State<'_, AppState>) -> Result<JsonValue, 
     request_api(&state, s, reqwest::Method::GET, path, None).await
 }
 
-/// Chat with the local broker-qwen LLM via Ollama. Messages are
-/// passed through verbatim; system prompt baked into the Modelfile
-/// stays in force unless caller includes a system-role message.
-///
-/// Blocking HTTP because Ollama responses can run 5-30s. Runs in
-/// spawn_blocking so the main runtime stays responsive.
+/// Chat with the broker-qwen LLM via Ollama. The endpoint is
+/// configurable through Settings → LLM URL (default localhost:11434).
+/// Blocking HTTP runs in spawn_blocking so the main runtime is free.
 #[tauri::command]
-async fn chat_with_broker_llm(messages: JsonValue) -> Result<JsonValue, String> {
+async fn chat_with_broker_llm(
+    state: tauri::State<'_, AppState>,
+    messages: JsonValue,
+) -> Result<JsonValue, String> {
     static LLM_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
     let client = LLM_CLIENT.get_or_init(|| {
         reqwest::blocking::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(2))
-            .timeout(std::time::Duration::from_secs(120))
+            .connect_timeout(std::time::Duration::from_secs(3))
+            .timeout(std::time::Duration::from_secs(180))
             .build()
             .expect("build llm http client")
     }).clone();
+    let s = settings_snapshot(&state);
+    let base = if s.llm_url.trim().is_empty() {
+        "http://localhost:11434".to_string()
+    } else {
+        s.llm_url.trim().trim_end_matches('/').to_string()
+    };
+    let url = format!("{}/api/chat", base);
     let body = serde_json::json!({
         "model": "broker-qwen",
         "messages": messages,
         "stream": false,
     });
+    let base_for_err = base.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        match client.post("http://localhost:11434/api/chat").json(&body).send() {
+        match client.post(&url).json(&body).send() {
             Ok(resp) => {
                 let status = resp.status();
                 let text = resp.text().unwrap_or_default();
+                if status.as_u16() == 404 {
+                    return Err(format!(
+                        "Модель broker-qwen не найдена на {base}. Тимур на Linux хостит её локально; \
+                         тебе нужен сетевой адрес его Ollama (Tailscale / LAN). \
+                         Открой ⚙ → LLM URL и впиши, например http://100.x.y.z:11434.",
+                        base = base_for_err
+                    ));
+                }
                 if !status.is_success() {
                     return Err(format!("ollama HTTP {}: {}", status.as_u16(), text));
                 }
                 serde_json::from_str::<JsonValue>(&text)
                     .map_err(|e| format!("ollama decode: {} (body: {})", e, text))
             }
-            Err(e) => Err(format!("ollama unreachable on localhost:11434 — is Ollama running? ({})", e)),
+            Err(e) => Err(format!(
+                "Ollama недоступна по адресу {base_for_err}. Установи Ollama локально и pull'ни broker-qwen, \
+                 либо открой ⚙ → LLM URL и впиши сетевой адрес Linux-машины Тимура. ({e})"
+            )),
         }
     })
     .await

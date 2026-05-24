@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.42';
+var APP_VERSION='0.1.43';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -45,6 +45,13 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
     min-width:90px; padding:0 12px; border-radius:5px; cursor:pointer; color:var(--text2); font-size:12px; }
 .mod-tab:hover { color:var(--text); background:var(--hover); }
 .mod-tab.active { color:#fff; background:var(--accent); font-weight:600; }
+/* Lead tabs — chains the user has pinned for active work. Blue to set
+   them apart from the standard navigation. Right-click → close. */
+.mod-tab.lead-tab { color:#fff; background:rgba(40,120,200,.85); border:1px solid rgba(60,140,220,.7); font-weight:500; }
+.mod-tab.lead-tab:hover { background:rgba(50,140,220,.95); }
+.mod-tab.lead-tab.active { background:rgba(20,100,180,1); border-color:rgba(20,100,180,1); }
+.lead-tab-close { color:rgba(255,255,255,.7); font-size:11px; margin-left:4px; cursor:pointer; }
+.lead-tab-close:hover { color:#fff; }
 .mb-spacer { flex:1; }
 .mb-identity { font-size:11px; color:var(--text2); padding:0 10px; }
 .mb-identity strong { color:var(--text); }
@@ -306,6 +313,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
 <div class="modules-bar">
     <div class="mod-tab active" id="nav-ex" onclick="showView('ex')">📋 Эксклюзивы</div>
     <div class="mod-tab" id="nav-match" onclick="showView('match')">🎯 Совпадения <span id="match-badge" class="count" style="display:none;"></span></div>
+    <div id="lead-tabs-host" style="display:flex; align-items:center; gap:4px;"></div>
     <div class="mb-spacer"></div>
     <div class="mb-identity" id="mb-identity">Не зарегистрирован</div>
     <div class="mb-gear" onclick="openSettings()" title="Settings">⚙</div>
@@ -528,6 +536,7 @@ var state = {
         busy: false,
         pairKey: '',         // tracks selectedSignal × selectedBxbMatch identity; reset when changes
     },
+    pinnedLeads: [],         // All pinned bazaar matches across the broker — drives lead tabs.
     team: {
         messages: [],        // chronological asc
         lastTs: null,        // ISO timestamp of newest message we have
@@ -1047,6 +1056,8 @@ async function teamSend(){
 // vertical (width) layouts.
 
 var _splitDrag = null;
+var _splitRaf = null;
+var _splitPending = null;
 
 function startSplitDrag(ev, kind){
     ev.preventDefault();
@@ -1055,12 +1066,22 @@ function startSplitDrag(ev, kind){
     if(!prev) return;
     var horizontal = el.classList.contains('splitter-h');
     var rect = prev.getBoundingClientRect();
+    // Pre-compute the "bottom strip" sibling + parent height once,
+    // since reading getBoundingClientRect mid-drag forces layout and
+    // causes the jitter the user reported on macOS WebView.
+    var bottom = el.nextElementSibling;
+    var bottomRect = bottom ? bottom.getBoundingClientRect() : null;
+    var parentRect = el.parentElement.getBoundingClientRect();
     _splitDrag = {
         el: el,
         prev: prev,
+        bottom: bottom,
         horizontal: horizontal,
+        prevIsColumns: prev.classList.contains('columns'),
         startPos: horizontal ? ev.clientY : ev.clientX,
         startSize: horizontal ? rect.height : rect.width,
+        bottomStartSize: bottomRect ? (horizontal ? bottomRect.height : bottomRect.width) : 0,
+        avail: horizontal ? parentRect.height : parentRect.width,
     };
     el.classList.add('dragging');
     document.body.classList.add('dragging-split');
@@ -1071,30 +1092,41 @@ function startSplitDrag(ev, kind){
 
 function _onSplitMove(ev){
     if(!_splitDrag) return;
+    // Coalesce: keep only the latest event; the rAF flush applies it.
+    // Without this each mousemove triggers a synchronous layout via
+    // flex-basis write, which queues up faster than the WebView can
+    // paint and creates the "lag + jump" behaviour.
+    _splitPending = ev;
+    ev.preventDefault();
+    if(_splitRaf == null){
+        _splitRaf = requestAnimationFrame(_splitFlush);
+    }
+}
+
+function _splitFlush(){
+    _splitRaf = null;
+    if(!_splitDrag || !_splitPending) return;
     var d = _splitDrag;
+    var ev = _splitPending; _splitPending = null;
     var delta = (d.horizontal ? ev.clientY : ev.clientX) - d.startPos;
-    // For the bottom-strip horizontal split we resize the TOP sibling
-    // (the .columns row) — but our splitter is between .columns and
-    // .bottom-strip with .bottom-strip having flex:0 0 260px. So we
-    // resize .bottom-strip's flex-basis inversely.
-    var newSize;
-    if(d.horizontal && d.prev.classList.contains('columns')){
-        // Top columns row gets bigger when user drags down → bottom
-        // shrinks. Resize the NEXT sibling (bottom strip) instead.
-        var bottom = d.el.nextElementSibling;
-        if(!bottom) return;
-        var avail = bottom.parentElement.getBoundingClientRect().height;
-        var bottomRect = bottom.getBoundingClientRect();
-        newSize = Math.max(120, Math.min(avail - 150, bottomRect.height - delta));
-        bottom.style.flex = '0 0 ' + newSize + 'px';
+    if(d.horizontal && d.prevIsColumns && d.bottom){
+        // Splitter between top columns and bottom strip — resize the
+        // bottom (flex:0 0 Xpx) inversely so the columns row keeps
+        // flex:1 and grows when the bottom shrinks.
+        var newSize = Math.max(120, Math.min(d.avail - 200, d.bottomStartSize - delta));
+        d.bottom.style.flex = '0 0 ' + newSize + 'px';
     } else {
-        newSize = Math.max(180, d.startSize + delta);
-        d.prev.style.flex = '1 1 ' + newSize + 'px';
+        // Bottom-strip vertical splitter between team/LLM panes —
+        // resize the previous sibling (team pane) to startSize+delta.
+        var newSize2 = Math.max(180, Math.min(d.avail - 200, d.startSize + delta));
+        d.prev.style.flex = '1 1 ' + newSize2 + 'px';
     }
 }
 
 function _onSplitUp(){
     if(!_splitDrag) return;
+    if(_splitRaf != null){ cancelAnimationFrame(_splitRaf); _splitRaf = null; }
+    _splitPending = null;
     _splitDrag.el.classList.remove('dragging');
     document.body.classList.remove('dragging-split');
     document.body.classList.remove('col-resize');
@@ -1479,14 +1511,103 @@ async function boot(){
 async function refreshAll(){
     if(state.refreshPromise) return state.refreshPromise;
     state.refreshPromise = (async function(){
-        await Promise.all([refreshMyListings(), refreshInbox()]);
+        await Promise.all([refreshMyListings(), refreshInbox(), refreshPinnedLeads()]);
         renderActiveView();
         renderStatusBar(); renderMatchBadge();
+        renderLeadTabs();
     })();
     try {
         return await state.refreshPromise;
     } finally {
         state.refreshPromise = null;
+    }
+}
+
+// Unscoped inbox fetch — needed for lead tabs because the scoped
+// refreshInbox only returns matches under the currently-selected
+// listing. Pinned chains live everywhere; we fetch without listing_id
+// and filter to pinned_at != null.
+async function refreshPinnedLeads(){
+    if(!state.settings.broker_id){ state.pinnedLeads = []; return; }
+    try {
+        var inbox = await invoke('fetch_matches_inbox', {});
+        var bm = (inbox && inbox.bazaar_matches) || [];
+        state.pinnedLeads = bm.filter(function(m){ return !!m.pinned_at; });
+    } catch(e){
+        console.warn('pinned leads fetch failed', e);
+    }
+}
+
+function renderLeadTabs(){
+    var host = document.getElementById('lead-tabs-host');
+    if(!host) return;
+    var leads = state.pinnedLeads || [];
+    if(leads.length === 0){ host.innerHTML = ''; return; }
+    // Sort: newest pin first.
+    var sorted = leads.slice().sort(function(a, b){
+        return Date.parse(b.pinned_at || '') - Date.parse(a.pinned_at || '');
+    });
+    host.innerHTML = sorted.map(function(m){
+        var listing = m.cargo_listing || m.tonnage_listing || {};
+        var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal || {};
+        var iconL = m.cargo_listing ? '📦' : '🚢';
+        var counterparty = sig.posted_by_email || sig.posted_by_name || '?';
+        var when = (m.pinned_at || '').slice(5, 10); // MM-DD
+        var label = listing.title
+            ? listing.title.slice(0, 28)
+            : (m.cargo_listing
+                ? ((listing.cargo_type || '?') + ' ' + (listing.load_port || ''))
+                : ((listing.vessel_name || ('IMO ' + listing.vessel_imo)) + ''));
+        var tooltip = label + ' · ' + counterparty + ' · взят ' + (m.pinned_at || '').slice(0, 16);
+        return '<div class="mod-tab lead-tab" data-mid="'+esc(m.id)+'" title="'+esc(tooltip)+'"'
+            + ' onclick="selectLead(\''+esc(m.id)+'\')"'
+            + ' oncontextmenu="leadContextMenu(event, \''+esc(m.id)+'\'); return false;">'
+            + iconL + ' ' + esc(label) + ' · ' + esc(counterparty.split('@')[0]) + ' '
+            + '<span class="lead-tab-close" title="Закрыть лид" onclick="event.stopPropagation(); closeLead(\''+esc(m.id)+'\')">×</span>'
+            + '</div>';
+    }).join('');
+}
+
+async function selectLead(matchId){
+    var m = (state.pinnedLeads || []).filter(function(x){ return x.id === matchId; })[0];
+    if(!m) return;
+    // Always lands in the Эксклюзивы view because the pinned chain is
+    // anchored to MY listing × bazaar signal.
+    state.view = 'ex';
+    var listingKind = m.cargo_listing ? 'cargo' : 'tonnage';
+    var listingId = (m.cargo_listing || m.tonnage_listing || {}).id;
+    state.selectedListing = listingId ? { kind:listingKind, id:listingId } : state.selectedListing;
+    state.selectedMatch = { type:'bazaar', data:m };
+    // Switch view + repaint
+    showView('ex');
+    // After showView the inbox might have just refreshed for the listing;
+    // ensure renderActiveView paints the chosen match as active.
+    renderActiveView();
+}
+
+function leadContextMenu(ev, matchId){
+    ev.preventDefault();
+    // Simple confirm — full popup menu can land in a later iteration.
+    if(confirm('Закрыть этот лид? Цепочка останется в матчах, но снимется с pin (вкладка пропадёт).')){
+        closeLead(matchId);
+    }
+}
+
+async function closeLead(matchId){
+    var m = (state.pinnedLeads || []).filter(function(x){ return x.id === matchId; })[0];
+    if(!m) return;
+    try {
+        await invoke('unpin_bazaar_match', { matchId:matchId });
+        state.pinnedLeads = state.pinnedLeads.filter(function(x){ return x.id !== matchId; });
+        // Mutate in place across state.inbox too so the underlying view repaints clean.
+        (state.inbox.bazaar_matches || []).forEach(function(x){
+            if(x.id === matchId) x.pinned_at = null;
+        });
+        renderLeadTabs();
+        renderActiveView();
+        showToast('Лид закрыт', 'ok');
+    } catch(e){
+        showToast('Не удалось снять с pin: '+e, 'error');
     }
 }
 
@@ -2137,6 +2258,9 @@ async function quickPin(matchId){
         var updated = await invoke(fn, { matchId:matchId });
         // Mutate in place so we don't lose the embedded signal/listing objects.
         Object.assign(m, updated);
+        // Lead tabs reflect pinned set — refresh from server (cheap).
+        await refreshPinnedLeads();
+        renderLeadTabs();
         renderActiveView();
         showToast(m.pinned_at ? '📌 в работе' : 'Откреплено', 'ok');
     } catch(e){
@@ -3433,7 +3557,9 @@ function renderSettingsBody(){
             '<div class="field-grid">'+
                 '<div class="field full"><label>Server URL</label><input id="set-server" value="'+esc(s.server_url||'')+'" placeholder="https://api-ru.skipi.app"></div>'+
                 '<div class="field full"><label>Bearer token</label><input id="set-bearer" value="'+esc(s.bearer_token||'')+'" placeholder="токен доступа"></div>'+
+                '<div class="field full"><label>LLM URL <span style="color:var(--text3); font-weight:normal;">— Ollama-хост с broker-qwen</span></label><input id="set-llm" value="'+esc(s.llm_url||'')+'" placeholder="http://localhost:11434 (Linux Тимура) / http://100.x.y.z:11434 (Tailscale)"></div>'+
             '</div>'+
+            '<div class="sub" style="margin-top:10px;">Брокер-LLM <code>broker-qwen</code> хостится локально на Linux-машине. Чтобы пользоваться им с Mac или Windows — открой Ollama Тимура на сеть (Tailscale или LAN) и впиши сюда адрес. Пусто = <code>http://localhost:11434</code>.</div>'+
             '<div style="margin-top:18px;"><button class="btn btn-accent" onclick="saveConnection()">Сохранить</button></div>';
     } else if(t==='identity'){
         body.innerHTML = '<h3>Профиль брокера</h3><div class="sub">Регистрация участника на сервере.</div>'+
@@ -3485,6 +3611,7 @@ async function saveConnection(){
     var s = state.settings;
     s.server_url = val('set-server');
     s.bearer_token = val('set-bearer');
+    s.llm_url = val('set-llm');
     try { state.settings = await invoke('save_settings', { incoming:s }); showToast('Сохранено.', 'ok'); refreshIdentityBadge(); }
     catch(e){ showToast('Save: '+e, 'error'); }
 }
