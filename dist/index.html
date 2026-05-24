@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.41';
+var APP_VERSION='0.1.42';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -162,6 +162,7 @@ body.dragging-split { cursor:row-resize; user-select:none; }
 body.dragging-split.col-resize { cursor:col-resize; }
 
 /* LLM chat block — sibling to team-block, lives in bottom-pane-llm */
+.llm-mount { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
 .llm-block { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
 .llm-stream { flex:1; overflow-y:auto; padding:8px 10px; display:flex; flex-direction:column; gap:6px; background:var(--surface2); min-height:0; }
 .llm-msg { display:flex; flex-direction:column; max-width:88%; padding:6px 10px; border-radius:7px; font-size:11px; line-height:1.4; white-space:pre-wrap; word-break:break-word; }
@@ -227,6 +228,10 @@ body.dragging-split.col-resize { cursor:col-resize; }
     line-height:1.4; font-style:italic; }
 .team-event .te-nick { color:var(--text2); font-style:normal; font-weight:600; }
 .team-event .te-time { color:var(--text3); margin-left:4px; opacity:.7; }
+.team-event.update-event { font-size:11px; color:var(--text); font-style:normal;
+    background:rgba(70,130,180,.18); border:1px solid rgba(70,130,180,.4);
+    border-radius:6px; padding:6px 10px; margin:4px 8px; line-height:1.5; }
+.team-event.update-event b { color:var(--accent); }
 .team-composer { display:flex; gap:6px; padding:6px 8px; border-top:1px solid var(--border); flex-shrink:0; }
 .team-composer textarea { flex:1; resize:none; min-height:30px; max-height:80px; padding:5px 7px;
     background:var(--surface); border:1px solid var(--border); border-radius:3px; outline:none;
@@ -307,65 +312,88 @@ body.dragging-split.col-resize { cursor:col-resize; }
 </div>
 
 <div class="app">
-    <!-- View 1: Эксклюзивы — 4-column drill-down mirroring view-match, but indexed
-         by MY listing instead of by bazaar signal. -->
-    <div class="columns view-pane" id="view-ex">
-        <!-- Col 1: top = selected exclusive detail; bottom = team chat -->
-        <div class="col" style="flex:1.0">
-            <div class="col-head">
-                <span>📋 Моя циркуляция</span>
-                <span class="count" id="p0-age"></span>
+    <!-- View 1: Эксклюзивы — same shape as view-match. 4 columns on top,
+         bottom strip with team chat + LLM consultant + drag splitters. -->
+    <div class="view-pane view-match-stack" id="view-ex">
+        <div class="columns" style="flex:1; min-height:0;">
+            <div class="col" style="flex:1.0">
+                <div class="col-head">
+                    <span>📋 Моя циркуляция</span>
+                    <span class="count" id="p0-age"></span>
+                </div>
+                <div class="col-body" id="p0-body"></div>
             </div>
-            <div class="col-body" id="p0-body" style="flex:1.4 1 0;"></div>
-            <div class="team-mount" id="team-mount-ex">
-                <!-- Team chat lives here by default; showView() moves it to view-match's mount when needed. -->
-                <div id="team-block" class="team-block">
-                    <div class="col-head" style="background:var(--surface2);">
-                        <span>👥 Команда</span>
-                        <span class="count" id="team-unread"></span>
-                    </div>
-                    <div class="team-pane">
-                        <div class="team-name-row">
-                            <label>Имя</label>
-                            <input id="team-name" placeholder="Ваше имя" oninput="onTeamNameInput()" onblur="saveTeamNameInline()">
+            <div class="col" style="flex:1.0">
+                <div class="col-head">
+                    <span>📋 Эксклюзивы</span>
+                    <span class="count" id="p1-count">0</span>
+                    <span class="p2-refresh" title="Опубликовать новую циркуляцию" onclick="openPublishModal()">＋</span>
+                </div>
+                <div class="col-body" id="p1-body"></div>
+            </div>
+            <div class="col" style="flex:1.2">
+                <div class="col-head">
+                    <span>Совпадения из базара</span>
+                    <span style="display:flex; gap:4px;">
+                        <span class="p2-tab" id="ex-tab-all" onclick="exSetFilter('all')">All</span>
+                        <span class="p2-tab" id="ex-tab-work" onclick="exSetFilter('work')">📌 В работе</span>
+                    </span>
+                    <span class="count" id="ex-matches-count">0</span>
+                </div>
+                <div class="col-body" id="ex-matches-body"></div>
+            </div>
+            <div class="col" style="flex:1.5">
+                <div class="col-head">
+                    <span>Детали сигнала</span>
+                    <span class="count" id="ex-signal-meta"></span>
+                </div>
+                <div class="col-body" id="ex-signal-body"></div>
+            </div>
+        </div>
+        <!-- Horizontal splitter -->
+        <div class="splitter splitter-h" onmousedown="startSplitDrag(event, 'vex-h')"></div>
+        <!-- Bottom strip: team chat (left) + LLM consultant (right) -->
+        <div class="bottom-strip">
+            <div class="bottom-pane">
+                <div class="team-mount" id="team-mount-ex">
+                    <!-- team-block lives here by default; showView() hops it to view-match's mount -->
+                    <div id="team-block" class="team-block">
+                        <div class="col-head" style="background:var(--surface2);">
+                            <span>👥 Команда</span>
+                            <span class="count" id="team-unread"></span>
                         </div>
-                        <div class="team-stream" id="team-stream"></div>
-                        <div class="team-composer">
-                            <textarea id="team-input" placeholder="Сообщение… (Enter — отправить)" onkeydown="teamKeyDown(event)"></textarea>
-                            <button class="btn btn-accent btn-sm" onclick="teamSend()">▶</button>
+                        <div class="team-pane">
+                            <div class="team-name-row">
+                                <label>Имя</label>
+                                <input id="team-name" placeholder="Ваше имя" oninput="onTeamNameInput()" onblur="saveTeamNameInline()">
+                            </div>
+                            <div class="team-stream" id="team-stream"></div>
+                            <div class="team-composer">
+                                <textarea id="team-input" placeholder="Сообщение… (Enter — отправить)" onkeydown="teamKeyDown(event)"></textarea>
+                                <button class="btn btn-accent btn-sm" onclick="teamSend()">▶</button>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
-        <!-- Col 2: my exclusive listings -->
-        <div class="col" style="flex:1.0">
-            <div class="col-head">
-                <span>📋 Эксклюзивы</span>
-                <span class="count" id="p1-count">0</span>
-                <span class="p2-refresh" title="Опубликовать новую циркуляцию" onclick="openPublishModal()">＋</span>
+            <div class="splitter splitter-v" onmousedown="startSplitDrag(event, 'bottom-ex-v')"></div>
+            <div class="bottom-pane">
+                <div class="llm-mount" id="llm-mount-ex">
+                    <!-- llm-block lives here by default; showView() hops it to view-match's mount -->
+                    <div id="llm-block" class="llm-block">
+                        <div class="col-head" style="background:var(--surface2);">
+                            <span>🤖 Брокер-LLM</span>
+                            <span class="count" id="llm-context-label">—</span>
+                            <span class="p2-refresh" id="llm-reset" title="Сбросить переписку и контекст" onclick="llmReset()">↺</span>
+                        </div>
+                        <div class="llm-stream" id="llm-stream"></div>
+                        <div class="llm-composer">
+                            <textarea id="llm-input" placeholder="Спроси про пару сигналов: почему совпало, шансы, риски, что уточнить… (Enter — отправить)" onkeydown="llmKeyDown(event)"></textarea>
+                            <button class="btn btn-accent btn-sm" id="llm-send-btn" onclick="llmSend()">▶</button>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <div class="col-body" id="p1-body"></div>
-        </div>
-        <!-- Col 3: bazaar signals matching the selected exclusive -->
-        <div class="col" style="flex:1.2">
-            <div class="col-head">
-                <span>Совпадения из базара</span>
-                <span style="display:flex; gap:4px;">
-                    <span class="p2-tab" id="ex-tab-all" onclick="exSetFilter('all')">All</span>
-                    <span class="p2-tab" id="ex-tab-work" onclick="exSetFilter('work')">📌 В работе</span>
-                </span>
-                <span class="count" id="ex-matches-count">0</span>
-            </div>
-            <div class="col-body" id="ex-matches-body"></div>
-        </div>
-        <!-- Col 4: details of selected match — raw signal text + counterparty contact -->
-        <div class="col" style="flex:1.5">
-            <div class="col-head">
-                <span>Детали сигнала</span>
-                <span class="count" id="ex-signal-meta"></span>
-            </div>
-            <div class="col-body" id="ex-signal-body"></div>
         </div>
     </div>
 
@@ -419,19 +447,8 @@ body.dragging-split.col-resize { cursor:col-resize; }
                 <div class="team-mount" id="team-mount-match"></div>
             </div>
             <div class="splitter splitter-v" id="splitter-bottom-v" onmousedown="startSplitDrag(event, 'bottom-v')"></div>
-            <div class="bottom-pane" id="bottom-pane-llm" style="flex:1 1 50%;">
-                <div class="llm-block" id="llm-block">
-                    <div class="col-head" style="background:var(--surface2);">
-                        <span>🤖 Брокер-LLM</span>
-                        <span class="count" id="llm-context-label">—</span>
-                        <span class="p2-refresh" id="llm-reset" title="Сбросить переписку и контекст" onclick="llmReset()">↺</span>
-                    </div>
-                    <div class="llm-stream" id="llm-stream"></div>
-                    <div class="llm-composer">
-                        <textarea id="llm-input" placeholder="Спроси про пару сигналов: почему совпало, шансы, риски, что уточнить… (Enter — отправить)" onkeydown="llmKeyDown(event)"></textarea>
-                        <button class="btn btn-accent btn-sm" id="llm-send-btn" onclick="llmSend()">▶</button>
-                    </div>
-                </div>
+            <div class="bottom-pane" id="bottom-pane-llm">
+                <div class="llm-mount" id="llm-mount-match"></div>
             </div>
         </div>
     </div>
@@ -925,15 +942,22 @@ function renderTeamStream(){
               + '<div class="team-msg-body">'+esc(m.body||'')+'</div>'
               + '</div>';
     });
-    var nearBottom = (stream.scrollHeight - stream.scrollTop - stream.clientHeight) < 80;
-    stream.innerHTML = html;
-    if(nearBottom){
-        stream.scrollTop = stream.scrollHeight;
-        // Treat "scrolled to bottom" as "user has seen everything".
-        state.team.lastSeenTs = state.team.lastTs;
-        state.team.unread = 0;
-        renderTeamUnread();
+    // Inline update notice — appears at the bottom of the chat whenever
+    // checkForUpdates has detected a new release, dismisses with the
+    // top banner.
+    if(state.pendingUpdate && state.pendingUpdate.available !== false){
+        var v = state.pendingUpdate.version || '';
+        html += '<div class="team-event update-event">🎉 Доступна новая версия Skipi Broker <b>'+esc(v)+'</b> — установи через баннер сверху или ⚙ → О программе → Проверить обновления.</div>';
     }
+    stream.innerHTML = html;
+    // Always pin to the latest message — the chat is treated like a
+    // tail-following log. If the user is scrolled up, the next render
+    // still yanks them down; that matches the «keep me on the latest»
+    // request and removes ambiguity about unread state.
+    stream.scrollTop = stream.scrollHeight;
+    state.team.lastSeenTs = state.team.lastTs;
+    state.team.unread = 0;
+    renderTeamUnread();
 }
 
 function _fmtTime(iso){
@@ -1090,12 +1114,20 @@ function _onSplitUp(){
 // Server: nothing — calls localhost:11434 via the Rust invoke.
 
 function _llmCurrentPairKey(){
+    if(state.view === 'ex'){
+        var aL = state.selectedListing;
+        var bM = state.selectedMatch && state.selectedMatch.data;
+        return 'ex|' + (aL ? aL.kind + ':' + aL.id : '-') + '||' + (bM ? bM.id : '-');
+    }
     var a = state.selectedSignal;
     var b = state.selectedBxbMatch;
-    return (a ? a.kind + ':' + a.id : '-') + '||' + (b ? b.id : '-');
+    return 'match|' + (a ? a.kind + ':' + a.id : '-') + '||' + (b ? b.id : '-');
 }
 
 function _llmBuildPairContext(){
+    if(state.view === 'ex'){
+        return _llmBuildContextEx();
+    }
     var a = state.selectedSignal;
     var b = state.selectedBxbMatch;
     if(!a) return null;
@@ -1153,6 +1185,61 @@ function _llmBuildPairContext(){
     return lines.join('\n');
 }
 
+// Context builder for view-ex: A = my listing (cargo or tonnage),
+// B = a bazaar signal from the matches feed under it.
+function _llmBuildContextEx(){
+    var aL = state.selectedListing;
+    if(!aL) return null;
+    var pool = aL.kind === 'cargo' ? state.myCargo : state.myTonnage;
+    var listing = (pool || []).filter(function(x){ return x.id === aL.id; })[0];
+    var lines = ['## Контекст пары', '\n**Моя циркуляция (' + aL.kind + '):**'];
+    if(listing){
+        if(listing.title) lines.push('- Заголовок: ' + listing.title);
+        if(aL.kind === 'cargo'){
+            if(listing.cargo_type) lines.push('- Груз: ' + listing.cargo_type);
+            if(listing.quantity_mt) lines.push('- Кол-во: ' + listing.quantity_mt + ' MT');
+            if(listing.load_port || listing.disch_port) lines.push('- Маршрут: ' + (listing.load_port || '?') + ' → ' + (listing.disch_port || '?'));
+            if(listing.laycan_from || listing.laycan_to) lines.push('- Laycan: ' + (listing.laycan_from || '').slice(0,10) + ' — ' + (listing.laycan_to || '').slice(0,10));
+        } else {
+            if(listing.vessel_name) lines.push('- Судно: ' + listing.vessel_name);
+            if(listing.vessel_type) lines.push('- Тип: ' + listing.vessel_type);
+            if(listing.dwt) lines.push('- DWT: ' + listing.dwt);
+            if(listing.open_port) lines.push('- Open: ' + listing.open_port);
+            if(listing.open_from || listing.open_to) lines.push('- Окно: ' + (listing.open_from || '').slice(0,10) + ' — ' + (listing.open_to || '').slice(0,10));
+        }
+        if(listing.rate_indication) lines.push('- Рейт: ' + listing.rate_indication);
+        if(listing.description) lines.push('- Описание:\n' + listing.description.slice(0, 2000));
+    }
+    var m = state.selectedMatch && state.selectedMatch.data;
+    if(m){
+        var sigB = m.bazaar_cargo_signal || m.bazaar_tonnage_signal || null;
+        var sigBkind = m.bazaar_cargo_signal ? 'cargo' : 'tonnage';
+        if(sigB){
+            lines.push('\n**Сигнал из базара (' + sigBkind + ', парный, score ' + Number(m.score || 0) + '):**');
+            if(sigB.title) lines.push('- Заголовок: ' + sigB.title);
+            if(sigBkind === 'cargo'){
+                if(sigB.cargo_type) lines.push('- Груз: ' + sigB.cargo_type);
+                if(sigB.quantity_mt) lines.push('- Кол-во: ' + sigB.quantity_mt + ' MT');
+                if(sigB.load_port || sigB.disch_port) lines.push('- Маршрут: ' + (sigB.load_port || '?') + ' → ' + (sigB.disch_port || '?'));
+                if(sigB.laycan_from || sigB.laycan_to) lines.push('- Laycan: ' + (sigB.laycan_from || '').slice(0,10) + ' — ' + (sigB.laycan_to || '').slice(0,10));
+            } else {
+                if(sigB.vessel_name) lines.push('- Судно: ' + sigB.vessel_name);
+                if(sigB.vessel_type) lines.push('- Тип: ' + sigB.vessel_type);
+                if(sigB.dwt) lines.push('- DWT: ' + sigB.dwt);
+                if(sigB.open_port) lines.push('- Open: ' + sigB.open_port);
+                if(sigB.open_from || sigB.open_to) lines.push('- Окно: ' + (sigB.open_from || '').slice(0,10) + ' — ' + (sigB.open_to || '').slice(0,10));
+            }
+            if(sigB.rate_indication) lines.push('- Рейт: ' + sigB.rate_indication);
+            if(sigB.posted_by_email) lines.push('- Email: ' + sigB.posted_by_email);
+            if(sigB.description) lines.push('- Описание (raw):\n' + sigB.description.slice(0, 2000));
+        }
+        if(m.reasons){
+            lines.push('\n**Reasons matcher\'а:** ' + JSON.stringify(m.reasons));
+        }
+    }
+    return lines.join('\n');
+}
+
 function llmReset(){
     state.llm.messages = [];
     state.llm.pairKey = '';
@@ -1164,8 +1251,14 @@ function llmReset(){
 function renderLlmStream(){
     var stream = document.getElementById('llm-stream');
     if(!stream) return;
-    if(!state.selectedSignal){
-        stream.innerHTML = '<div class="llm-empty">Выбери сигнал в Совпадениях и пару — задай вопрос: «почему совпало», «шансы», «риски», «что уточнить». Брокер-LLM локально на этой машине.</div>';
+    var hasPair = (state.view === 'ex')
+        ? !!state.selectedListing
+        : !!state.selectedSignal;
+    if(!hasPair){
+        var hint = state.view === 'ex'
+            ? 'Выбери эксклюзив и одно из совпадений — задай вопрос: «почему совпало», «шансы», «риски», «что уточнить». Брокер-LLM локально на этой машине.'
+            : 'Выбери сигнал в Совпадениях и пару — задай вопрос: «почему совпало», «шансы», «риски», «что уточнить». Брокер-LLM локально на этой машине.';
+        stream.innerHTML = '<div class="llm-empty">'+hint+'</div>';
         return;
     }
     var html = '';
@@ -1178,7 +1271,10 @@ function renderLlmStream(){
         html += '<div class="llm-msg thinking">…думаю…</div>';
     }
     if(html === ''){
-        var pair = state.selectedBxbMatch ? 'пара выбрана' : 'выбери пару в col 3';
+        var hasB = state.view === 'ex'
+            ? !!(state.selectedMatch && state.selectedMatch.data)
+            : !!state.selectedBxbMatch;
+        var pair = hasB ? 'пара выбрана' : (state.view === 'ex' ? 'выбери совпадение в col 3' : 'выбери пару в col 3');
         stream.innerHTML = '<div class="llm-empty">'+pair+'. Спроси что-нибудь.</div>';
         return;
     }
@@ -1188,8 +1284,10 @@ function renderLlmStream(){
     // Update context label.
     var contextEl = document.getElementById('llm-context-label');
     if(contextEl){
-        var sigB = state.selectedBxbMatch && state.selectedBxbMatch.opposite_signal;
-        contextEl.textContent = sigB ? 'пара ✓' : 'без пары';
+        var hasPair2 = state.view === 'ex'
+            ? !!(state.selectedMatch && state.selectedMatch.data)
+            : !!(state.selectedBxbMatch && state.selectedBxbMatch.opposite_signal);
+        contextEl.textContent = hasPair2 ? 'пара ✓' : 'без пары';
     }
 }
 
@@ -1310,11 +1408,16 @@ function showUpdateBanner(update){
         + '<button class="secondary" onclick="hideUpdateBanner()">Позже</button>'
         + '<span class="ub-close" onclick="hideUpdateBanner()" title="Скрыть">×</span>'
         + '</div>';
+    // Mirror the notice into the team chat — even when the banner is
+    // covered by another window, the chat tail-follow exposes it.
+    renderTeamStream();
 }
 
 function hideUpdateBanner(){
     var host = document.getElementById('update-banner-host');
     if(host) host.innerHTML = '';
+    state.pendingUpdate = null;
+    renderTeamStream();
 }
 
 async function doInstallUpdate(){
@@ -1402,15 +1505,15 @@ function renderActiveView(){
         renderSelectedSignalDetail();
         renderBxbMatchesForSelectedSignal();
         renderOppositeSignalDetail();
-        // If pair changed since last LLM turn, drop the old conversation —
-        // the next user message will re-inject context.
-        var pk = _llmCurrentPairKey();
-        if(state.llm.pairKey && pk !== state.llm.pairKey){
-            state.llm.messages = [];
-            state.llm.pairKey = '';
-        }
-        renderLlmStream();
     }
+    // LLM consultant lives in both views — repaint after pair change
+    // and drop the conversation buffer if the chain shifted.
+    var pk = _llmCurrentPairKey();
+    if(state.llm.pairKey && pk !== state.llm.pairKey){
+        state.llm.messages = [];
+        state.llm.pairKey = '';
+    }
+    renderLlmStream();
 }
 
 // ---------- View switching (Эксклюзивы ↔ Совпадения) ----------
@@ -1427,9 +1530,15 @@ function showView(name){
     // Single team-chat DOM hops between the two view mounts so the
     // chat state (poll timer, scroll position) survives view switches.
     var teamBlock = document.getElementById('team-block');
-    var mount = document.getElementById(name === 'ex' ? 'team-mount-ex' : 'team-mount-match');
-    if(teamBlock && mount && teamBlock.parentNode !== mount){
-        mount.appendChild(teamBlock);
+    var teamMount = document.getElementById(name === 'ex' ? 'team-mount-ex' : 'team-mount-match');
+    if(teamBlock && teamMount && teamBlock.parentNode !== teamMount){
+        teamMount.appendChild(teamBlock);
+    }
+    // LLM block hops the same way so the conversation buffer survives.
+    var llmBlock = document.getElementById('llm-block');
+    var llmMount = document.getElementById(name === 'ex' ? 'llm-mount-ex' : 'llm-mount-match');
+    if(llmBlock && llmMount && llmBlock.parentNode !== llmMount){
+        llmMount.appendChild(llmBlock);
     }
 
     // Auto-select sensible defaults the first time each view opens so
