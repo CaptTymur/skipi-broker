@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.43';
+var APP_VERSION='0.1.44';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -3557,9 +3557,9 @@ function renderSettingsBody(){
             '<div class="field-grid">'+
                 '<div class="field full"><label>Server URL</label><input id="set-server" value="'+esc(s.server_url||'')+'" placeholder="https://api-ru.skipi.app"></div>'+
                 '<div class="field full"><label>Bearer token</label><input id="set-bearer" value="'+esc(s.bearer_token||'')+'" placeholder="токен доступа"></div>'+
-                '<div class="field full"><label>LLM URL <span style="color:var(--text3); font-weight:normal;">— Ollama-хост с broker-qwen</span></label><input id="set-llm" value="'+esc(s.llm_url||'')+'" placeholder="http://localhost:11434 (Linux Тимура) / http://100.x.y.z:11434 (Tailscale)"></div>'+
+                '<div class="field full"><label>LLM URL <span style="color:var(--text3); font-weight:normal;">— override; пусто = через skipi-server</span></label><input id="set-llm" value="'+esc(s.llm_url||'')+'" placeholder="(пусто — через api.skipi.app proxy)"></div>'+
             '</div>'+
-            '<div class="sub" style="margin-top:10px;">Брокер-LLM <code>broker-qwen</code> хостится локально на Linux-машине. Чтобы пользоваться им с Mac или Windows — открой Ollama Тимура на сеть (Tailscale или LAN) и впиши сюда адрес. Пусто = <code>http://localhost:11434</code>.</div>'+
+            '<div class="sub" style="margin-top:10px;">По умолчанию запросы к <code>broker-qwen</code> идут через <code>api.skipi.app</code>, который через SSH-туннель попадает на Linux-машину Тимура. Mac и Windows ничего не настраивают. Поле LLM URL — только для прямого override (например <code>http://localhost:11434</code> на самом Linux, чтобы обойти туннель).</div>'+
             '<div style="margin-top:18px;"><button class="btn btn-accent" onclick="saveConnection()">Сохранить</button></div>';
     } else if(t==='identity'){
         body.innerHTML = '<h3>Профиль брокера</h3><div class="sub">Регистрация участника на сервере.</div>'+

@@ -500,9 +500,18 @@ async fn fetch_my_cargo(state: tauri::State<'_, AppState>) -> Result<JsonValue, 
     request_api(&state, s, reqwest::Method::GET, path, None).await
 }
 
-/// Chat with the broker-qwen LLM via Ollama. The endpoint is
-/// configurable through Settings → LLM URL (default localhost:11434).
-/// Blocking HTTP runs in spawn_blocking so the main runtime is free.
+/// Chat with the broker-qwen LLM. Two routing paths:
+///
+/// * Default (Settings → LLM URL empty) → POST to skipi-server's
+///   /api/llm/chat proxy, which forwards to Tymur's tunnelled Ollama.
+///   Works out-of-the-box for Mac and Sasha; the SSH tunnel from
+///   Tymur's Linux to Contabo keeps the model reachable as long as
+///   that Linux box is online. Auth: shared bearer.
+/// * Override (Settings → LLM URL non-empty) → direct POST to that
+///   Ollama host's /api/chat. Used when you want to bypass the
+///   proxy or hit a different model server.
+///
+/// Both paths use a 180s timeout; LLM inference can take 30-90s.
 #[tauri::command]
 async fn chat_with_broker_llm(
     state: tauri::State<'_, AppState>,
@@ -511,46 +520,78 @@ async fn chat_with_broker_llm(
     static LLM_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
     let client = LLM_CLIENT.get_or_init(|| {
         reqwest::blocking::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(3))
+            .connect_timeout(std::time::Duration::from_secs(4))
             .timeout(std::time::Duration::from_secs(180))
+            .danger_accept_invalid_certs(true)
             .build()
             .expect("build llm http client")
     }).clone();
     let s = settings_snapshot(&state);
-    let base = if s.llm_url.trim().is_empty() {
-        "http://localhost:11434".to_string()
-    } else {
-        s.llm_url.trim().trim_end_matches('/').to_string()
-    };
-    let url = format!("{}/api/chat", base);
-    let body = serde_json::json!({
-        "model": "broker-qwen",
-        "messages": messages,
-        "stream": false,
-    });
-    let base_for_err = base.clone();
+    let override_url = s.llm_url.trim().trim_end_matches('/').to_string();
+    // Build target URL + body. Server proxy needs only {messages}; the
+    // proxy fills in model + stream. Direct Ollama needs the full body.
+    let (url, body, via_proxy, bearer): (String, JsonValue, bool, String) =
+        if override_url.is_empty() {
+            // Default: route through skipi-server which has the SSH tunnel.
+            let base = if s.server_url.trim().is_empty() {
+                PRIMARY_API.to_string()
+            } else {
+                s.server_url.trim().trim_end_matches('/').to_string()
+            };
+            (
+                format!("{}/api/llm/chat", base),
+                serde_json::json!({ "messages": messages }),
+                true,
+                s.bearer_token.clone(),
+            )
+        } else {
+            (
+                format!("{}/api/chat", override_url),
+                serde_json::json!({
+                    "model": "broker-qwen",
+                    "messages": messages,
+                    "stream": false,
+                }),
+                false,
+                String::new(),
+            )
+        };
+    let url_for_err = url.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        match client.post(&url).json(&body).send() {
+        let mut req = client.post(&url).json(&body);
+        if via_proxy && !bearer.is_empty() {
+            req = req.bearer_auth(&bearer);
+        }
+        match req.send() {
             Ok(resp) => {
                 let status = resp.status();
                 let text = resp.text().unwrap_or_default();
+                if status.as_u16() == 401 || status.as_u16() == 403 {
+                    return Err(format!(
+                        "LLM proxy отказал в авторизации ({}). Проверь bearer token в ⚙ → Подключение.",
+                        status.as_u16()
+                    ));
+                }
+                if status.as_u16() == 503 {
+                    return Err(format!(
+                        "Ollama сейчас недоступна — туннель от Linux Тимура временно опущен. Попробуй через минуту."
+                    ));
+                }
                 if status.as_u16() == 404 {
                     return Err(format!(
-                        "Модель broker-qwen не найдена на {base}. Тимур на Linux хостит её локально; \
-                         тебе нужен сетевой адрес его Ollama (Tailscale / LAN). \
-                         Открой ⚙ → LLM URL и впиши, например http://100.x.y.z:11434.",
-                        base = base_for_err
+                        "Модель broker-qwen не найдена. Если стоит override LLM URL — проверь что там Ollama с этой моделью."
                     ));
                 }
                 if !status.is_success() {
-                    return Err(format!("ollama HTTP {}: {}", status.as_u16(), text));
+                    return Err(format!("LLM HTTP {}: {}", status.as_u16(), text));
                 }
                 serde_json::from_str::<JsonValue>(&text)
-                    .map_err(|e| format!("ollama decode: {} (body: {})", e, text))
+                    .map_err(|e| format!("LLM decode: {} (body: {})", e, text))
             }
             Err(e) => Err(format!(
-                "Ollama недоступна по адресу {base_for_err}. Установи Ollama локально и pull'ни broker-qwen, \
-                 либо открой ⚙ → LLM URL и впиши сетевой адрес Linux-машины Тимура. ({e})"
+                "Не достучаться до LLM ({url_for_err}): {e}. \
+                 Если ты на Mac/Windows — проверь интернет; \
+                 если на Linux Тимура — открой ⚙ → LLM URL и впиши http://localhost:11434 для прямого вызова."
             )),
         }
     })
