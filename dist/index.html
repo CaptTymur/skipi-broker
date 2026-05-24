@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.40';
+var APP_VERSION='0.1.41';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -94,7 +94,8 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 /* Listing rows (P1, P2) */
 .row { padding:10px 14px; border-bottom:1px solid var(--border); cursor:pointer; }
 .row:hover { background:var(--hover); }
-.row.active { background:var(--accent-bg); border-left:3px solid var(--accent); padding-left:11px; }
+.row.active { background:rgba(70,130,180,.18); border-left:3px solid var(--accent); padding-left:11px; }
+.row.active:hover { background:rgba(70,130,180,.26); }
 .row .r-top { display:flex; align-items:center; gap:6px; margin-bottom:4px; }
 .row .r-icon { font-size:14px; opacity:.85; }
 .row .r-title { flex:1; font-size:13px; font-weight:600; color:var(--text);
