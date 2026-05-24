@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.38';
+var APP_VERSION='0.1.39';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -143,10 +143,37 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 /* Tab view containers — only one visible at a time */
 .view-pane { flex:1; display:flex; overflow:hidden; }
 .view-match-stack { flex-direction:column; }
-.team-mount { display:flex; flex-direction:column; min-height:200px; flex:1.0 1 0; border-top:1px solid var(--border); overflow:hidden; }
-/* Bottom-strip variant: horizontal layout, fixed-ish height, used in view-match */
-.team-mount-bottom { flex:0 0 220px; min-height:220px; max-height:32vh; }
+.team-mount { display:flex; flex-direction:column; min-height:140px; flex:1.0 1 0; border-top:1px solid var(--border); overflow:hidden; }
 .team-block { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
+
+/* Bottom strip in view-match: team chat (left) + LLM chat (right), with drag-resize splitter between them. */
+.bottom-strip { display:flex; flex:0 0 260px; min-height:160px; max-height:60vh; border-top:1px solid var(--border); overflow:hidden; }
+.bottom-pane { display:flex; flex-direction:column; min-width:200px; overflow:hidden; }
+.bottom-pane > .team-mount { border-top:none; flex:1; min-height:0; }
+
+/* Splitter — invisible by default, thin highlight on hover/active. */
+.splitter { background:transparent; flex-shrink:0; user-select:none; }
+.splitter-h { height:6px; cursor:row-resize; background:var(--border); opacity:.3; }
+.splitter-h:hover, .splitter-h.dragging { opacity:1; background:var(--accent); }
+.splitter-v { width:6px; cursor:col-resize; background:var(--border); opacity:.3; }
+.splitter-v:hover, .splitter-v.dragging { opacity:1; background:var(--accent); }
+body.dragging-split { cursor:row-resize; user-select:none; }
+body.dragging-split.col-resize { cursor:col-resize; }
+
+/* LLM chat block — sibling to team-block, lives in bottom-pane-llm */
+.llm-block { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
+.llm-stream { flex:1; overflow-y:auto; padding:8px 10px; display:flex; flex-direction:column; gap:6px; background:var(--surface2); min-height:0; }
+.llm-msg { display:flex; flex-direction:column; max-width:88%; padding:6px 10px; border-radius:7px; font-size:11px; line-height:1.4; white-space:pre-wrap; word-break:break-word; }
+.llm-msg.user { align-self:flex-end; background:rgba(70,130,180,.18); border:1px solid rgba(70,130,180,.4); }
+.llm-msg.assistant { align-self:flex-start; background:var(--surface); border:1px solid var(--border); }
+.llm-msg.thinking { align-self:flex-start; color:var(--text3); font-style:italic; }
+.llm-empty { color:var(--text3); font-size:11px; text-align:center; padding:18px 12px; line-height:1.5; }
+.llm-composer { display:flex; gap:6px; padding:6px 8px; border-top:1px solid var(--border); flex-shrink:0; }
+.llm-composer textarea { flex:1; resize:none; min-height:30px; max-height:100px; padding:5px 7px;
+    background:var(--surface); border:1px solid var(--border); border-radius:3px; outline:none;
+    font-family:var(--font-ui); font-size:11px; color:var(--text); }
+.llm-composer textarea:focus { border-color:var(--accent); }
+.llm-composer .btn-sm { padding:0 10px; align-self:stretch; }
 
 /* View-match: signal-feed rows + match cards in right column */
 .r-top { display:flex; justify-content:space-between; align-items:baseline; gap:6px; }
@@ -382,8 +409,29 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
                 <div class="col-body" id="opposite-signal-body"></div>
             </div>
         </div>
-        <!-- Bottom: team chat strip across full view-match width -->
-        <div class="team-mount team-mount-bottom" id="team-mount-match"></div>
+        <!-- Horizontal splitter — drag to resize top columns vs bottom strip -->
+        <div class="splitter splitter-h" id="splitter-vmatch-h" onmousedown="startSplitDrag(event, 'vmatch-h')"></div>
+        <!-- Bottom strip: team chat (left) + LLM-broker chat (right), with vertical splitter -->
+        <div class="bottom-strip" id="bottom-strip">
+            <div class="bottom-pane" id="bottom-pane-team" style="flex:1 1 50%;">
+                <div class="team-mount" id="team-mount-match"></div>
+            </div>
+            <div class="splitter splitter-v" id="splitter-bottom-v" onmousedown="startSplitDrag(event, 'bottom-v')"></div>
+            <div class="bottom-pane" id="bottom-pane-llm" style="flex:1 1 50%;">
+                <div class="llm-block" id="llm-block">
+                    <div class="col-head" style="background:var(--surface2);">
+                        <span>🤖 Брокер-LLM</span>
+                        <span class="count" id="llm-context-label">—</span>
+                        <span class="p2-refresh" id="llm-reset" title="Сбросить переписку и контекст" onclick="llmReset()">↺</span>
+                    </div>
+                    <div class="llm-stream" id="llm-stream"></div>
+                    <div class="llm-composer">
+                        <textarea id="llm-input" placeholder="Спроси про пару сигналов: почему совпало, шансы, риски, что уточнить… (Enter — отправить)" onkeydown="llmKeyDown(event)"></textarea>
+                        <button class="btn btn-accent btn-sm" id="llm-send-btn" onclick="llmSend()">▶</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
     <div class="statusbar" id="statusbar">
         <span class="sb-pill"><span>Базар</span>: <span class="v" id="sb-bazaar-total">0</span></span>
@@ -456,6 +504,11 @@ var state = {
     selectedSignal: null,    // { kind:'cargo'|'tonnage', id:'...' } — driver of view-match col 2 selection
     bxbMatches: [],          // bazaar × bazaar matches for selectedSignal
     selectedBxbMatch: null,  // chosen row in col 3
+    llm: {
+        messages: [],        // { role: 'user'|'assistant', content: '...' }
+        busy: false,
+        pairKey: '',         // tracks selectedSignal × selectedBxbMatch identity; reset when changes
+    },
     team: {
         messages: [],        // chronological asc
         lastTs: null,        // ISO timestamp of newest message we have
@@ -960,6 +1013,235 @@ async function teamSend(){
     }
 }
 
+// ---------- Resizable splitters ----------
+//
+// Generic drag handler — adjusts the *previous sibling's* flex-basis
+// (px) as the mouse moves, leaving the next sibling at flex:1 to
+// soak up remaining space. Works for both horizontal (height) and
+// vertical (width) layouts.
+
+var _splitDrag = null;
+
+function startSplitDrag(ev, kind){
+    ev.preventDefault();
+    var el = ev.currentTarget;
+    var prev = el.previousElementSibling;
+    if(!prev) return;
+    var horizontal = el.classList.contains('splitter-h');
+    var rect = prev.getBoundingClientRect();
+    _splitDrag = {
+        el: el,
+        prev: prev,
+        horizontal: horizontal,
+        startPos: horizontal ? ev.clientY : ev.clientX,
+        startSize: horizontal ? rect.height : rect.width,
+    };
+    el.classList.add('dragging');
+    document.body.classList.add('dragging-split');
+    if(!horizontal) document.body.classList.add('col-resize');
+    document.addEventListener('mousemove', _onSplitMove);
+    document.addEventListener('mouseup', _onSplitUp);
+}
+
+function _onSplitMove(ev){
+    if(!_splitDrag) return;
+    var d = _splitDrag;
+    var delta = (d.horizontal ? ev.clientY : ev.clientX) - d.startPos;
+    // For the bottom-strip horizontal split we resize the TOP sibling
+    // (the .columns row) — but our splitter is between .columns and
+    // .bottom-strip with .bottom-strip having flex:0 0 260px. So we
+    // resize .bottom-strip's flex-basis inversely.
+    var newSize;
+    if(d.horizontal && d.prev.classList.contains('columns')){
+        // Top columns row gets bigger when user drags down → bottom
+        // shrinks. Resize the NEXT sibling (bottom strip) instead.
+        var bottom = d.el.nextElementSibling;
+        if(!bottom) return;
+        var avail = bottom.parentElement.getBoundingClientRect().height;
+        var bottomRect = bottom.getBoundingClientRect();
+        newSize = Math.max(120, Math.min(avail - 150, bottomRect.height - delta));
+        bottom.style.flex = '0 0 ' + newSize + 'px';
+    } else {
+        newSize = Math.max(180, d.startSize + delta);
+        d.prev.style.flex = '1 1 ' + newSize + 'px';
+    }
+}
+
+function _onSplitUp(){
+    if(!_splitDrag) return;
+    _splitDrag.el.classList.remove('dragging');
+    document.body.classList.remove('dragging-split');
+    document.body.classList.remove('col-resize');
+    _splitDrag = null;
+    document.removeEventListener('mousemove', _onSplitMove);
+    document.removeEventListener('mouseup', _onSplitUp);
+}
+
+// ---------- LLM broker assistant (Ollama broker-qwen) ----------
+//
+// Locally-hosted Qwen3-14B fine-tuned for Tymur's freight brokerage
+// playbook. The chat sits in the bottom-right pane of the Совпадения
+// tab. Context (selected signal + opposite signal + matcher reasons)
+// is injected ONCE per pair — when user picks a different pair we
+// reset the conversation, the next message will carry fresh context.
+//
+// Server: nothing — calls localhost:11434 via the Rust invoke.
+
+function _llmCurrentPairKey(){
+    var a = state.selectedSignal;
+    var b = state.selectedBxbMatch;
+    return (a ? a.kind + ':' + a.id : '-') + '||' + (b ? b.id : '-');
+}
+
+function _llmBuildPairContext(){
+    var a = state.selectedSignal;
+    var b = state.selectedBxbMatch;
+    if(!a) return null;
+    // Locate the col-2 signal's raw data via state.inbox.bazaar_matches.
+    var sigA = null;
+    (state.inbox.bazaar_matches || []).some(function(m){
+        var s = m.bazaar_cargo_signal || m.bazaar_tonnage_signal;
+        var k = m.bazaar_cargo_signal ? 'cargo' : 'tonnage';
+        if(s && s.id === a.id && k === a.kind){ sigA = s; return true; }
+        return false;
+    });
+    var lines = ['## Контекст пары сигналов'];
+    lines.push('\n**Сигнал A (' + a.kind + '):**');
+    if(sigA){
+        if(sigA.title) lines.push('- Заголовок: ' + sigA.title);
+        if(a.kind === 'cargo'){
+            if(sigA.cargo_type) lines.push('- Груз: ' + sigA.cargo_type);
+            if(sigA.quantity_mt) lines.push('- Кол-во: ' + sigA.quantity_mt + ' MT');
+            if(sigA.load_port || sigA.disch_port) lines.push('- Маршрут: ' + (sigA.load_port || '?') + ' → ' + (sigA.disch_port || '?'));
+            if(sigA.laycan_from || sigA.laycan_to) lines.push('- Laycan: ' + (sigA.laycan_from || '').slice(0,10) + ' — ' + (sigA.laycan_to || '').slice(0,10));
+        } else {
+            if(sigA.vessel_name) lines.push('- Судно: ' + sigA.vessel_name);
+            if(sigA.vessel_type) lines.push('- Тип: ' + sigA.vessel_type);
+            if(sigA.dwt) lines.push('- DWT: ' + sigA.dwt);
+            if(sigA.open_port) lines.push('- Open: ' + sigA.open_port);
+            if(sigA.open_from || sigA.open_to) lines.push('- Окно: ' + (sigA.open_from || '').slice(0,10) + ' — ' + (sigA.open_to || '').slice(0,10));
+        }
+        if(sigA.rate_indication) lines.push('- Рейт: ' + sigA.rate_indication);
+        if(sigA.posted_by_email) lines.push('- Email: ' + sigA.posted_by_email);
+        if(sigA.description) lines.push('- Описание (raw):\n' + sigA.description.slice(0, 2000));
+    }
+    if(b && b.opposite_signal){
+        var sigB = b.opposite_signal;
+        lines.push('\n**Сигнал B (' + sigB.kind + ', парный, score ' + Number(b.score || 0) + '):**');
+        if(sigB.title) lines.push('- Заголовок: ' + sigB.title);
+        if(sigB.kind === 'cargo'){
+            if(sigB.cargo_type) lines.push('- Груз: ' + sigB.cargo_type);
+            if(sigB.quantity_mt) lines.push('- Кол-во: ' + sigB.quantity_mt + ' MT');
+            if(sigB.load_port || sigB.disch_port) lines.push('- Маршрут: ' + (sigB.load_port || '?') + ' → ' + (sigB.disch_port || '?'));
+            if(sigB.laycan_from || sigB.laycan_to) lines.push('- Laycan: ' + (sigB.laycan_from || '').slice(0,10) + ' — ' + (sigB.laycan_to || '').slice(0,10));
+        } else {
+            if(sigB.vessel_name) lines.push('- Судно: ' + sigB.vessel_name);
+            if(sigB.vessel_type) lines.push('- Тип: ' + sigB.vessel_type);
+            if(sigB.dwt) lines.push('- DWT: ' + sigB.dwt);
+            if(sigB.open_port) lines.push('- Open: ' + sigB.open_port);
+            if(sigB.open_from || sigB.open_to) lines.push('- Окно: ' + (sigB.open_from || '').slice(0,10) + ' — ' + (sigB.open_to || '').slice(0,10));
+        }
+        if(sigB.rate_indication) lines.push('- Рейт: ' + sigB.rate_indication);
+        if(sigB.posted_by_email) lines.push('- Email: ' + sigB.posted_by_email);
+        if(sigB.description) lines.push('- Описание (raw):\n' + sigB.description.slice(0, 2000));
+        if(b.reasons){
+            lines.push('\n**Reasons matcher\'а:** ' + JSON.stringify(b.reasons));
+        }
+    }
+    return lines.join('\n');
+}
+
+function llmReset(){
+    state.llm.messages = [];
+    state.llm.pairKey = '';
+    renderLlmStream();
+    var contextEl = document.getElementById('llm-context-label');
+    if(contextEl) contextEl.textContent = '—';
+}
+
+function renderLlmStream(){
+    var stream = document.getElementById('llm-stream');
+    if(!stream) return;
+    if(!state.selectedSignal){
+        stream.innerHTML = '<div class="llm-empty">Выбери сигнал в Совпадениях и пару — задай вопрос: «почему совпало», «шансы», «риски», «что уточнить». Брокер-LLM локально на этой машине.</div>';
+        return;
+    }
+    var html = '';
+    state.llm.messages.forEach(function(m){
+        if(m.role === 'user' || m.role === 'assistant'){
+            html += '<div class="llm-msg '+m.role+'">'+esc(m.content)+'</div>';
+        }
+    });
+    if(state.llm.busy){
+        html += '<div class="llm-msg thinking">…думаю…</div>';
+    }
+    if(html === ''){
+        var pair = state.selectedBxbMatch ? 'пара выбрана' : 'выбери пару в col 3';
+        stream.innerHTML = '<div class="llm-empty">'+pair+'. Спроси что-нибудь.</div>';
+        return;
+    }
+    var nearBottom = (stream.scrollHeight - stream.scrollTop - stream.clientHeight) < 80;
+    stream.innerHTML = html;
+    if(nearBottom) stream.scrollTop = stream.scrollHeight;
+    // Update context label.
+    var contextEl = document.getElementById('llm-context-label');
+    if(contextEl){
+        var sigB = state.selectedBxbMatch && state.selectedBxbMatch.opposite_signal;
+        contextEl.textContent = sigB ? 'пара ✓' : 'без пары';
+    }
+}
+
+function llmKeyDown(ev){
+    if(ev.key === 'Enter' && !ev.shiftKey){
+        ev.preventDefault();
+        llmSend();
+    }
+}
+
+async function llmSend(){
+    var ta = document.getElementById('llm-input');
+    if(!ta) return;
+    var raw = (ta.value || '').trim();
+    if(!raw) return;
+    if(state.llm.busy) return;
+    if(!state.selectedSignal){
+        showToast('Сначала выбери сигнал в Совпадениях.', 'error');
+        return;
+    }
+    // If user switched pair since last conversation — reset and re-inject context.
+    var pairKey = _llmCurrentPairKey();
+    var freshConversation = (pairKey !== state.llm.pairKey);
+    if(freshConversation){
+        state.llm.messages = [];
+        state.llm.pairKey = pairKey;
+    }
+    // Build outbound payload — on first turn of a fresh pair, prepend
+    // the context preamble so the LLM grounds its answers.
+    var userContent = raw;
+    if(state.llm.messages.length === 0){
+        var ctx = _llmBuildPairContext();
+        if(ctx) userContent = ctx + '\n\n---\n\n**Вопрос:** ' + raw;
+    }
+    // Echo the raw user text in the UI (not the bloated preamble).
+    state.llm.messages.push({ role:'user', content: raw });
+    // Compose the actual messages to send (with context preamble where applicable).
+    var outgoing = state.llm.messages.slice(0, -1).concat([{ role:'user', content: userContent }]);
+    state.llm.busy = true;
+    ta.value = '';
+    renderLlmStream();
+    try {
+        var resp = await invoke('chat_with_broker_llm', { messages: outgoing });
+        var content = (resp && resp.message && resp.message.content) ? String(resp.message.content) : '(пустой ответ)';
+        state.llm.messages.push({ role:'assistant', content: content });
+    } catch(e){
+        state.llm.messages.push({ role:'assistant', content: '⚠ ' + String(e) });
+    } finally {
+        state.llm.busy = false;
+        renderLlmStream();
+        ta.focus();
+    }
+}
+
 // ---------- Updater (banner + manual check) ----------
 //
 // Tauri 2 ships an updater plugin already wired in tauri.conf.json
@@ -1118,6 +1400,14 @@ function renderActiveView(){
         renderSelectedSignalDetail();
         renderBxbMatchesForSelectedSignal();
         renderOppositeSignalDetail();
+        // If pair changed since last LLM turn, drop the old conversation —
+        // the next user message will re-inject context.
+        var pk = _llmCurrentPairKey();
+        if(state.llm.pairKey && pk !== state.llm.pairKey){
+            state.llm.messages = [];
+            state.llm.pairKey = '';
+        }
+        renderLlmStream();
     }
 }
 

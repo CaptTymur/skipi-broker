@@ -493,6 +493,45 @@ async fn fetch_my_cargo(state: tauri::State<'_, AppState>) -> Result<JsonValue, 
     request_api(&state, s, reqwest::Method::GET, path, None).await
 }
 
+/// Chat with the local broker-qwen LLM via Ollama. Messages are
+/// passed through verbatim; system prompt baked into the Modelfile
+/// stays in force unless caller includes a system-role message.
+///
+/// Blocking HTTP because Ollama responses can run 5-30s. Runs in
+/// spawn_blocking so the main runtime stays responsive.
+#[tauri::command]
+async fn chat_with_broker_llm(messages: JsonValue) -> Result<JsonValue, String> {
+    static LLM_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+    let client = LLM_CLIENT.get_or_init(|| {
+        reqwest::blocking::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(2))
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .expect("build llm http client")
+    }).clone();
+    let body = serde_json::json!({
+        "model": "broker-qwen",
+        "messages": messages,
+        "stream": false,
+    });
+    tauri::async_runtime::spawn_blocking(move || {
+        match client.post("http://localhost:11434/api/chat").json(&body).send() {
+            Ok(resp) => {
+                let status = resp.status();
+                let text = resp.text().unwrap_or_default();
+                if !status.is_success() {
+                    return Err(format!("ollama HTTP {}: {}", status.as_u16(), text));
+                }
+                serde_json::from_str::<JsonValue>(&text)
+                    .map_err(|e| format!("ollama decode: {} (body: {})", e, text))
+            }
+            Err(e) => Err(format!("ollama unreachable on localhost:11434 — is Ollama running? ({})", e)),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Bazaar × bazaar matches — opposite-side bazaar signals that the
 /// engine paired with the given signal (universal, no broker scoping).
 #[tauri::command]
@@ -1133,6 +1172,7 @@ pub fn run() {
             fetch_my_cargo,
             fetch_my_tonnage,
             fetch_bazaar_cross_matches,
+            chat_with_broker_llm,
             fetch_matches,
             fetch_matches_inbox,
             engage_listing,
