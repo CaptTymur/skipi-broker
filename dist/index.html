@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.39';
+var APP_VERSION='0.1.40';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -300,7 +300,6 @@ body.dragging-split.col-resize { cursor:col-resize; }
 <div class="modules-bar">
     <div class="mod-tab active" id="nav-ex" onclick="showView('ex')">📋 Эксклюзивы</div>
     <div class="mod-tab" id="nav-match" onclick="showView('match')">🎯 Совпадения <span id="match-badge" class="count" style="display:none;"></span></div>
-    <div class="mod-tab" id="nav-publish" onclick="openPublishModal()">＋ Опубликовать</div>
     <div class="mb-spacer"></div>
     <div class="mb-identity" id="mb-identity">Не зарегистрирован</div>
     <div class="mb-gear" onclick="openSettings()" title="Settings">⚙</div>
@@ -343,6 +342,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
             <div class="col-head">
                 <span>📋 Эксклюзивы</span>
                 <span class="count" id="p1-count">0</span>
+                <span class="p2-refresh" title="Опубликовать новую циркуляцию" onclick="openPublishModal()">＋</span>
             </div>
             <div class="col-body" id="p1-body"></div>
         </div>
@@ -389,6 +389,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
                     <span>🎯 Свежие сигналы</span>
                     <span class="count" id="signals-count">0</span>
                     <span class="p2-refresh" id="p2-refresh" title="Запросить апдейт у агента — подтянуть свежие сигналы из mbox/ShipNext и пересчитать совпадения." onclick="actionAgentUpdate()">🔄</span>
+                    <span class="p2-refresh" title="Опубликовать новую циркуляцию" onclick="openPublishModal()">＋</span>
                 </div>
                 <div class="col-body" id="signals-body"></div>
             </div>
