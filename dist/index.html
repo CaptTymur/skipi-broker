@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.45';
+var APP_VERSION='0.1.46';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -152,6 +152,36 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .view-pane { flex:1; display:flex; overflow:hidden; }
 .view-match-stack { flex-direction:column; }
 .view-lead-stack { flex-direction:column; }
+.view-signals-stack { flex-direction:column; }
+
+/* Сигналы — browse module. Two-pane table, ShipNext-like. */
+.signals-cols { display:flex; flex:1; min-height:0; }
+.signals-col { display:flex; flex-direction:column; flex:1 1 0; min-width:300px; overflow:hidden; }
+.signals-filter-row { display:flex; gap:6px; padding:6px 10px; background:var(--surface2);
+    border-bottom:1px solid var(--border); flex-shrink:0; }
+.signals-filter-row input { flex:2; padding:4px 8px; background:var(--surface); border:1px solid var(--border);
+    border-radius:3px; outline:none; font-size:11px; color:var(--text); }
+.signals-filter-row input:focus { border-color:var(--accent); }
+.signals-filter-row select { padding:4px 6px; background:var(--surface); border:1px solid var(--border);
+    border-radius:3px; outline:none; font-size:11px; color:var(--text); }
+.signals-table-wrap { flex:1; overflow:auto; }
+.signals-table { width:100%; border-collapse:collapse; font-size:11px; }
+.signals-table thead { position:sticky; top:0; z-index:1; background:var(--surface); }
+.signals-table th { text-align:left; padding:6px 8px; border-bottom:1px solid var(--border);
+    color:var(--text2); font-weight:600; font-size:10px; text-transform:uppercase;
+    letter-spacing:.04em; cursor:pointer; user-select:none; white-space:nowrap; }
+.signals-table th:hover { color:var(--text); }
+.signals-table td { padding:6px 8px; border-bottom:1px solid var(--border); color:var(--text);
+    vertical-align:top; }
+.signals-table tr { cursor:pointer; }
+.signals-table tr:hover td { background:var(--hover); }
+.signals-table .age-cell { color:var(--text3); white-space:nowrap; font-variant-numeric:tabular-nums; }
+.signals-table .age-cell .ring { display:inline-block; vertical-align:middle; margin-right:4px; }
+.signals-table .route-cell { color:var(--text2); }
+.signals-table .qty-cell, .signals-table .dwt-cell { text-align:right; font-variant-numeric:tabular-nums; }
+.signals-table .contact-cell { color:var(--text2); font-size:10px; max-width:180px; overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap; }
+.signals-empty { padding:32px 18px; color:var(--text3); font-size:12px; line-height:1.5; text-align:center; }
 
 /* Focused lead view — header strip + 2-pane body (map + sidebar) */
 .lead-header { display:flex; align-items:center; gap:14px; padding:8px 18px;
@@ -343,6 +373,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
 <div class="modules-bar">
     <div class="mod-tab active" id="nav-ex" onclick="showView('ex')">📋 Эксклюзивы</div>
     <div class="mod-tab" id="nav-match" onclick="showView('match')">🎯 Совпадения <span id="match-badge" class="count" style="display:none;"></span></div>
+    <div class="mod-tab" id="nav-signals" onclick="showView('signals')">🛒 Сигналы <span id="signals-badge" class="count" style="display:none;"></span></div>
     <div id="lead-tabs-host" style="display:flex; align-items:center; gap:4px;"></div>
     <div class="mb-spacer"></div>
     <div class="mb-identity" id="mb-identity">Не зарегистрирован</div>
@@ -426,7 +457,8 @@ body.dragging-split.col-resize { cursor:col-resize; }
                         </div>
                         <div class="llm-stream" id="llm-stream"></div>
                         <div class="llm-composer">
-                            <textarea id="llm-input" placeholder="Спроси про пару сигналов: почему совпало, шансы, риски, что уточнить… (Enter — отправить)" onkeydown="llmKeyDown(event)"></textarea>
+                            <textarea id="llm-input" placeholder="Спроси про пару (Enter) ИЛИ вставь WA-сигнал и нажми 📥 чтобы внести в базу" onkeydown="llmKeyDown(event)"></textarea>
+                            <button class="btn btn-sm" id="llm-intake-btn" onclick="llmIntake()" title="Внести как новый сигнал в базар + найти совпадения">📥</button>
                             <button class="btn btn-accent btn-sm" id="llm-send-btn" onclick="llmSend()">▶</button>
                         </div>
                     </div>
@@ -491,7 +523,90 @@ body.dragging-split.col-resize { cursor:col-resize; }
         </div>
     </div>
 
-    <!-- View 3: Focused single-lead page — Map module + counterparty details.
+    <!-- View 3: Сигналы — browse all bazaar signals (cargo+tonnage), ShipNext-style.
+         Two side-by-side panes with simple filters and sortable rows. -->
+    <div class="view-pane view-signals-stack" id="view-signals" style="display:none;">
+        <div class="signals-cols">
+            <div class="signals-col">
+                <div class="col-head">
+                    <span>📦 Грузы</span>
+                    <span class="count" id="signals-cargo-count">0</span>
+                    <span class="p2-refresh" id="signals-cargo-refresh" title="Обновить" onclick="refreshSignalsBrowse()">🔄</span>
+                </div>
+                <div class="signals-filter-row">
+                    <input id="signals-cargo-q" placeholder="поиск: порт, тип груза, контрагент…" oninput="renderSignalsBrowse()">
+                    <select id="signals-cargo-region" onchange="renderSignalsBrowse()">
+                        <option value="">регион: все</option>
+                        <option value="blacksea">Black Sea</option>
+                        <option value="med">Med</option>
+                        <option value="weurope">NW Europe</option>
+                        <option value="india">India</option>
+                        <option value="china">China / SEA</option>
+                        <option value="waf">West Africa</option>
+                        <option value="eaf">East Africa</option>
+                        <option value="me">Middle East</option>
+                        <option value="americas">Americas</option>
+                    </select>
+                    <select id="signals-cargo-size" onchange="renderSignalsBrowse()">
+                        <option value="">DWT/qty: все</option>
+                        <option value="coaster">coaster (≤5K)</option>
+                        <option value="handysize">handy (5-20K)</option>
+                        <option value="handymax">handymax (20-40K)</option>
+                        <option value="supramax">supra (40-65K)</option>
+                        <option value="panamax">panamax+ (65K+)</option>
+                    </select>
+                </div>
+                <div class="signals-table-wrap"><table class="signals-table"><thead><tr>
+                    <th onclick="signalsSort('cargo','first_seen_at')">возраст</th>
+                    <th onclick="signalsSort('cargo','cargo_type')">груз</th>
+                    <th onclick="signalsSort('cargo','quantity_mt')">кол-во</th>
+                    <th>маршрут</th>
+                    <th onclick="signalsSort('cargo','laycan_from')">laycan</th>
+                    <th>контрагент</th>
+                </tr></thead><tbody id="signals-cargo-body"></tbody></table></div>
+            </div>
+            <div class="splitter splitter-v" onmousedown="startSplitDrag(event, 'signals-v')"></div>
+            <div class="signals-col">
+                <div class="col-head">
+                    <span>🚢 Тоннаж</span>
+                    <span class="count" id="signals-tonnage-count">0</span>
+                </div>
+                <div class="signals-filter-row">
+                    <input id="signals-tonnage-q" placeholder="поиск: порт, тип, судно, контрагент…" oninput="renderSignalsBrowse()">
+                    <select id="signals-tonnage-region" onchange="renderSignalsBrowse()">
+                        <option value="">регион: все</option>
+                        <option value="blacksea">Black Sea</option>
+                        <option value="med">Med</option>
+                        <option value="weurope">NW Europe</option>
+                        <option value="india">India</option>
+                        <option value="china">China / SEA</option>
+                        <option value="waf">West Africa</option>
+                        <option value="eaf">East Africa</option>
+                        <option value="me">Middle East</option>
+                        <option value="americas">Americas</option>
+                    </select>
+                    <select id="signals-tonnage-size" onchange="renderSignalsBrowse()">
+                        <option value="">DWT: все</option>
+                        <option value="coaster">coaster (≤5K)</option>
+                        <option value="handysize">handy (5-20K)</option>
+                        <option value="handymax">handymax (20-40K)</option>
+                        <option value="supramax">supra (40-65K)</option>
+                        <option value="panamax">panamax+ (65K+)</option>
+                    </select>
+                </div>
+                <div class="signals-table-wrap"><table class="signals-table"><thead><tr>
+                    <th onclick="signalsSort('tonnage','first_seen_at')">возраст</th>
+                    <th>судно</th>
+                    <th>тип</th>
+                    <th onclick="signalsSort('tonnage','dwt')">DWT</th>
+                    <th>open</th>
+                    <th>контрагент</th>
+                </tr></thead><tbody id="signals-tonnage-body"></tbody></table></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- View 4: Focused single-lead page — Map module + counterparty details.
          Shown when the user clicks a lead tab; replaces view-ex / view-match. -->
     <div class="view-pane view-lead-stack" id="view-lead" style="display:none;">
         <div class="lead-header" id="lead-header"></div>
@@ -583,6 +698,11 @@ var state = {
     pinnedLeads: [],         // All pinned bazaar matches across the broker — drives lead tabs.
     activeLeadId: null,      // When set, view-lead is shown instead of view-ex/view-match.
     leadMap: null,           // Leaflet map instance (lazy-init per lead view open).
+    signalsBrowse: {
+        cargo: [], tonnage: [],
+        loaded: false,
+        sort: { cargo: { col:'first_seen_at', dir:'desc' }, tonnage: { col:'first_seen_at', dir:'desc' } },
+    },
     team: {
         messages: [],        // chronological asc
         lastTs: null,        // ISO timestamp of newest message we have
@@ -1672,6 +1792,59 @@ function llmKeyDown(ev){
     }
 }
 
+async function llmIntake(){
+    var ta = document.getElementById('llm-input');
+    if(!ta) return;
+    var raw = (ta.value || '').trim();
+    if(!raw){ showToast('Вставь текст сигнала в окно ввода.', 'error'); return; }
+    if(state.llm.busy) return;
+    if(raw.length < 20){
+        if(!confirm('Текст очень короткий ('+raw.length+' симв.). Всё равно попробовать распарсить?')) return;
+    }
+    state.llm.busy = true;
+    ta.value = '';
+    // Echo what we sent so the user sees it in the chat.
+    state.llm.messages.push({ role:'user', content: '📥 Внести сигнал:\n' + raw });
+    renderLlmStream();
+    try {
+        var resp = await invoke('intake_signal_via_llm', { text: raw });
+        var reply;
+        if(resp && resp.ok){
+            var lines = ['✅ Сигнал внесён в базу: **' + (resp.title || resp.signal_id) + '** (id ' + (resp.signal_id || '?').slice(0,8) + ')'];
+            var mc = resp.match_count || 0;
+            if(mc === 0){
+                lines.push('\n🔎 Подходящих сигналов под него в базаре пока нет. Когда появится — он автоматически смэтчится.');
+            } else {
+                lines.push('\n🔎 Найдено '+mc+' совпадений из базара (топ '+Math.min(mc, 10)+'):');
+                (resp.matches || []).forEach(function(m){
+                    var sub = m.kind === 'cargo'
+                        ? ((m.cargo_type || '?') + ' · ' + (m.quantity_mt || '?') + ' MT · ' + (m.load_port || '?') + '→' + (m.disch_port || '?'))
+                        : ((m.vessel_name || m.title || '?') + ' · ' + (m.vessel_type || '?') + ' · ' + (m.dwt || '?') + ' DWT · open ' + (m.open_port || '?'));
+                    var contact = m.posted_by_email ? ' [' + m.posted_by_email + ']' : '';
+                    lines.push('  • score ' + m.score + ' — ' + sub + contact);
+                });
+            }
+            // Also refresh pinnedLeads / signalsBrowse so the new signal shows up in other tabs.
+            refreshPinnedLeads().catch(function(){});
+            if(state.signalsBrowse.loaded) refreshSignalsBrowse();
+            reply = lines.join('\n');
+        } else if(resp && resp.duplicate){
+            reply = '⚠ Дубликат: похожий сигнал уже в базе (id ' + (resp.existing_signal_id || '?').slice(0,8) + ' за последние 36ч). Пропустил вставку.';
+        } else {
+            var err = (resp && resp.error) || 'неизвестная ошибка';
+            var rawDump = (resp && resp.raw_model_output) ? '\n\nОтвет модели (сырой):\n' + resp.raw_model_output : '';
+            reply = '⚠ Не удалось внести: ' + err + rawDump;
+        }
+        state.llm.messages.push({ role:'assistant', content: reply });
+    } catch(e){
+        state.llm.messages.push({ role:'assistant', content: '⚠ Сервер не ответил: ' + String(e) });
+    } finally {
+        state.llm.busy = false;
+        renderLlmStream();
+        ta.focus();
+    }
+}
+
 async function llmSend(){
     var ta = document.getElementById('llm-input');
     if(!ta) return;
@@ -1967,9 +2140,167 @@ function renderActiveView(){
     renderLlmStream();
 }
 
-// ---------- View switching (Эксклюзивы ↔ Совпадения) ----------
+// ---------- View 🛒 Сигналы — browse all bazaar signals ----------
+//
+// Two-pane (cargo | tonnage) table view, simple client-side filtering
+// and sorting. Loads on first switch + on manual refresh. With ~150
+// active signals on each side after cleanup, rendering everything
+// each filter-change is cheap enough to not bother with virtualization.
+
+var SIGNALS_REGIONS = {
+    blacksea: { countries:['RU','UA','RO','BG','GE','TR'], portRx:/black\s*sea|odessa|constanta|burgas|varna|novorossi|tuapse|sulina|braila|mariupol|istanbul|marmara/i },
+    med:      { countries:['IT','ES','FR','GR','HR','MT','CY','TN','DZ','MA','EG','LB','IL'], portRx:/medit|aegean|aliaga|izmir|piraeus|alexandr|trieste|venice|civita|barcel|valenc|tunis|alger|casablan|haifa|ashdod|damiet|piraeus|valletta/i },
+    weurope:  { countries:['NL','BE','DE','GB','FR','PT','ES','PL','LT','LV','EE','DK','NO','SE','FI','IE'], portRx:/rotterdam|antwerp|hamburg|bremen|amsterd|gdansk|riga|tallinn|klaip|setub|lisbon|sines|bilbao|coruna/i },
+    india:    { countries:['IN','PK','BD','LK'], portRx:/kandla|mumbai|jnpt|mundra|pipavav|kakinada|paradip|haldia|visak|chenn|tutic|cochi|colombo|karachi/i },
+    china:    { countries:['CN','HK','TW','VN','PH','TH','MY','SG','ID','JP','KR'], portRx:/shang|ningbo|zhoushan|qingdao|tian|dalian|yantai|hong|kong|guang|shenz|singap|kelang|manila|chimin|haiphong|bangkok|yokoh|kobe|nagoy|busan|incheon/i },
+    waf:      { countries:['NG','GH','TG','CI','CM','CG','GA','AO','SN','CD','LR','BJ'], portRx:/lagos|abidjan|douala|tema|cotonou|lome|onne|pointe|luand|dakar/i },
+    eaf:      { countries:['KE','TZ','MZ','ZA','SO','DJ','SD'], portRx:/mombasa|maputo|durban|cape\s*town|richards|salaam|djibouti|berber|aden/i },
+    me:       { countries:['AE','SA','OM','BH','KW','QA','IR','JO','EG'], portRx:/fujair|jebel|khor|dubai|dammam|jubail|jedda|yanbu|aqaba|muscat|sohar|salalah|bahrain/i },
+    americas: { countries:['US','BR','AR','UY','CL','PE','CO','EC','VE','PA','MX','CA'], portRx:/houst|new\s*orleans|nola|santos|itaqui|tubarao|buenos|rosario|san\s*lorenzo|paranagua/i },
+};
+
+function _signalsRegionMatch(sig, region){
+    if(!region) return true;
+    var def = SIGNALS_REGIONS[region];
+    if(!def) return true;
+    var cc = (sig.load_country || sig.open_country || '').toUpperCase();
+    if(cc && def.countries.indexOf(cc) >= 0) return true;
+    var blob = ((sig.load_port || '') + ' ' + (sig.disch_port || '') + ' ' + (sig.open_port || '') + ' ' + (sig.title || ''));
+    return def.portRx.test(blob);
+}
+
+function _signalsSizeMatch(sig, kind, sizeBucket){
+    if(!sizeBucket) return true;
+    var v = kind === 'cargo' ? Number(sig.quantity_mt || 0) : Number(sig.dwt || 0);
+    if(!v) return false;
+    if(sizeBucket === 'coaster')   return v <= 5000;
+    if(sizeBucket === 'handysize') return v > 5000 && v <= 20000;
+    if(sizeBucket === 'handymax')  return v > 20000 && v <= 40000;
+    if(sizeBucket === 'supramax')  return v > 40000 && v <= 65000;
+    if(sizeBucket === 'panamax')   return v > 65000;
+    return true;
+}
+
+async function refreshSignalsBrowse(){
+    try {
+        var btn = document.getElementById('signals-cargo-refresh');
+        if(btn) btn.classList.add('spinning');
+        var c = await invoke('fetch_bazaar_signal_list', { kind:'cargo', limit:500 });
+        var t = await invoke('fetch_bazaar_signal_list', { kind:'tonnage', limit:500 });
+        state.signalsBrowse.cargo = Array.isArray(c) ? c : [];
+        state.signalsBrowse.tonnage = Array.isArray(t) ? t : [];
+        state.signalsBrowse.loaded = true;
+        renderSignalsBrowse();
+    } catch(e){
+        showToast('Сигналы: '+e, 'error');
+    } finally {
+        var btn2 = document.getElementById('signals-cargo-refresh');
+        if(btn2) btn2.classList.remove('spinning');
+    }
+}
+
+function signalsSort(kind, col){
+    var s = state.signalsBrowse.sort[kind];
+    if(s.col === col){ s.dir = (s.dir === 'desc') ? 'asc' : 'desc'; }
+    else { s.col = col; s.dir = 'desc'; }
+    renderSignalsBrowse();
+}
+
+function renderSignalsBrowse(){
+    _renderSignalsPane('cargo');
+    _renderSignalsPane('tonnage');
+    var bodyC = document.getElementById('signals-cargo-count');
+    var bodyT = document.getElementById('signals-tonnage-count');
+    if(bodyC) bodyC.textContent = (state.signalsBrowse.cargo || []).length;
+    if(bodyT) bodyT.textContent = (state.signalsBrowse.tonnage || []).length;
+    var badge = document.getElementById('signals-badge');
+    if(badge){
+        var total = (state.signalsBrowse.cargo || []).length + (state.signalsBrowse.tonnage || []).length;
+        if(total > 0){ badge.textContent = total; badge.style.display = ''; }
+        else { badge.style.display = 'none'; }
+    }
+}
+
+function _renderSignalsPane(kind){
+    var body = document.getElementById('signals-' + kind + '-body');
+    if(!body) return;
+    var rows = (state.signalsBrowse[kind] || []).slice();
+    var q = (document.getElementById('signals-' + kind + '-q') || {}).value || '';
+    q = q.trim().toLowerCase();
+    var region = (document.getElementById('signals-' + kind + '-region') || {}).value || '';
+    var size = (document.getElementById('signals-' + kind + '-size') || {}).value || '';
+    if(q){
+        rows = rows.filter(function(s){
+            var blob = JSON.stringify(s).toLowerCase();
+            return blob.indexOf(q) >= 0;
+        });
+    }
+    rows = rows.filter(function(s){ return _signalsRegionMatch(s, region) && _signalsSizeMatch(s, kind, size); });
+    var sort = state.signalsBrowse.sort[kind];
+    rows.sort(function(a, b){
+        var av = a[sort.col]; var bv = b[sort.col];
+        if(av == null) av = '';
+        if(bv == null) bv = '';
+        if(typeof av === 'number' || typeof bv === 'number'){
+            av = Number(av) || 0; bv = Number(bv) || 0;
+        }
+        if(av < bv) return sort.dir === 'desc' ? 1 : -1;
+        if(av > bv) return sort.dir === 'desc' ? -1 : 1;
+        return 0;
+    });
+    if(rows.length === 0){
+        body.innerHTML = '<tr><td colspan="6" class="signals-empty">Под фильтр ничего не подходит. Сбрось поиск/регион/размер или нажми 🔄.</td></tr>';
+        return;
+    }
+    body.innerHTML = rows.slice(0, 300).map(function(s){
+        var ageH = s.first_seen_at ? (Date.now() - Date.parse(s.first_seen_at)) / 3600000 : null;
+        var ageRing = s.first_seen_at ? ageRingSvg(s.first_seen_at, 12) : '';
+        var ageLabel = ageH == null ? '' : (ageH < 1 ? Math.round(ageH*60)+'м' : ageH < 24 ? ageH.toFixed(1)+'ч' : (ageH/24).toFixed(1)+'д');
+        var contact = s.posted_by_email || s.posted_by_name || s.source || '—';
+        if(kind === 'cargo'){
+            var route = (s.load_port || '?') + ' → ' + (s.disch_port || '?');
+            var laycan = s.laycan_from ? ((s.laycan_from||'').slice(5,10) + ' — ' + (s.laycan_to||'').slice(5,10)) : '—';
+            return '<tr onclick="openSignalDetail(\'cargo\',\''+esc(s.id)+'\')">'
+                + '<td class="age-cell">'+ageRing+' '+esc(ageLabel)+'</td>'
+                + '<td>'+esc((s.cargo_type || s.title || '?').slice(0,30))+'</td>'
+                + '<td class="qty-cell">'+(s.quantity_mt ? esc(String(s.quantity_mt)) : '—')+'</td>'
+                + '<td class="route-cell">'+esc(route)+'</td>'
+                + '<td>'+esc(laycan)+'</td>'
+                + '<td class="contact-cell" title="'+esc(contact)+'">'+esc(contact)+'</td>'
+                + '</tr>';
+        } else {
+            var open = (s.open_port || '?');
+            var win = s.open_from ? ((s.open_from||'').slice(5,10) + ' — ' + (s.open_to||'').slice(5,10)) : '—';
+            return '<tr onclick="openSignalDetail(\'tonnage\',\''+esc(s.id)+'\')">'
+                + '<td class="age-cell">'+ageRing+' '+esc(ageLabel)+'</td>'
+                + '<td>'+esc((s.vessel_name || s.title || '?').slice(0,28))+'</td>'
+                + '<td>'+esc((s.vessel_type || '—').slice(0,18))+'</td>'
+                + '<td class="dwt-cell">'+(s.dwt ? esc(String(s.dwt)) : '—')+'</td>'
+                + '<td>'+esc(open)+' · '+esc(win)+'</td>'
+                + '<td class="contact-cell" title="'+esc(contact)+'">'+esc(contact)+'</td>'
+                + '</tr>';
+        }
+    }).join('');
+}
+
+function openSignalDetail(kind, id){
+    var list = state.signalsBrowse[kind] || [];
+    var s = list.filter(function(x){ return x.id === id; })[0];
+    if(!s){ showToast('Сигнал не найден', 'error'); return; }
+    var body = (s.description || '(нет тела письма)');
+    var contact = s.posted_by_email || s.posted_by_name || '—';
+    alert(
+        (kind === 'cargo' ? '📦 Cargo' : '🚢 Tonnage')
+        + '\nID: ' + s.id
+        + '\nИсточник: ' + (s.source || '—')
+        + '\nКонтрагент: ' + contact
+        + '\n\nОригинал:\n' + body
+    );
+}
+
+// ---------- View switching (Эксклюзивы ↔ Совпадения ↔ Сигналы) ----------
 function showView(name){
-    if(name !== 'ex' && name !== 'match') return;
+    if(name !== 'ex' && name !== 'match' && name !== 'signals') return;
     state.view = name;
     // Tear down the focused-lead view if it's open — user is leaving it.
     if(state.activeLeadId){
@@ -1980,23 +2311,34 @@ function showView(name){
     if(vlead) vlead.style.display = 'none';
     document.getElementById('view-ex').style.display = (name === 'ex') ? '' : 'none';
     document.getElementById('view-match').style.display = (name === 'match') ? '' : 'none';
+    var vsig = document.getElementById('view-signals');
+    if(vsig) vsig.style.display = (name === 'signals') ? '' : 'none';
     var navEx = document.getElementById('nav-ex');
     var navMatch = document.getElementById('nav-match');
+    var navSig = document.getElementById('nav-signals');
     if(navEx) navEx.classList.toggle('active', name === 'ex');
     if(navMatch) navMatch.classList.toggle('active', name === 'match');
+    if(navSig) navSig.classList.toggle('active', name === 'signals');
 
-    // Single team-chat DOM hops between the two view mounts so the
-    // chat state (poll timer, scroll position) survives view switches.
-    var teamBlock = document.getElementById('team-block');
-    var teamMount = document.getElementById(name === 'ex' ? 'team-mount-ex' : 'team-mount-match');
-    if(teamBlock && teamMount && teamBlock.parentNode !== teamMount){
-        teamMount.appendChild(teamBlock);
+    // Signals view doesn't host the team/LLM dock; only ex+match do.
+    if(name === 'ex' || name === 'match'){
+        var teamBlock = document.getElementById('team-block');
+        var teamMount = document.getElementById(name === 'ex' ? 'team-mount-ex' : 'team-mount-match');
+        if(teamBlock && teamMount && teamBlock.parentNode !== teamMount){
+            teamMount.appendChild(teamBlock);
+        }
+        var llmBlock = document.getElementById('llm-block');
+        var llmMount = document.getElementById(name === 'ex' ? 'llm-mount-ex' : 'llm-mount-match');
+        if(llmBlock && llmMount && llmBlock.parentNode !== llmMount){
+            llmMount.appendChild(llmBlock);
+        }
     }
-    // LLM block hops the same way so the conversation buffer survives.
-    var llmBlock = document.getElementById('llm-block');
-    var llmMount = document.getElementById(name === 'ex' ? 'llm-mount-ex' : 'llm-mount-match');
-    if(llmBlock && llmMount && llmBlock.parentNode !== llmMount){
-        llmMount.appendChild(llmBlock);
+
+    // First entry to Сигналы: lazy-load the active signal lists.
+    if(name === 'signals' && !state.signalsBrowse.loaded){
+        refreshSignalsBrowse();
+    } else if(name === 'signals'){
+        renderSignalsBrowse();
     }
 
     // Auto-select sensible defaults the first time each view opens so

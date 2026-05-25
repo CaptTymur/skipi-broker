@@ -599,6 +599,39 @@ async fn chat_with_broker_llm(
     .map_err(|e| e.to_string())?
 }
 
+/// Free-text intake — POST a WhatsApp/email snippet, server uses
+/// broker-qwen to parse it into a structured cargo or tonnage signal,
+/// inserts into the bazaar, runs the matcher, and returns the top
+/// opposite-side matches in one round-trip.
+#[tauri::command]
+async fn intake_signal_via_llm(
+    state: tauri::State<'_, AppState>,
+    text: String,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let body = serde_json::json!({
+        "text": text,
+        "submitter_email": s.reply_to,
+        "submitter_broker_id": s.broker_id,
+    });
+    request_api(&state, s, reqwest::Method::POST, "/api/llm/intake".to_string(), Some(body)).await
+}
+
+/// Browse all active bazaar signals on one side — feeds the
+/// «🛒 Сигналы» tab.
+#[tauri::command]
+async fn fetch_bazaar_signal_list(
+    state: tauri::State<'_, AppState>,
+    kind: String,
+    limit: Option<u32>,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let k = if kind == "tonnage" { "tonnage" } else { "cargo" };
+    let lim = limit.unwrap_or(500);
+    let path = format!("/api/bazaar/{}-signals?limit={}", k, lim);
+    request_api(&state, s, reqwest::Method::GET, path, None).await
+}
+
 /// Bazaar × bazaar matches — opposite-side bazaar signals that the
 /// engine paired with the given signal (universal, no broker scoping).
 #[tauri::command]
@@ -1239,6 +1272,8 @@ pub fn run() {
             fetch_my_cargo,
             fetch_my_tonnage,
             fetch_bazaar_cross_matches,
+            fetch_bazaar_signal_list,
+            intake_signal_via_llm,
             chat_with_broker_llm,
             fetch_matches,
             fetch_matches_inbox,
