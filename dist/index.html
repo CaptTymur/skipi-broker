@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.46';
+var APP_VERSION='0.1.47';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -183,6 +183,15 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
     text-overflow:ellipsis; white-space:nowrap; }
 .signals-empty { padding:32px 18px; color:var(--text3); font-size:12px; line-height:1.5; text-align:center; }
 
+/* Clickable short-ID badge — paste-friendly so the user can reference
+   "signal #abc12345" in the LLM chat. Click copies full ID to clipboard. */
+.sig-id { display:inline-block; padding:1px 6px; border-radius:3px;
+    background:var(--surface2); border:1px solid var(--border);
+    color:var(--text2); font-family:var(--font-mono); font-size:10px;
+    cursor:pointer; user-select:all; letter-spacing:0; }
+.sig-id:hover { background:var(--hover); color:var(--text); border-color:var(--accent); }
+.sig-id.copied { background:rgba(78,201,112,.2); border-color:var(--green); color:var(--green); }
+
 /* Focused lead view — header strip + 2-pane body (map + sidebar) */
 .lead-header { display:flex; align-items:center; gap:14px; padding:8px 18px;
     background:rgba(40,120,200,.18); border-bottom:1px solid rgba(60,140,220,.4);
@@ -214,7 +223,7 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 
 /* Bottom strip in view-match: team chat (left) + LLM chat (right), with drag-resize splitter between them. */
 .bottom-strip { display:flex; flex:0 0 260px; min-height:160px; max-height:60vh; border-top:1px solid var(--border); overflow:hidden; }
-.bottom-pane { display:flex; flex-direction:column; min-width:200px; overflow:hidden; }
+.bottom-pane { display:flex; flex-direction:column; flex:1 1 0; min-width:200px; overflow:hidden; }
 .bottom-pane > .team-mount { border-top:none; flex:1; min-height:0; }
 
 /* Splitter — invisible by default, thin highlight on hover/active. */
@@ -445,7 +454,6 @@ body.dragging-split.col-resize { cursor:col-resize; }
                     </div>
                 </div>
             </div>
-            <div class="splitter splitter-v" onmousedown="startSplitDrag(event, 'bottom-ex-v')"></div>
             <div class="bottom-pane">
                 <div class="llm-mount" id="llm-mount-ex">
                     <!-- llm-block lives here by default; showView() hops it to view-match's mount -->
@@ -513,10 +521,9 @@ body.dragging-split.col-resize { cursor:col-resize; }
         <div class="splitter splitter-h" id="splitter-vmatch-h" onmousedown="startSplitDrag(event, 'vmatch-h')"></div>
         <!-- Bottom strip: team chat (left) + LLM-broker chat (right), with vertical splitter -->
         <div class="bottom-strip" id="bottom-strip">
-            <div class="bottom-pane" id="bottom-pane-team" style="flex:1 1 50%;">
+            <div class="bottom-pane" id="bottom-pane-team">
                 <div class="team-mount" id="team-mount-match"></div>
             </div>
-            <div class="splitter splitter-v" id="splitter-bottom-v" onmousedown="startSplitDrag(event, 'bottom-v')"></div>
             <div class="bottom-pane" id="bottom-pane-llm">
                 <div class="llm-mount" id="llm-mount-match"></div>
             </div>
@@ -557,6 +564,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
                     </select>
                 </div>
                 <div class="signals-table-wrap"><table class="signals-table"><thead><tr>
+                    <th>ID</th>
                     <th onclick="signalsSort('cargo','first_seen_at')">возраст</th>
                     <th onclick="signalsSort('cargo','cargo_type')">груз</th>
                     <th onclick="signalsSort('cargo','quantity_mt')">кол-во</th>
@@ -595,6 +603,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
                     </select>
                 </div>
                 <div class="signals-table-wrap"><table class="signals-table"><thead><tr>
+                    <th>ID</th>
                     <th onclick="signalsSort('tonnage','first_seen_at')">возраст</th>
                     <th>судно</th>
                     <th>тип</th>
@@ -1148,6 +1157,34 @@ function teamKeyDown(ev){
         ev.preventDefault();
         teamSend();
     }
+}
+
+// Renders a clickable short-ID badge — clicking copies the full ID
+// to the clipboard so the user can paste it into the LLM chat to
+// reference a specific signal ("что скажешь про сигнал #abc12345").
+function _sigIdBadge(fullId){
+    if(!fullId) return '';
+    var short = String(fullId).slice(0, 8);
+    return '<span class="sig-id" data-full="'+esc(fullId)+'" '
+         + 'title="Кликни — скопирую полный ID в буфер, чтобы вставить в чат с LLM" '
+         + 'onclick="copySigId(event, this)">#'+esc(short)+'</span>';
+}
+
+function copySigId(ev, el){
+    ev.stopPropagation();
+    var full = el.getAttribute('data-full') || '';
+    if(!full) return;
+    try {
+        navigator.clipboard.writeText(full);
+    } catch(_) {
+        // Older WebView fallback.
+        var ta = document.createElement('textarea');
+        ta.value = full; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); } catch(_){}
+        document.body.removeChild(ta);
+    }
+    el.classList.add('copied');
+    setTimeout(function(){ el.classList.remove('copied'); }, 1200);
 }
 
 // Web Audio: short chirp for inbound team chat messages from another
@@ -2249,7 +2286,7 @@ function _renderSignalsPane(kind){
         return 0;
     });
     if(rows.length === 0){
-        body.innerHTML = '<tr><td colspan="6" class="signals-empty">Под фильтр ничего не подходит. Сбрось поиск/регион/размер или нажми 🔄.</td></tr>';
+        body.innerHTML = '<tr><td colspan="7" class="signals-empty">Под фильтр ничего не подходит. Сбрось поиск/регион/размер или нажми 🔄.</td></tr>';
         return;
     }
     body.innerHTML = rows.slice(0, 300).map(function(s){
@@ -2261,6 +2298,7 @@ function _renderSignalsPane(kind){
             var route = (s.load_port || '?') + ' → ' + (s.disch_port || '?');
             var laycan = s.laycan_from ? ((s.laycan_from||'').slice(5,10) + ' — ' + (s.laycan_to||'').slice(5,10)) : '—';
             return '<tr onclick="openSignalDetail(\'cargo\',\''+esc(s.id)+'\')">'
+                + '<td>'+_sigIdBadge(s.id)+'</td>'
                 + '<td class="age-cell">'+ageRing+' '+esc(ageLabel)+'</td>'
                 + '<td>'+esc((s.cargo_type || s.title || '?').slice(0,30))+'</td>'
                 + '<td class="qty-cell">'+(s.quantity_mt ? esc(String(s.quantity_mt)) : '—')+'</td>'
@@ -2272,6 +2310,7 @@ function _renderSignalsPane(kind){
             var open = (s.open_port || '?');
             var win = s.open_from ? ((s.open_from||'').slice(5,10) + ' — ' + (s.open_to||'').slice(5,10)) : '—';
             return '<tr onclick="openSignalDetail(\'tonnage\',\''+esc(s.id)+'\')">'
+                + '<td>'+_sigIdBadge(s.id)+'</td>'
                 + '<td class="age-cell">'+ageRing+' '+esc(ageLabel)+'</td>'
                 + '<td>'+esc((s.vessel_name || s.title || '?').slice(0,28))+'</td>'
                 + '<td>'+esc((s.vessel_type || '—').slice(0,18))+'</td>'
@@ -2543,7 +2582,7 @@ function renderSelectedSignalDetail(){
     if(meta) meta.textContent = ageLabel;
 
     var html = '<h2>'+(kind === 'cargo' ? '📦' : '🚢')+' '+esc(title)+'</h2>'
-        + '<div class="sub">источник: '+esc(sig.source || '—')+(sig.signal_provenance ? ' · ' + esc(sig.signal_provenance) : '')+'</div>'
+        + '<div class="sub">'+_sigIdBadge(sig.id)+' · источник: '+esc(sig.source || '—')+(sig.signal_provenance ? ' · ' + esc(sig.signal_provenance) : '')+'</div>'
         + '<div class="detail-block">'
         + fields.map(function(f){ return '<div class="detail-row"><span class="k">'+esc(f[0])+'</span><span class="v">'+esc(f[1])+'</span></div>'; }).join('')
         + '</div>';
@@ -2582,6 +2621,12 @@ function renderSelectedMatchDetail(){
     var scoreLabel = 'score ' + Number(m.score || 0);
 
     var html = '';
+
+    // Signal ID badge — clickable to copy full id, so user can paste
+    // it into the LLM chat ("что скажешь про сигнал #abc12345").
+    if(sig && sig.id){
+        html += '<div class="sub" style="margin-bottom:8px;">сигнал ' + _sigIdBadge(sig.id) + '</div>';
+    }
 
     // Counterparty contact block — first because it's the actionable bit.
     html += '<h3 style="margin-bottom:6px;">Контрагент</h3>';
@@ -2729,7 +2774,7 @@ function renderOppositeSignalDetail(){
         : ((sig.vessel_name || sig.vessel_type || '?') + ' ' + (sig.open_port || '')));
 
     var html = '<h2>'+(sigKind === 'cargo' ? '📦' : '🚢')+' '+esc(title)+'</h2>'
-        + '<div class="sub">источник: '+esc(sig.source || '—')+'</div>'
+        + '<div class="sub">'+_sigIdBadge(sig.id)+' · источник: '+esc(sig.source || '—')+'</div>'
         + '<div class="detail-block">'
         + fields.map(function(f){ return '<div class="detail-row"><span class="k">'+esc(f[0])+'</span><span class="v">'+esc(f[1])+'</span></div>'; }).join('')
         + '</div>';
