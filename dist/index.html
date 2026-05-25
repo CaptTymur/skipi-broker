@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.47';
+var APP_VERSION='0.1.48';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -153,6 +153,33 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .view-match-stack { flex-direction:column; }
 .view-lead-stack { flex-direction:column; }
 .view-signals-stack { flex-direction:column; }
+.view-viz-stack { flex-direction:row; }
+
+/* Визуализатор: filter sidebar (left) + map (right) */
+.viz-sidebar { display:flex; flex-direction:column; width:280px; min-width:240px; max-width:340px;
+    background:var(--surface); border-right:1px solid var(--border); overflow-y:auto; flex-shrink:0; }
+.viz-filter-body { padding:12px 14px; display:flex; flex-direction:column; gap:14px; }
+.viz-section { display:flex; flex-direction:column; gap:5px; }
+.viz-section > label { font-size:10px; color:var(--text2); text-transform:uppercase;
+    letter-spacing:.05em; font-weight:600; }
+.viz-section select { padding:5px 8px; background:var(--surface2); border:1px solid var(--border);
+    border-radius:3px; outline:none; font-size:11px; color:var(--text); }
+.viz-section select:focus { border-color:var(--accent); }
+.viz-layer-toggle { display:flex; flex-direction:column; gap:4px; }
+.viz-layer-toggle label { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text); cursor:pointer; }
+.viz-list { max-height:280px; overflow-y:auto; font-size:11px; display:flex; flex-direction:column; gap:2px; }
+.viz-list-item { padding:4px 6px; border:1px solid var(--border); border-radius:3px;
+    cursor:pointer; background:var(--surface2); color:var(--text2); line-height:1.3; }
+.viz-list-item:hover { background:var(--hover); color:var(--text); border-color:var(--accent); }
+.viz-list-item .vli-title { color:var(--text); font-weight:500; }
+.viz-list-item .vli-meta { font-size:10px; color:var(--text3); }
+.viz-map-wrap { flex:1; position:relative; }
+#viz-map { position:absolute; inset:0; }
+/* Cargo arrow marker (origin dot) tooltip styling */
+.leaflet-tooltip.viz-cargo-label { background:var(--bg); color:var(--text); border:1px solid rgba(78,201,112,.6);
+    box-shadow:0 2px 6px rgba(0,0,0,.3); padding:3px 6px; border-radius:3px; font-size:10px;
+    font-family:var(--font-ui); white-space:nowrap; }
+.leaflet-tooltip.viz-cargo-label::before { display:none; }
 
 /* Сигналы — browse module. Two-pane table, ShipNext-like. */
 .signals-cols { display:flex; flex:1; min-height:0; }
@@ -383,6 +410,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
     <div class="mod-tab active" id="nav-ex" onclick="showView('ex')">📋 Эксклюзивы</div>
     <div class="mod-tab" id="nav-match" onclick="showView('match')">🎯 Совпадения <span id="match-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-signals" onclick="showView('signals')">🛒 Сигналы <span id="signals-badge" class="count" style="display:none;"></span></div>
+    <div class="mod-tab" id="nav-viz" onclick="showView('viz')">🗺 Визуализатор</div>
     <div id="lead-tabs-host" style="display:flex; align-items:center; gap:4px;"></div>
     <div class="mb-spacer"></div>
     <div class="mb-identity" id="mb-identity">Не зарегистрирован</div>
@@ -615,7 +643,70 @@ body.dragging-split.col-resize { cursor:col-resize; }
         </div>
     </div>
 
-    <!-- View 4: Focused single-lead page — Map module + counterparty details.
+    <!-- View 4: Визуализатор — global map of all active signals with filter sidebar.
+         Each cargo is a dot at the load port with a line to disch port.
+         (Tonnage layer wired but not enabled in this iteration.) -->
+    <div class="view-pane view-viz-stack" id="view-viz" style="display:none;">
+        <div class="viz-sidebar">
+            <div class="col-head"><span>🗺 Фильтры</span><span class="count" id="viz-visible-count">0</span></div>
+            <div class="viz-filter-body">
+                <div class="viz-section">
+                    <label>Слой</label>
+                    <div class="viz-layer-toggle">
+                        <label><input type="checkbox" id="viz-show-cargo" checked onchange="renderVizMap()"> 📦 Грузы</label>
+                        <label><input type="checkbox" id="viz-show-tonnage" onchange="renderVizMap()"> 🚢 Тоннаж <span style="color:var(--text3); font-size:10px;">(скоро)</span></label>
+                    </div>
+                </div>
+                <div class="viz-section">
+                    <label>Регион (load)</label>
+                    <select id="viz-region" onchange="renderVizMap()">
+                        <option value="">все</option>
+                        <option value="blacksea">Black Sea</option>
+                        <option value="med">Med</option>
+                        <option value="weurope">NW Europe</option>
+                        <option value="india">India</option>
+                        <option value="china">China / SEA</option>
+                        <option value="waf">West Africa</option>
+                        <option value="eaf">East Africa</option>
+                        <option value="me">Middle East</option>
+                        <option value="americas">Americas</option>
+                    </select>
+                </div>
+                <div class="viz-section">
+                    <label>Размер</label>
+                    <select id="viz-size" onchange="renderVizMap()">
+                        <option value="">все</option>
+                        <option value="coaster">coaster (≤5K)</option>
+                        <option value="handysize">handy (5-20K)</option>
+                        <option value="handymax">handymax (20-40K)</option>
+                        <option value="supramax">supra (40-65K)</option>
+                        <option value="panamax">panamax+ (65K+)</option>
+                    </select>
+                </div>
+                <div class="viz-section">
+                    <label>Свежесть</label>
+                    <select id="viz-age" onchange="renderVizMap()">
+                        <option value="">все активные</option>
+                        <option value="6h">≤6 часов</option>
+                        <option value="24h">≤24 часа</option>
+                        <option value="72h">≤72 часа</option>
+                    </select>
+                </div>
+                <div class="viz-section">
+                    <button class="btn btn-sm" onclick="refreshSignalsBrowse().then(renderVizMap)">🔄 Обновить базу</button>
+                </div>
+                <div class="viz-section">
+                    <label>Видимые сигналы</label>
+                    <div id="viz-visible-list" class="viz-list"></div>
+                </div>
+            </div>
+        </div>
+        <div class="viz-map-wrap">
+            <div id="viz-map"></div>
+        </div>
+    </div>
+
+    <!-- View 5: Focused single-lead page — Map module + counterparty details.
          Shown when the user clicks a lead tab; replaces view-ex / view-match. -->
     <div class="view-pane view-lead-stack" id="view-lead" style="display:none;">
         <div class="lead-header" id="lead-header"></div>
@@ -712,6 +803,7 @@ var state = {
         loaded: false,
         sort: { cargo: { col:'first_seen_at', dir:'desc' }, tonnage: { col:'first_seen_at', dir:'desc' } },
     },
+    viz: { map: null, layer: null },
     team: {
         messages: [],        // chronological asc
         lastTs: null,        // ISO timestamp of newest message we have
@@ -1547,6 +1639,133 @@ function _renderLeadMap(m, ports){
     setTimeout(function(){ if(state.leadMap) state.leadMap.invalidateSize(); }, 50);
 }
 
+// ---------- 🗺 Визуализатор: global signals map ----------
+//
+// One Leaflet map + a filter sidebar. Each active cargo signal renders
+// as a small dot at its load_port, with a dashed line to the disch_port.
+// Filters (region / size / age / layer toggle) live in the sidebar and
+// trigger a full re-paint of the layer group. Tonnage layer is wired in
+// the UI but disabled by default; same data shape will hook in next.
+
+function _vizFilterCargo(s){
+    var region = (document.getElementById('viz-region') || {}).value || '';
+    var size = (document.getElementById('viz-size') || {}).value || '';
+    var age = (document.getElementById('viz-age') || {}).value || '';
+    if(region && !_signalsRegionMatch(s, region)) return false;
+    if(size && !_signalsSizeMatch(s, 'cargo', size)) return false;
+    if(age && s.first_seen_at){
+        var hrs = (Date.now() - Date.parse(s.first_seen_at)) / 3600000;
+        if(age === '6h' && hrs > 6) return false;
+        if(age === '24h' && hrs > 24) return false;
+        if(age === '72h' && hrs > 72) return false;
+    }
+    return true;
+}
+
+function _vizInitMap(){
+    if(typeof L === 'undefined'){
+        document.getElementById('viz-map').innerHTML = '<div class="col-empty">Leaflet не загрузился.</div>';
+        return null;
+    }
+    if(state.viz.map) return state.viz.map;
+    var map = L.map('viz-map', { worldCopyJump:true, preferCanvas:true });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap', maxZoom: 11,
+    }).addTo(map);
+    map.setView([30, 30], 2);
+    state.viz.map = map;
+    state.viz.layer = L.layerGroup().addTo(map);
+    // Tauri WebView occasionally stalls layout on first map render.
+    setTimeout(function(){ try { map.invalidateSize(); } catch(_){} }, 50);
+    return map;
+}
+
+function renderVizMap(){
+    var map = _vizInitMap();
+    if(!map) return;
+    state.viz.layer.clearLayers();
+    var showCargo = (document.getElementById('viz-show-cargo') || {}).checked;
+    var cargoes = state.signalsBrowse.cargo || [];
+    var visible = [];
+    if(showCargo){
+        cargoes.forEach(function(s){
+            if(!_vizFilterCargo(s)) return;
+            var loadC = _portCoords(s.load_port);
+            var dischC = _portCoords(s.disch_port);
+            if(!loadC) return; // no origin → can't plot
+            visible.push(s);
+            // Origin marker — small green dot.
+            var dot = L.circleMarker(loadC, {
+                radius: 5, color:'#4ec970', weight:1.5, fillColor:'#4ec970', fillOpacity:0.85,
+            });
+            var label = (s.cargo_type || s.title || '?') + (s.quantity_mt ? ' · '+s.quantity_mt+' MT' : '');
+            dot.bindTooltip(label, { className:'viz-cargo-label', direction:'top', offset:[0,-6] });
+            dot.bindPopup(_vizCargoPopup(s));
+            state.viz.layer.addLayer(dot);
+            // Line to destination (if known).
+            if(dischC){
+                var line = L.polyline([loadC, dischC], {
+                    color:'#4ec970', weight:1.4, opacity:0.45, dashArray:'5 5',
+                });
+                state.viz.layer.addLayer(line);
+                var dischDot = L.circleMarker(dischC, {
+                    radius: 3, color:'#e55561', weight:1, fillColor:'#e55561', fillOpacity:0.6,
+                });
+                dischDot.bindTooltip('↓ ' + (s.disch_port || '?'), { className:'viz-cargo-label', direction:'top', offset:[0,-4] });
+                state.viz.layer.addLayer(dischDot);
+            }
+        });
+    }
+    // Tonnage layer reserved — not painted yet.
+    document.getElementById('viz-visible-count').textContent = visible.length;
+    _vizRenderList(visible);
+}
+
+function _vizCargoPopup(s){
+    var lines = [];
+    lines.push('<b>'+esc(s.cargo_type || s.title || 'Cargo')+'</b>');
+    if(s.quantity_mt) lines.push('Кол-во: '+s.quantity_mt+' MT');
+    lines.push('Маршрут: '+esc(s.load_port || '?')+' → '+esc(s.disch_port || '?'));
+    if(s.laycan_from || s.laycan_to) lines.push('Laycan: '+(s.laycan_from||'').slice(0,10)+' — '+(s.laycan_to||'').slice(0,10));
+    if(s.rate_indication) lines.push('Рейт: '+esc(s.rate_indication));
+    if(s.posted_by_email) lines.push('От: '+esc(s.posted_by_email));
+    lines.push('<span style="font-size:10px; color:#888;">id '+esc((s.id||'').slice(0,8))+' · '+esc(s.source||'—')+'</span>');
+    return lines.join('<br>');
+}
+
+function _vizRenderList(visible){
+    var host = document.getElementById('viz-visible-list');
+    if(!host) return;
+    if(visible.length === 0){
+        host.innerHTML = '<div class="viz-list-item" style="cursor:default;">Под фильтр ничего.</div>';
+        return;
+    }
+    // Sort: freshest first.
+    visible.sort(function(a, b){
+        return Date.parse(b.first_seen_at || '') - Date.parse(a.first_seen_at || '');
+    });
+    host.innerHTML = visible.slice(0, 50).map(function(s){
+        var title = (s.cargo_type || s.title || '?').slice(0, 30);
+        var meta = (s.quantity_mt ? s.quantity_mt+' MT · ' : '') + (s.load_port || '?')+' → '+(s.disch_port || '?');
+        return '<div class="viz-list-item" onclick="vizFocusSignal(\''+esc(s.id)+'\')">'
+             + '<div class="vli-title">'+esc(title)+'</div>'
+             + '<div class="vli-meta">'+esc(meta)+'</div>'
+             + '</div>';
+    }).join('');
+}
+
+function vizFocusSignal(id){
+    var s = (state.signalsBrowse.cargo || []).filter(function(x){ return x.id === id; })[0];
+    if(!s || !state.viz.map) return;
+    var loadC = _portCoords(s.load_port);
+    var dischC = _portCoords(s.disch_port);
+    if(loadC && dischC){
+        state.viz.map.fitBounds([loadC, dischC], { padding:[60,60] });
+    } else if(loadC){
+        state.viz.map.setView(loadC, 6);
+    }
+}
+
 // ---------- Resizable splitters ----------
 //
 // Generic drag handler — adjusts the *previous sibling's* flex-basis
@@ -2339,7 +2558,7 @@ function openSignalDetail(kind, id){
 
 // ---------- View switching (Эксклюзивы ↔ Совпадения ↔ Сигналы) ----------
 function showView(name){
-    if(name !== 'ex' && name !== 'match' && name !== 'signals') return;
+    if(name !== 'ex' && name !== 'match' && name !== 'signals' && name !== 'viz') return;
     state.view = name;
     // Tear down the focused-lead view if it's open — user is leaving it.
     if(state.activeLeadId){
@@ -2352,12 +2571,16 @@ function showView(name){
     document.getElementById('view-match').style.display = (name === 'match') ? '' : 'none';
     var vsig = document.getElementById('view-signals');
     if(vsig) vsig.style.display = (name === 'signals') ? '' : 'none';
+    var vviz = document.getElementById('view-viz');
+    if(vviz) vviz.style.display = (name === 'viz') ? '' : 'none';
     var navEx = document.getElementById('nav-ex');
     var navMatch = document.getElementById('nav-match');
     var navSig = document.getElementById('nav-signals');
+    var navViz = document.getElementById('nav-viz');
     if(navEx) navEx.classList.toggle('active', name === 'ex');
     if(navMatch) navMatch.classList.toggle('active', name === 'match');
     if(navSig) navSig.classList.toggle('active', name === 'signals');
+    if(navViz) navViz.classList.toggle('active', name === 'viz');
 
     // Signals view doesn't host the team/LLM dock; only ex+match do.
     if(name === 'ex' || name === 'match'){
@@ -2378,6 +2601,14 @@ function showView(name){
         refreshSignalsBrowse();
     } else if(name === 'signals'){
         renderSignalsBrowse();
+    }
+    // Визуализатор reuses the same dataset; auto-load if empty, else paint.
+    if(name === 'viz'){
+        if(!state.signalsBrowse.loaded){
+            refreshSignalsBrowse().then(function(){ setTimeout(renderVizMap, 50); });
+        } else {
+            setTimeout(renderVizMap, 50);
+        }
     }
 
     // Auto-select sensible defaults the first time each view opens so
