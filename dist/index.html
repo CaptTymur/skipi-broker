@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.44';
+var APP_VERSION='0.1.45';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -151,6 +151,34 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 /* Tab view containers — only one visible at a time */
 .view-pane { flex:1; display:flex; overflow:hidden; }
 .view-match-stack { flex-direction:column; }
+.view-lead-stack { flex-direction:column; }
+
+/* Focused lead view — header strip + 2-pane body (map + sidebar) */
+.lead-header { display:flex; align-items:center; gap:14px; padding:8px 18px;
+    background:rgba(40,120,200,.18); border-bottom:1px solid rgba(60,140,220,.4);
+    font-size:12px; flex-shrink:0; }
+.lead-header h2 { font-size:14px; font-weight:600; color:var(--text); }
+.lead-header .lh-meta { color:var(--text2); font-size:11px; }
+.lead-header .lh-sep { color:var(--text3); margin:0 4px; }
+.lead-header .lh-close { margin-left:auto; color:var(--text2); cursor:pointer;
+    padding:2px 8px; border:1px solid var(--border); border-radius:4px; }
+.lead-header .lh-close:hover { color:var(--text); background:var(--hover); }
+.lead-body { display:flex; flex:1; min-height:0; }
+.lead-map-wrap { flex:1.8 1 0; position:relative; min-width:300px; }
+#lead-map { position:absolute; inset:0; }
+.lead-sidebar { flex:1 1 0; overflow-y:auto; padding:14px 18px; background:var(--surface); min-width:280px; }
+.lead-sidebar h3 { font-size:13px; font-weight:600; margin:14px 0 6px; }
+.lead-sidebar h3:first-child { margin-top:0; }
+.lead-sidebar .raw-text { font-size:11px; max-height:none; }
+/* Leaflet always-visible label (tooltip permanent=true) */
+.leaflet-tooltip.lead-label { background:var(--bg); color:var(--text); border:1px solid var(--border);
+    box-shadow:0 2px 6px rgba(0,0,0,.3); padding:4px 8px; border-radius:4px; font-size:11px;
+    font-family:var(--font-ui); white-space:nowrap; }
+.leaflet-tooltip.lead-label.cargo-load { border-left:3px solid #4ec970; }
+.leaflet-tooltip.lead-label.cargo-disch { border-left:3px solid #e55561; }
+.leaflet-tooltip.lead-label.vessel-open { border-left:3px solid #5b9be0; }
+.leaflet-tooltip.lead-label::before { display:none; }
+.leaflet-tooltip-top.lead-label:before { display:none; }
 .team-mount { display:flex; flex-direction:column; min-height:140px; flex:1.0 1 0; border-top:1px solid var(--border); overflow:hidden; }
 .team-block { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
 
@@ -305,6 +333,8 @@ body.dragging-split.col-resize { cursor:col-resize; }
 .toast.error { border-color:var(--red); }
 .toast.ok { border-color:var(--green); }
 </style>
+<link rel="stylesheet" href="leaflet/leaflet.css">
+<script src="leaflet/leaflet.js"></script>
 </head>
 <body>
 
@@ -460,6 +490,20 @@ body.dragging-split.col-resize { cursor:col-resize; }
             </div>
         </div>
     </div>
+
+    <!-- View 3: Focused single-lead page — Map module + counterparty details.
+         Shown when the user clicks a lead tab; replaces view-ex / view-match. -->
+    <div class="view-pane view-lead-stack" id="view-lead" style="display:none;">
+        <div class="lead-header" id="lead-header"></div>
+        <div class="lead-body">
+            <div class="lead-map-wrap">
+                <div id="lead-map"></div>
+            </div>
+            <div class="splitter splitter-v" onmousedown="startSplitDrag(event, 'lead-v')"></div>
+            <div class="lead-sidebar" id="lead-sidebar"></div>
+        </div>
+    </div>
+
     <div class="statusbar" id="statusbar">
         <span class="sb-pill"><span>Базар</span>: <span class="v" id="sb-bazaar-total">0</span></span>
         <span class="sb-pill ok"><span>Покрытие</span>: <span class="v" id="sb-coverage">0%</span></span>
@@ -537,6 +581,8 @@ var state = {
         pairKey: '',         // tracks selectedSignal × selectedBxbMatch identity; reset when changes
     },
     pinnedLeads: [],         // All pinned bazaar matches across the broker — drives lead tabs.
+    activeLeadId: null,      // When set, view-lead is shown instead of view-ex/view-match.
+    leadMap: null,           // Leaflet map instance (lazy-init per lead view open).
     team: {
         messages: [],        // chronological asc
         lastTs: null,        // ISO timestamp of newest message we have
@@ -1048,6 +1094,302 @@ async function teamSend(){
     }
 }
 
+// ---------- Карта: port geocoding + focused lead view ----------
+//
+// PORT_COORDS — approximate centroids for ~150 common bulk ports +
+// regions ("WCI", "NE China", "Med"). Used only for the map module
+// on focused leads; not navigational. _portCoords does fuzzy lookup
+// by lowercasing, stripping non-alphanumerics, then walking word tails.
+
+var PORT_COORDS = {
+    "constanta":[44.17,28.65], "constantza":[44.17,28.65], "burgas":[42.50,27.47],
+    "varna":[43.21,27.92], "odessa":[46.49,30.74], "yuzhny":[46.62,31.10],
+    "novorossiysk":[44.72,37.78], "tuapse":[44.10,39.07], "kavkaz":[45.34,36.69],
+    "yeisk":[46.71,38.27], "rostov":[47.23,39.72], "taganrog":[47.22,38.91],
+    "mariupol":[47.10,37.55], "kerch":[45.36,36.47], "sevastopol":[44.62,33.53],
+    "sulina":[45.16,29.65], "braila":[45.27,27.96], "galati":[45.43,28.04],
+    "izmail":[45.35,28.84], "reni":[45.45,28.28], "samsun":[41.29,36.33],
+    "trabzon":[41.00,39.72], "zonguldak":[41.45,31.80],
+    "marmara":[40.97,28.95], "istanbul":[41.01,28.97], "izmit":[40.77,29.94],
+    "tekirdag":[40.98,27.51], "bandirma":[40.35,27.97], "gemlik":[40.43,29.16],
+    "aliaga":[38.80,26.95], "izmir":[38.42,27.14], "piraeus":[37.94,23.65],
+    "thessaloniki":[40.63,22.95], "limassol":[34.67,33.04], "larnaca":[34.92,33.63],
+    "mersin":[36.79,34.62], "iskenderun":[36.59,36.18], "aegean":[38.50,25.50],
+    "alexandria":[31.21,29.92], "damietta":[31.42,31.81], "portsaid":[31.26,32.30],
+    "port said":[31.26,32.30], "suez":[29.97,32.55], "haifa":[32.82,35.00],
+    "ashdod":[31.81,34.65],
+    "trieste":[45.65,13.78], "venice":[45.43,12.34], "ravenna":[44.42,12.20],
+    "ancona":[43.62,13.51], "civitavecchia":[42.10,11.79], "augusta":[37.21,15.22],
+    "cagliari":[39.21,9.11], "naples":[40.83,14.25], "valletta":[35.90,14.51],
+    "tarragona":[41.11,1.25], "barcelona":[41.34,2.17], "valencia":[39.45,-0.32],
+    "cartagena":[37.60,-0.98], "algeciras":[36.13,-5.45], "sagunto":[39.65,-0.21],
+    "sibenik":[43.74,15.89], "split":[43.51,16.43], "koper":[45.55,13.73],
+    "rijeka":[45.32,14.45], "ploce":[43.06,17.43], "bar":[42.09,19.10],
+    "tunis":[36.79,10.30], "sfax":[34.73,10.76], "bejaia":[36.75,5.07],
+    "algiers":[36.78,3.06], "oran":[35.71,-0.65], "annaba":[36.90,7.77],
+    "casablanca":[33.61,-7.62], "agadir":[30.42,-9.59], "med":[37.00,18.00],
+    "lisbon":[38.71,-9.14], "sines":[37.95,-8.87], "setubal":[38.52,-8.89],
+    "la coruna":[43.37,-8.40], "bilbao":[43.34,-3.04], "rotterdam":[51.92,4.48],
+    "amsterdam":[52.40,4.85], "antwerp":[51.22,4.42], "ghent":[51.10,3.74],
+    "hamburg":[53.55,9.99], "bremen":[53.10,8.74], "gdansk":[54.36,18.65],
+    "klaipeda":[55.71,21.13], "riga":[57.00,24.05], "tallinn":[59.44,24.75],
+    "ust luga":[59.66,28.27], "primorsk":[60.36,28.61],
+    "dakar":[14.69,-17.45], "abidjan":[5.33,-4.03], "tema":[5.62,0.00],
+    "lome":[6.13,1.22], "cotonou":[6.36,2.43], "lagos":[6.45,3.40],
+    "onne":[4.74,7.16], "douala":[4.05,9.69], "pointe noire":[-4.78,11.86],
+    "pointenoire":[-4.78,11.86], "luanda":[-8.79,13.24], "walvis bay":[-22.95,14.50],
+    "waf":[5.00,3.00],
+    "kandla":[22.99,70.22], "mundra":[22.84,69.71], "pipavav":[20.93,71.50],
+    "mumbai":[18.95,72.83], "jnpt":[18.95,72.95], "navasheva":[18.95,72.95],
+    "mormugao":[15.41,73.81], "mangalore":[12.89,74.84], "cochin":[9.97,76.27],
+    "tuticorin":[8.78,78.20], "chennai":[13.10,80.30], "kakinada":[16.97,82.25],
+    "kakinada anchor":[16.97,82.25], "visakhapatnam":[17.69,83.22],
+    "visakhapatnam outer":[17.68,83.30], "paradip":[20.27,86.69],
+    "haldia":[22.04,88.07], "kolkata":[22.55,88.34], "krishnapatnam":[14.25,80.10],
+    "wci":[20.00,72.00], "eci":[15.00,82.00],
+    "fujairah":[25.13,56.34], "khor fakkan":[25.34,56.36], "jebel ali":[25.02,55.06],
+    "dubai":[25.27,55.30], "bahrain":[26.20,50.59], "dammam":[26.45,50.10],
+    "jubail":[27.00,49.66], "jeddah":[21.49,39.16], "yanbu":[24.09,38.06],
+    "aqaba":[29.53,35.00], "muscat":[23.61,58.59], "sohar":[24.36,56.71],
+    "salalah":[16.94,54.01],
+    "djibouti":[11.59,43.15], "berbera":[10.43,45.02], "mombasa":[-4.04,39.66],
+    "dar es salaam":[-6.80,39.30], "maputo":[-25.96,32.59], "durban":[-29.87,31.04],
+    "richards bay":[-28.79,32.07], "cape town":[-33.92,18.42],
+    "singapore":[1.29,103.85], "port kelang":[2.95,101.40], "port klang":[2.95,101.40],
+    "tanjung pelepas":[1.36,103.55], "manila":[14.60,120.97], "subic bay":[14.79,120.27],
+    "ho chi minh":[10.78,106.70], "haiphong":[20.86,106.69], "bangkok":[13.72,100.49],
+    "laem chabang":[13.07,100.88],
+    "shanghai":[31.23,121.47], "ningbo":[29.87,121.55], "zhoushan":[30.00,122.10],
+    "zhousan":[30.00,122.10], "qingdao":[36.07,120.38], "tianjin":[39.13,117.20],
+    "dalian":[38.92,121.61], "yantai":[37.46,121.45], "rizhao":[35.42,119.46],
+    "qinhuangdao":[39.93,119.62], "lianyungang":[34.60,119.16],
+    "guangzhou":[23.13,113.27], "shenzhen":[22.55,114.06], "xiamen":[24.48,118.08],
+    "fuzhou":[26.07,119.32], "hong kong":[22.32,114.17], "hongkong":[22.32,114.17],
+    "dung quat":[15.38,108.79], "north china":[38.00,120.00], "ne china":[39.00,121.00],
+    "south china":[23.00,113.00],
+    "yokohama":[35.45,139.65], "tokyo":[35.66,139.79], "nagoya":[35.10,136.88],
+    "osaka":[34.65,135.43], "kobe":[34.69,135.20], "chiba":[35.60,140.10],
+    "kashima":[35.93,140.69], "busan":[35.10,129.04], "incheon":[37.46,126.62],
+    "ulsan":[35.50,129.39], "pohang":[36.04,129.38], "gwangyang":[34.90,127.74],
+    "japan":[35.50,139.00],
+    "newcastle":[-32.92,151.78], "port hedland":[-20.31,118.58],
+    "dampier":[-20.66,116.71], "fremantle":[-32.05,115.74],
+    "gladstone":[-23.84,151.25], "townsville":[-19.27,146.83],
+    "abbot point":[-19.87,148.07], "kembla":[-34.48,150.92],
+    "west black sea":[42.50,28.00], "east black sea":[43.50,38.00],
+    "north black sea":[46.00,32.00], "south black sea":[42.00,33.00],
+    "houston":[29.74,-95.30], "corpus christi":[27.81,-97.40], "new orleans":[29.95,-90.07],
+    "nola":[29.95,-90.07], "tampa":[27.95,-82.46], "savannah":[32.08,-81.10],
+    "charleston":[32.78,-79.93], "norfolk":[36.85,-76.29], "baltimore":[39.29,-76.61],
+    "new york":[40.71,-74.01], "santos":[-23.97,-46.33], "itaqui":[-2.57,-44.37],
+    "vitoria":[-20.32,-40.31], "praia mole":[-20.28,-40.23], "tubarao":[-20.27,-40.24],
+    "ponta da madeira":[-2.57,-44.36], "buenos aires":[-34.61,-58.38],
+    "rosario":[-32.95,-60.66], "san lorenzo":[-32.74,-60.74], "necochea":[-38.55,-58.74],
+    "bahia blanca":[-38.72,-62.27], "paranagua":[-25.51,-48.51],
+    "gibraltar":[36.14,-5.35], "canaries":[28.10,-15.50], "azores":[37.74,-25.66],
+};
+
+function _portCoords(raw){
+    if(!raw) return null;
+    var key = String(raw).toLowerCase().replace(/[^a-z0-9 ]/g,'').replace(/\s+/g,' ').trim();
+    if(!key) return null;
+    if(PORT_COORDS[key]) return PORT_COORDS[key];
+    var tokens = key.split(' ');
+    for(var n = tokens.length; n > 0; n--){
+        var head = tokens.slice(0, n).join(' ');
+        if(PORT_COORDS[head]) return PORT_COORDS[head];
+        var compact = head.replace(/\s+/g,'');
+        if(PORT_COORDS[compact]) return PORT_COORDS[compact];
+    }
+    if(PORT_COORDS[tokens[0]]) return PORT_COORDS[tokens[0]];
+    return null;
+}
+
+// Extract the three points + brief labels from a pinned bazaar match.
+function _leadPorts(m){
+    var out = {
+        cargo_load: null, cargo_disch: null, vessel_open: null,
+        cargo_summary: '', vessel_summary: '',
+    };
+    var cargoSrc = m.cargo_listing || m.bazaar_cargo_signal;
+    var tonSrc = m.tonnage_listing || m.bazaar_tonnage_signal;
+    if(cargoSrc){
+        out.cargo_load = cargoSrc.load_port;
+        out.cargo_disch = cargoSrc.disch_port;
+        var parts = [];
+        if(cargoSrc.cargo_type) parts.push(cargoSrc.cargo_type);
+        if(cargoSrc.quantity_mt) parts.push(cargoSrc.quantity_mt + ' MT');
+        if(cargoSrc.laycan_from || cargoSrc.laycan_to){
+            parts.push('laycan ' + (cargoSrc.laycan_from || '').slice(5,10) + '–' + (cargoSrc.laycan_to || '').slice(5,10));
+        }
+        out.cargo_summary = parts.join(' · ');
+    }
+    if(tonSrc){
+        out.vessel_open = tonSrc.open_port;
+        var parts2 = [];
+        if(tonSrc.vessel_name) parts2.push(tonSrc.vessel_name);
+        if(tonSrc.vessel_type) parts2.push(tonSrc.vessel_type);
+        if(tonSrc.dwt) parts2.push(tonSrc.dwt + ' DWT');
+        if(tonSrc.open_from || tonSrc.open_to){
+            parts2.push('open ' + (tonSrc.open_from || '').slice(5,10) + '–' + (tonSrc.open_to || '').slice(5,10));
+        }
+        out.vessel_summary = parts2.join(' · ');
+    }
+    return out;
+}
+
+function openLead(matchId){
+    var m = (state.pinnedLeads || []).filter(function(x){ return x.id === matchId; })[0];
+    if(!m) return;
+    state.activeLeadId = matchId;
+    // Hide other view-panes, show lead view.
+    var vex = document.getElementById('view-ex');
+    var vmatch = document.getElementById('view-match');
+    var vlead = document.getElementById('view-lead');
+    if(vex) vex.style.display = 'none';
+    if(vmatch) vmatch.style.display = 'none';
+    if(vlead) vlead.style.display = '';
+    // De-highlight main tab buttons.
+    document.getElementById('nav-ex').classList.remove('active');
+    document.getElementById('nav-match').classList.remove('active');
+    renderLeadView(m);
+    renderLeadTabs(); // refresh lead tabs to mark this one active
+}
+
+function closeLeadView(){
+    state.activeLeadId = null;
+    if(state.leadMap){
+        try { state.leadMap.remove(); } catch(_) {}
+        state.leadMap = null;
+    }
+    document.getElementById('view-lead').style.display = 'none';
+    showView(state.view || 'ex');
+    renderLeadTabs();
+}
+
+function renderLeadView(m){
+    var ports = _leadPorts(m);
+    var counterEmail = (m.bazaar_cargo_signal || m.bazaar_tonnage_signal || {}).posted_by_email || '';
+    var counterName = (m.bazaar_cargo_signal || m.bazaar_tonnage_signal || {}).posted_by_name || counterEmail.split('@')[0] || '?';
+    var title = ports.cargo_summary || ports.vessel_summary || '(лид)';
+    var header = document.getElementById('lead-header');
+    if(header){
+        header.innerHTML = '<h2>🔗 Лид</h2>'
+            + '<span class="lh-meta">'+esc(title)+'</span>'
+            + '<span class="lh-sep">·</span><span class="lh-meta">'+esc(counterName)+'</span>'
+            + '<span class="lh-sep">·</span><span class="lh-meta">взят '+esc((m.pinned_at||'').slice(0,16))+'</span>'
+            + '<span class="lh-close" onclick="closeLeadView()" title="Вернуться к Эксклюзивам/Совпадениям">✕ Закрыть вид</span>';
+    }
+    // Sidebar — pair details + reasons + raw text.
+    var sidebar = document.getElementById('lead-sidebar');
+    if(sidebar){
+        var html = '';
+        if(ports.cargo_summary){
+            html += '<h3>📦 Груз</h3><div class="sub">' + esc(ports.cargo_summary) + '</div>';
+            if(ports.cargo_load || ports.cargo_disch){
+                html += '<div class="sub">' + esc(ports.cargo_load || '?') + ' → ' + esc(ports.cargo_disch || '?') + '</div>';
+            }
+        }
+        if(ports.vessel_summary){
+            html += '<h3>🚢 Судно</h3><div class="sub">' + esc(ports.vessel_summary) + '</div>';
+            if(ports.vessel_open){
+                html += '<div class="sub">open: ' + esc(ports.vessel_open) + '</div>';
+            }
+        }
+        html += '<h3>Контрагент</h3>';
+        html += '<div class="detail-block">';
+        if(counterName) html += '<div class="detail-row"><span class="k">Имя</span><span class="v">'+esc(counterName)+'</span></div>';
+        html += '<div class="detail-row"><span class="k">Email</span><span class="v">'+esc(counterEmail || '—')+'</span></div>';
+        html += '</div>';
+        var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal;
+        if(sig && sig.description){
+            html += '<h3>Оригинальное сообщение</h3>';
+            html += '<div class="raw-text">'+esc(sig.description)+'</div>';
+        }
+        sidebar.innerHTML = html;
+    }
+    // Map — lazy-init Leaflet on first render, redraw on subsequent leads.
+    _renderLeadMap(m, ports);
+}
+
+function _renderLeadMap(m, ports){
+    if(typeof L === 'undefined'){
+        // Leaflet failed to load (offline first launch?). Show stub.
+        document.getElementById('lead-map').innerHTML = '<div class="col-empty">Leaflet не загрузился. Перезапусти приложение.</div>';
+        return;
+    }
+    if(state.leadMap){
+        try { state.leadMap.remove(); } catch(_) {}
+        state.leadMap = null;
+    }
+    var mapEl = document.getElementById('lead-map');
+    mapEl.innerHTML = ''; // wipe stub
+    var map = L.map('lead-map', { worldCopyJump:true });
+    state.leadMap = map;
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap',
+        maxZoom: 12,
+    }).addTo(map);
+
+    var bounds = [];
+    function addMarker(coord, kind, label, sub){
+        if(!coord) return;
+        var color = kind === 'cargo_load' ? '#4ec970'
+                  : kind === 'cargo_disch' ? '#e55561'
+                  : '#5b9be0';
+        var icon = L.divIcon({
+            className: 'lead-marker',
+            html: '<div style="width:18px; height:18px; border-radius:50%; background:'+color+'; border:3px solid white; box-shadow:0 0 0 1px '+color+'; opacity:.95"></div>',
+            iconSize: [18, 18],
+            iconAnchor: [9, 9],
+        });
+        var marker = L.marker(coord, { icon: icon }).addTo(map);
+        var tip = '<b>'+esc(label)+'</b>' + (sub ? '<br><span style="color:#888">'+esc(sub)+'</span>' : '');
+        marker.bindTooltip(tip, {
+            permanent: true,
+            direction: 'top',
+            offset: [0, -8],
+            className: 'lead-label ' + kind.replace('_','-'),
+        });
+        bounds.push(coord);
+    }
+
+    var coordLoad = _portCoords(ports.cargo_load);
+    var coordDisch = _portCoords(ports.cargo_disch);
+    var coordOpen = _portCoords(ports.vessel_open);
+
+    if(coordOpen) addMarker(coordOpen, 'vessel_open', '🚢 ' + (ports.vessel_open || ''), ports.vessel_summary);
+    if(coordLoad) addMarker(coordLoad, 'cargo_load', '📦 ' + (ports.cargo_load || '') + ' (load)', ports.cargo_summary);
+    if(coordDisch) addMarker(coordDisch, 'cargo_disch', '📦 ' + (ports.cargo_disch || '') + ' (discharge)', '');
+
+    // Connect points with subtle great-circle-ish polyline (Leaflet auto-handles antimeridian via worldCopyJump).
+    var line = [];
+    if(coordOpen) line.push(coordOpen);
+    if(coordLoad) line.push(coordLoad);
+    if(coordDisch) line.push(coordDisch);
+    if(line.length >= 2){
+        L.polyline(line, { color:'#5b9be0', weight:2, opacity:0.5, dashArray:'6 6' }).addTo(map);
+    }
+
+    if(bounds.length >= 2){
+        map.fitBounds(bounds, { padding:[60,60] });
+    } else if(bounds.length === 1){
+        map.setView(bounds[0], 4);
+    } else {
+        // No coords resolved — show world.
+        map.setView([20, 40], 2);
+        var sidebar = document.getElementById('lead-sidebar');
+        if(sidebar){
+            sidebar.insertAdjacentHTML('afterbegin',
+                '<div class="sub" style="color:var(--red); margin-bottom:10px;">⚠ Порты не найдены в базе координат — добавь в PORT_COORDS если нужно: '
+                + esc([ports.cargo_load, ports.cargo_disch, ports.vessel_open].filter(Boolean).join(', '))
+                + '</div>');
+        }
+    }
+    // Tauri's WebView may stall layout on first map render — force refresh.
+    setTimeout(function(){ if(state.leadMap) state.leadMap.invalidateSize(); }, 50);
+}
+
 // ---------- Resizable splitters ----------
 //
 // Generic drag handler — adjusts the *previous sibling's* flex-basis
@@ -1552,14 +1894,14 @@ function renderLeadTabs(){
         var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal || {};
         var iconL = m.cargo_listing ? '📦' : '🚢';
         var counterparty = sig.posted_by_email || sig.posted_by_name || '?';
-        var when = (m.pinned_at || '').slice(5, 10); // MM-DD
         var label = listing.title
             ? listing.title.slice(0, 28)
             : (m.cargo_listing
                 ? ((listing.cargo_type || '?') + ' ' + (listing.load_port || ''))
                 : ((listing.vessel_name || ('IMO ' + listing.vessel_imo)) + ''));
         var tooltip = label + ' · ' + counterparty + ' · взят ' + (m.pinned_at || '').slice(0, 16);
-        return '<div class="mod-tab lead-tab" data-mid="'+esc(m.id)+'" title="'+esc(tooltip)+'"'
+        var isActive = (state.activeLeadId === m.id);
+        return '<div class="mod-tab lead-tab' + (isActive ? ' active' : '') + '" data-mid="'+esc(m.id)+'" title="'+esc(tooltip)+'"'
             + ' onclick="selectLead(\''+esc(m.id)+'\')"'
             + ' oncontextmenu="leadContextMenu(event, \''+esc(m.id)+'\'); return false;">'
             + iconL + ' ' + esc(label) + ' · ' + esc(counterparty.split('@')[0]) + ' '
@@ -1569,20 +1911,8 @@ function renderLeadTabs(){
 }
 
 async function selectLead(matchId){
-    var m = (state.pinnedLeads || []).filter(function(x){ return x.id === matchId; })[0];
-    if(!m) return;
-    // Always lands in the Эксклюзивы view because the pinned chain is
-    // anchored to MY listing × bazaar signal.
-    state.view = 'ex';
-    var listingKind = m.cargo_listing ? 'cargo' : 'tonnage';
-    var listingId = (m.cargo_listing || m.tonnage_listing || {}).id;
-    state.selectedListing = listingId ? { kind:listingKind, id:listingId } : state.selectedListing;
-    state.selectedMatch = { type:'bazaar', data:m };
-    // Switch view + repaint
-    showView('ex');
-    // After showView the inbox might have just refreshed for the listing;
-    // ensure renderActiveView paints the chosen match as active.
-    renderActiveView();
+    // Open the dedicated focused-lead view with map + counterparty details.
+    openLead(matchId);
 }
 
 function leadContextMenu(ev, matchId){
@@ -1641,6 +1971,13 @@ function renderActiveView(){
 function showView(name){
     if(name !== 'ex' && name !== 'match') return;
     state.view = name;
+    // Tear down the focused-lead view if it's open — user is leaving it.
+    if(state.activeLeadId){
+        state.activeLeadId = null;
+        if(state.leadMap){ try { state.leadMap.remove(); } catch(_){} state.leadMap = null; }
+    }
+    var vlead = document.getElementById('view-lead');
+    if(vlead) vlead.style.display = 'none';
     document.getElementById('view-ex').style.display = (name === 'ex') ? '' : 'none';
     document.getElementById('view-match').style.display = (name === 'match') ? '' : 'none';
     var navEx = document.getElementById('nav-ex');
