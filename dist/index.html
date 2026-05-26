@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.54';
+var APP_VERSION='0.1.55';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -623,6 +623,9 @@ body.dragging-split.col-resize { cursor:col-resize; }
                         <option value="supramax">supra (40-65K)</option>
                         <option value="panamax">panamax+ (65K+)</option>
                     </select>
+                    <select id="signals-cargo-counterpart" onchange="renderSignalsBrowse()">
+                        <option value="">контрагент: все</option>
+                    </select>
                 </div>
                 <div class="signals-table-wrap"><table class="signals-table"><thead><tr>
                     <th>ID</th>
@@ -662,6 +665,9 @@ body.dragging-split.col-resize { cursor:col-resize; }
                         <option value="supramax">supra (40-65K)</option>
                         <option value="panamax">panamax+ (65K+)</option>
                     </select>
+                    <select id="signals-tonnage-counterpart" onchange="renderSignalsBrowse()">
+                        <option value="">контрагент: все</option>
+                    </select>
                 </div>
                 <div class="signals-table-wrap"><table class="signals-table"><thead><tr>
                     <th>ID</th>
@@ -684,37 +690,37 @@ body.dragging-split.col-resize { cursor:col-resize; }
          shipowner collapse into one row. -->
     <div class="view-pane view-signals-stack" id="view-partners" style="display:none;">
         <div class="signals-cols">
-            <div class="signals-col">
+            <!-- Left: counterpart list (per-email aggregation) -->
+            <div class="signals-col" style="flex:1;">
                 <div class="col-head">
-                    <span>📦 Cargo-side</span>
-                    <span class="count" id="partners-cargo-count">0</span>
-                    <span class="p2-refresh" title="Обновить" onclick="refreshSignalsBrowse()">🔄</span>
+                    <span>🤝 Контрагенты</span>
+                    <span class="count" id="partners-count">0</span>
+                    <span class="p2-refresh" title="Обновить — пересобрать из 🛒 Сигналы" onclick="refreshSignalsBrowse().then(renderPartners)">🔄</span>
                 </div>
                 <div class="signals-filter-row">
-                    <input id="partners-cargo-q" placeholder="поиск по компании / email…" oninput="renderPartners()">
+                    <input id="partners-q" placeholder="поиск: имя / email / порт / cargo…" oninput="renderPartners()">
+                    <select id="partners-side" onchange="renderPartners()">
+                        <option value="">все стороны</option>
+                        <option value="cargo">📦 cargo-side (грузы)</option>
+                        <option value="tonnage">🚢 vessel-side (тоннаж)</option>
+                        <option value="both">📦🚢 двусторонние</option>
+                    </select>
                 </div>
                 <div class="signals-table-wrap"><table class="signals-table"><thead><tr>
-                    <th>компания</th>
-                    <th>email-домен</th>
-                    <th onclick="partnersSort('cargo','count')">сигналов</th>
-                    <th onclick="partnersSort('cargo','last')">последний</th>
-                </tr></thead><tbody id="partners-cargo-body"></tbody></table></div>
+                    <th>контрагент</th>
+                    <th>email</th>
+                    <th onclick="partnersSort('cargoCount')" title="отсортировать по cargo">📦</th>
+                    <th onclick="partnersSort('tonnageCount')" title="отсортировать по tonnage">🚢</th>
+                    <th onclick="partnersSort('last')">последний</th>
+                </tr></thead><tbody id="partners-body"></tbody></table></div>
             </div>
             <div class="splitter splitter-v" onmousedown="startSplitDrag(event, 'partners-v')"></div>
-            <div class="signals-col">
+            <!-- Right: dossier of selected counterpart -->
+            <div class="signals-col" style="flex:1.3; overflow:auto;">
                 <div class="col-head">
-                    <span>🚢 Vessel-side</span>
-                    <span class="count" id="partners-tonnage-count">0</span>
+                    <span id="partners-dossier-title">📇 Досье контрагента</span>
                 </div>
-                <div class="signals-filter-row">
-                    <input id="partners-tonnage-q" placeholder="поиск по компании / email…" oninput="renderPartners()">
-                </div>
-                <div class="signals-table-wrap"><table class="signals-table"><thead><tr>
-                    <th>компания</th>
-                    <th>email-домен</th>
-                    <th onclick="partnersSort('tonnage','count')">позиций</th>
-                    <th onclick="partnersSort('tonnage','last')">последняя</th>
-                </tr></thead><tbody id="partners-tonnage-body"></tbody></table></div>
+                <div id="partners-dossier" style="padding:14px 16px; overflow:auto; flex:1;"></div>
             </div>
         </div>
     </div>
@@ -2617,66 +2623,63 @@ function signalsSort(kind, col){
     renderSignalsBrowse();
 }
 
-// ---------- View 🤝 Контрагенты — companies aggregated from signals ----------
+// ---------- View 🤝 Контрагенты — per-email counterparts + dossier ----------
 //
-// Aggregates on the email-domain (after the @) so different desks of one
-// shipowner / charterer collapse into one row. The display name is the
-// most-common posted_by_name seen for that domain, falling back to the
-// domain itself. Personal mailbox domains (gmail/outlook/yahoo) are
-// rolled together under "personal mailboxes" so they don't drown out
-// real companies. Two sides: cargo-side (sources of cargo enquiries)
-// and vessel-side (sources of open positions).
+// One row per unique posted_by_email. The same counterpart who publishes
+// both cargo and tonnage shows as ONE row with both counts (cargo + tonnage).
+// Click row → dossier panel on right with full stats + button to jump into
+// 🛒 Сигналы pre-filtered by this counterpart's email.
 
-var PERSONAL_DOMAINS = new Set([
-    'gmail.com','outlook.com','yahoo.com','hotmail.com','mail.ru','yandex.ru',
-    'icloud.com','protonmail.com','proton.me','live.com','msn.com',
-]);
-state.partners = state.partners || { sort: { cargo: { col:'last', dir:'desc' }, tonnage: { col:'last', dir:'desc' } } };
+state.partners = state.partners || { sort: { col: 'last', dir: 'desc' }, selectedEmail: null };
 
-function _aggregatePartners(signals){
-    // signals: array of bazaar signal rows. Returns array of company stats.
-    var byDomain = {};
-    (signals || []).forEach(function(s){
+function _aggregateCounterparts(){
+    var byEmail = {};
+    function ingest(s, kind){
         var em = (s.posted_by_email || '').trim().toLowerCase();
         if(!em || em.indexOf('@') < 0) return;
-        var domain = em.split('@')[1];
-        var personal = PERSONAL_DOMAINS.has(domain);
-        var key = personal ? '__personal__' : domain;
-        var rec = byDomain[key];
+        var rec = byEmail[em];
         if(!rec){
-            rec = byDomain[key] = {
-                domain: key === '__personal__' ? 'личные почты' : domain,
-                isPersonal: personal,
-                nameVotes: {}, // candidate display names
-                emails: new Set(),
-                count: 0,
+            rec = byEmail[em] = {
+                email: em,
+                domain: em.split('@')[1] || '',
+                nameVotes: {},
+                cargoCount: 0,
+                tonnageCount: 0,
+                cargoSignals: [],
+                tonnageSignals: [],
+                first: '',
                 last: '',
             };
         }
-        rec.count++;
-        rec.emails.add(em);
+        rec[kind + 'Count']++;
+        rec[kind + 'Signals'].push(s);
         var nm = (s.posted_by_name || '').trim();
         if(nm) rec.nameVotes[nm] = (rec.nameVotes[nm] || 0) + 1;
         var ts = s.first_seen_at || '';
+        if(ts && (!rec.first || ts < rec.first)) rec.first = ts;
         if(ts > rec.last) rec.last = ts;
-    });
-    // Reduce nameVotes → top name; finalize.
-    return Object.keys(byDomain).map(function(k){
-        var r = byDomain[k];
+    }
+    (state.signalsBrowse.cargo || []).forEach(function(s){ ingest(s, 'cargo'); });
+    (state.signalsBrowse.tonnage || []).forEach(function(s){ ingest(s, 'tonnage'); });
+    // Finalize: pick top-voted display name; derive role.
+    return Object.keys(byEmail).map(function(em){
+        var r = byEmail[em];
         var bestName = '', bestVotes = 0;
         Object.keys(r.nameVotes).forEach(function(n){
             if(r.nameVotes[n] > bestVotes){ bestName = n; bestVotes = r.nameVotes[n]; }
         });
-        r.name = bestName || r.domain;
-        r.emails = Array.from(r.emails);
+        r.name = bestName || em.split('@')[0];
+        r.total = r.cargoCount + r.tonnageCount;
+        if(r.cargoCount > 0 && r.tonnageCount > 0) r.role = 'both';
+        else if(r.cargoCount > 0) r.role = 'cargo';
+        else r.role = 'tonnage';
         return r;
     });
 }
 
 function _fmtPartnerAge(ts){
     if(!ts) return '?';
-    var d = Date.parse(ts);
-    if(!d) return '?';
+    var d = Date.parse(ts); if(!d) return '?';
     var diff = Date.now() - d;
     var m = Math.floor(diff/60000);
     if(m < 60) return m + 'м';
@@ -2685,75 +2688,183 @@ function _fmtPartnerAge(ts){
     return Math.floor(h/24) + 'д';
 }
 
-function partnersSort(kind, col){
-    var s = state.partners.sort[kind];
+function partnersSort(col){
+    var s = state.partners.sort;
     if(s.col === col){ s.dir = (s.dir === 'desc') ? 'asc' : 'desc'; }
     else { s.col = col; s.dir = 'desc'; }
     renderPartners();
 }
 
-function _renderPartnersPane(kind){
-    var data = state.signalsBrowse[kind] || [];
-    var rows = _aggregatePartners(data);
-    var qEl = document.getElementById('partners-'+kind+'-q');
+function renderPartners(){
+    var rows = _aggregateCounterparts();
+    var qEl = document.getElementById('partners-q');
+    var sideEl = document.getElementById('partners-side');
     var q = (qEl && qEl.value || '').trim().toLowerCase();
+    var side = (sideEl && sideEl.value || '');
     if(q){
         rows = rows.filter(function(r){
-            if(r.name.toLowerCase().indexOf(q) >= 0) return true;
-            if(r.domain.toLowerCase().indexOf(q) >= 0) return true;
-            return r.emails.some(function(e){ return e.indexOf(q) >= 0; });
+            return r.name.toLowerCase().indexOf(q) >= 0
+                || r.email.indexOf(q) >= 0
+                || r.domain.indexOf(q) >= 0;
         });
     }
-    var sort = state.partners.sort[kind];
+    if(side){
+        rows = rows.filter(function(r){ return r.role === side; });
+    }
+    var sort = state.partners.sort;
     rows.sort(function(a, b){
         var av = a[sort.col], bv = b[sort.col];
         if(av < bv) return sort.dir === 'desc' ? 1 : -1;
         if(av > bv) return sort.dir === 'desc' ? -1 : 1;
         return 0;
     });
-    var body = document.getElementById('partners-'+kind+'-body');
+    var body = document.getElementById('partners-body');
+    var cnt = document.getElementById('partners-count');
+    if(cnt) cnt.textContent = rows.length;
     if(!body) return;
     if(rows.length === 0){
-        body.innerHTML = '<tr><td colspan="4" style="padding:20px; text-align:center; color:var(--text2);">Контрагентов не найдено. Сначала загрузи сигналы в 🛒 Сигналы.</td></tr>';
+        body.innerHTML = '<tr><td colspan="5" style="padding:20px; text-align:center; color:var(--text2);">Контрагентов не найдено. Сначала загрузи сигналы в 🛒 Сигналы.</td></tr>';
     } else {
         body.innerHTML = rows.map(function(r){
-            var emailList = r.emails.slice(0, 3).join(', ') + (r.emails.length > 3 ? ' +'+(r.emails.length-3) : '');
-            var tooltip = r.emails.join('\n');
-            var domainLabel = r.isPersonal
-                ? '<span style="color:var(--text2);">'+r.emails.length+' персональных</span>'
-                : esc(r.domain);
-            return '<tr title="'+esc(tooltip)+'" onclick="partnersOpenSignals(\''+esc(kind)+'\',\''+esc(r.domain)+'\','+r.isPersonal+')" style="cursor:pointer;">'
-                + '<td><b>'+esc(r.name)+'</b></td>'
-                + '<td>'+domainLabel+'</td>'
-                + '<td>'+r.count+'</td>'
-                + '<td>'+_fmtPartnerAge(r.last)+' назад</td>'
+            var roleIcon = r.role === 'both' ? '📦🚢' : (r.role === 'cargo' ? '📦' : '🚢');
+            var sel = state.partners.selectedEmail === r.email;
+            return '<tr class="'+(sel?'active':'')+'" onclick="selectCounterpart(\''+esc(r.email)+'\')" style="cursor:pointer;">'
+                + '<td><b>'+roleIcon+' '+esc(r.name)+'</b></td>'
+                + '<td><code style="font-size:11px;">'+esc(r.email)+'</code></td>'
+                + '<td>'+r.cargoCount+'</td>'
+                + '<td>'+r.tonnageCount+'</td>'
+                + '<td>'+_fmtPartnerAge(r.last)+'</td>'
                 + '</tr>';
         }).join('');
     }
-    var cntEl = document.getElementById('partners-'+kind+'-count');
-    if(cntEl) cntEl.textContent = rows.length;
+    // Refresh dossier or empty state
+    if(state.partners.selectedEmail){
+        renderCounterpartDossier(state.partners.selectedEmail);
+    } else {
+        var dEl = document.getElementById('partners-dossier');
+        if(dEl) dEl.innerHTML = '<div style="color:var(--text2); padding:20px 0;">Выбери контрагента слева — откроется досье с патернами активности и кнопкой "Сигналы этого контрагента".</div>';
+    }
+    // Also refresh the counterpart dropdowns in 🛒 Сигналы view
+    _populateCounterpartDropdowns(rows);
 }
 
-function renderPartners(){
-    _renderPartnersPane('cargo');
-    _renderPartnersPane('tonnage');
+function selectCounterpart(email){
+    state.partners.selectedEmail = email;
+    renderPartners();
 }
 
-// Click on a partner row → jump to 🛒 Сигналы with that domain in the
-// search filter so the user can see all their signals.
-function partnersOpenSignals(kind, domain, isPersonal){
-    var q = isPersonal ? '@' : ('@' + domain);
+function renderCounterpartDossier(email){
+    var rows = _aggregateCounterparts();
+    var r = rows.filter(function(x){ return x.email === email; })[0];
+    var dEl = document.getElementById('partners-dossier');
+    var tEl = document.getElementById('partners-dossier-title');
+    if(!r || !dEl){ if(dEl) dEl.innerHTML = '<div style="color:var(--text2);">Контрагент не найден</div>'; return; }
+    if(tEl) tEl.textContent = '📇 ' + r.name;
+
+    var roleLabel = r.role === 'both' ? '📦+🚢 cargo и tonnage' : (r.role === 'cargo' ? '📦 только cargo' : '🚢 только tonnage');
+    // Pattern analysis
+    var loadPorts = {}, dischPorts = {}, cargoTypes = {}, vesselSizes = [], openPorts = {};
+    (r.cargoSignals || []).forEach(function(s){
+        if(s.load_port) loadPorts[s.load_port] = (loadPorts[s.load_port]||0)+1;
+        if(s.disch_port) dischPorts[s.disch_port] = (dischPorts[s.disch_port]||0)+1;
+        if(s.cargo_type) cargoTypes[s.cargo_type] = (cargoTypes[s.cargo_type]||0)+1;
+    });
+    (r.tonnageSignals || []).forEach(function(s){
+        if(s.open_port) openPorts[s.open_port] = (openPorts[s.open_port]||0)+1;
+        if(s.dwt) vesselSizes.push(Number(s.dwt));
+    });
+    function topN(obj, n){
+        return Object.keys(obj).sort(function(a,b){return obj[b]-obj[a];}).slice(0,n)
+            .map(function(k){return esc(k)+' ×'+obj[k];}).join(', ') || '—';
+    }
+    var dwtRange = '—';
+    if(vesselSizes.length){
+        vesselSizes.sort(function(a,b){return a-b;});
+        dwtRange = vesselSizes[0] + ' – ' + vesselSizes[vesselSizes.length-1] + ' DWT';
+    }
+    var allSignals = (r.cargoSignals||[]).map(function(s){ return Object.assign({_kind:'cargo'}, s); })
+        .concat((r.tonnageSignals||[]).map(function(s){ return Object.assign({_kind:'tonnage'}, s); }))
+        .sort(function(a,b){ return Date.parse(b.first_seen_at||'') - Date.parse(a.first_seen_at||''); });
+
+    var html = '';
+    html += '<div style="display:flex; flex-direction:column; gap:14px;">';
+    // Header card
+    html += '<div style="background:var(--surface2); padding:12px 14px; border-radius:6px;">';
+    html += '<div style="font-size:14px; font-weight:600; margin-bottom:4px;">'+esc(r.name)+'</div>';
+    html += '<div style="font-size:11px; color:var(--text2); font-family:monospace;">'+esc(r.email)+'</div>';
+    html += '<div style="font-size:11px; color:var(--text2); margin-top:6px;">'
+         + roleLabel + ' · ' + r.cargoCount + ' cargo · ' + r.tonnageCount + ' tonnage'
+         + ' · с ' + _fmtPartnerAge(r.first) + ' по ' + _fmtPartnerAge(r.last) + ' назад</div>';
+    html += '<button style="margin-top:10px; padding:7px 12px; background:var(--accent); color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:12px; font-weight:500;" onclick="partnersOpenSignalsFor(\''+esc(r.email)+'\')">🛒 Сигналы этого контрагента →</button>';
+    html += '</div>';
+    // Patterns
+    html += '<div style="background:var(--surface); padding:10px 14px; border-radius:6px; border:1px solid var(--border);">';
+    html += '<div style="font-size:12px; font-weight:600; color:var(--text2); margin-bottom:8px;">ПАТТЕРНЫ</div>';
+    if(r.cargoCount > 0){
+        html += '<div style="font-size:11px; margin-bottom:4px;"><b>📦 Грузы:</b> ' + topN(cargoTypes, 5) + '</div>';
+        html += '<div style="font-size:11px; margin-bottom:4px;"><b>📍 Откуда:</b> ' + topN(loadPorts, 5) + '</div>';
+        html += '<div style="font-size:11px; margin-bottom:4px;"><b>📍 Куда:</b> ' + topN(dischPorts, 5) + '</div>';
+    }
+    if(r.tonnageCount > 0){
+        html += '<div style="font-size:11px; margin-bottom:4px;"><b>🚢 Открытие:</b> ' + topN(openPorts, 5) + '</div>';
+        html += '<div style="font-size:11px; margin-bottom:4px;"><b>📏 DWT диапазон:</b> ' + dwtRange + '</div>';
+    }
+    html += '</div>';
+    // Signals timeline (last 10)
+    html += '<div style="background:var(--surface); padding:10px 14px; border-radius:6px; border:1px solid var(--border);">';
+    html += '<div style="font-size:12px; font-weight:600; color:var(--text2); margin-bottom:8px;">ПОСЛЕДНИЕ СИГНАЛЫ (' + Math.min(10, allSignals.length) + ' из ' + allSignals.length + ')</div>';
+    allSignals.slice(0, 10).forEach(function(s){
+        var icon = s._kind === 'cargo' ? '📦' : '🚢';
+        var title = s.title || (s._kind === 'cargo'
+            ? (s.cargo_type || '?') + ' ' + (s.load_port||'?') + '→' + (s.disch_port||'?')
+            : ((s.vessel_name || s.vessel_type || '?') + ' ' + (s.dwt? s.dwt+'DWT ' : '') + 'open ' + (s.open_port||'?')));
+        html += '<div style="font-size:11px; padding:3px 0; border-bottom:1px solid var(--border);">'
+             + '<span style="color:var(--text2);">'+_fmtPartnerAge(s.first_seen_at)+'</span> '
+             + icon + ' ' + esc(truncate(title, 100))
+             + '</div>';
+    });
+    html += '</div>';
+    html += '</div>';
+    dEl.innerHTML = html;
+}
+
+function partnersOpenSignalsFor(email){
     showView('signals');
     setTimeout(function(){
-        var qEl = document.getElementById('signals-'+kind+'-q');
-        if(qEl){
-            qEl.value = q;
-            qEl.dispatchEvent(new Event('input'));
-        }
+        // Pre-set both cargo + tonnage counterpart dropdowns to the email
+        ['cargo','tonnage'].forEach(function(kind){
+            var sel = document.getElementById('signals-'+kind+'-counterpart');
+            if(sel){
+                sel.value = email;
+                sel.dispatchEvent(new Event('change'));
+            }
+        });
     }, 50);
 }
 
+function _populateCounterpartDropdowns(counterparts){
+    if(!counterparts) counterparts = _aggregateCounterparts();
+    counterparts.sort(function(a,b){ return b.total - a.total; });
+    ['cargo','tonnage'].forEach(function(kind){
+        var sel = document.getElementById('signals-'+kind+'-counterpart');
+        if(!sel) return;
+        var prev = sel.value;
+        var opts = '<option value="">контрагент: все</option>';
+        counterparts.forEach(function(c){
+            if(kind === 'cargo' && c.cargoCount === 0) return;
+            if(kind === 'tonnage' && c.tonnageCount === 0) return;
+            var cnt = kind === 'cargo' ? c.cargoCount : c.tonnageCount;
+            opts += '<option value="'+esc(c.email)+'">'+esc(c.name)+' ('+cnt+')</option>';
+        });
+        sel.innerHTML = opts;
+        if(prev) sel.value = prev;
+    });
+}
+
 function renderSignalsBrowse(){
+    // Populate counterpart dropdowns on first paint (and re-paint when data
+    // changes). Re-uses the same per-email aggregation as Контрагенты tab.
+    try { _populateCounterpartDropdowns(); } catch(_){ /* before partners code loaded */ }
     _renderSignalsPane('cargo');
     _renderSignalsPane('tonnage');
     var bodyC = document.getElementById('signals-cargo-count');
@@ -2776,6 +2887,7 @@ function _renderSignalsPane(kind){
     q = q.trim().toLowerCase();
     var region = (document.getElementById('signals-' + kind + '-region') || {}).value || '';
     var size = (document.getElementById('signals-' + kind + '-size') || {}).value || '';
+    var counterEmail = (document.getElementById('signals-' + kind + '-counterpart') || {}).value || '';
     if(q){
         rows = rows.filter(function(s){
             var blob = JSON.stringify(s).toLowerCase();
@@ -2783,6 +2895,11 @@ function _renderSignalsPane(kind){
         });
     }
     rows = rows.filter(function(s){ return _signalsRegionMatch(s, region) && _signalsSizeMatch(s, kind, size); });
+    if(counterEmail){
+        rows = rows.filter(function(s){
+            return ((s.posted_by_email || '').toLowerCase() === counterEmail.toLowerCase());
+        });
+    }
     var sort = state.signalsBrowse.sort[kind];
     rows.sort(function(a, b){
         var av = a[sort.col]; var bv = b[sort.col];
