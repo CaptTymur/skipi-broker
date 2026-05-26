@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.49';
+var APP_VERSION='0.1.50';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -340,6 +340,15 @@ body.dragging-split.col-resize { cursor:col-resize; }
     background:rgba(70,130,180,.18); border:1px solid rgba(70,130,180,.4);
     border-radius:6px; padding:6px 10px; margin:4px 8px; line-height:1.5; }
 .team-event.update-event b { color:var(--accent); }
+.team-target-row { display:flex; align-items:center; gap:6px; padding:5px 10px 0;
+    background:var(--surface); flex-shrink:0; font-size:11px; }
+.tt-label { color:var(--text3); font-size:10px; text-transform:uppercase; letter-spacing:.05em; }
+.tt-pill { padding:2px 9px; border-radius:10px; cursor:pointer; user-select:none;
+    background:var(--surface2); color:var(--text2); border:1px solid var(--border); font-size:11px; }
+.tt-pill:hover { color:var(--text); }
+.tt-pill.active { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+.tt-pill#tt-llm.active { background:rgba(108,92,231,.85); border-color:rgba(108,92,231,1); }
+.tt-hint { color:var(--text3); font-size:10px; margin-left:auto; }
 .team-composer { display:flex; gap:6px; padding:6px 8px; border-top:1px solid var(--border); flex-shrink:0; }
 .team-composer textarea { flex:1; resize:none; min-height:30px; max-height:80px; padding:5px 7px;
     background:var(--surface); border:1px solid var(--border); border-radius:3px; outline:none;
@@ -482,10 +491,15 @@ body.dragging-split.col-resize { cursor:col-resize; }
                                 <input id="team-name" placeholder="Ваше имя" oninput="onTeamNameInput()" onblur="saveTeamNameInline()">
                             </div>
                             <div class="team-stream" id="team-stream"></div>
+                            <div class="team-target-row">
+                                <span class="tt-label">Кому:</span>
+                                <span class="tt-pill active" id="tt-team" onclick="setTeamTarget('team')">👥 Команде</span>
+                                <span class="tt-pill" id="tt-llm" onclick="setTeamTarget('llm')">🤖 LLM</span>
+                                <span class="tt-hint" id="tt-hint">сообщение увидят все участники команды</span>
+                            </div>
                             <div class="team-composer">
-                                <textarea id="team-input" placeholder="Сообщение команде (Enter) · 🤖 — спросить LLM (видно всем)" onkeydown="teamKeyDown(event)"></textarea>
-                                <button class="btn btn-sm" id="team-llm-btn" onclick="teamSendWithLlm()" title="Спросить LLM — ответ увидят все участники команды">🤖</button>
-                                <button class="btn btn-accent btn-sm" onclick="teamSend()">▶</button>
+                                <textarea id="team-input" placeholder="Сообщение команде…" onkeydown="teamKeyDown(event)"></textarea>
+                                <button class="btn btn-accent btn-sm" id="team-send-btn" onclick="teamSendRouted()">▶</button>
                             </div>
                         </div>
                     </div>
@@ -828,6 +842,7 @@ var state = {
         polling: false,
         unread: 0,           // unread badge in P1 team header
         lastSeenTs: null,    // newest ts at last "scrolled to bottom"
+        sendTarget: 'team',  // 'team' = colleagues only; 'llm' = LLM responds inline, all see
     },
     refreshPromise: null,
     pendingUpdate: null,     // tauri-plugin-updater Update object when newer release detected
@@ -1266,7 +1281,7 @@ function _fmtTime(iso){
 function teamKeyDown(ev){
     if(ev.key === 'Enter' && !ev.shiftKey){
         ev.preventDefault();
-        teamSend();
+        teamSendRouted();
     }
 }
 
@@ -1334,6 +1349,35 @@ function emitTeamEvent(eventType, summary){
     invoke('send_team_message', { body: summary, eventType: eventType }).catch(function(e){
         console.warn('team event failed', eventType, e);
     });
+}
+
+function setTeamTarget(tgt){
+    state.team.sendTarget = (tgt === 'llm') ? 'llm' : 'team';
+    var pillTeam = document.getElementById('tt-team');
+    var pillLlm = document.getElementById('tt-llm');
+    var hint = document.getElementById('tt-hint');
+    var ta = document.getElementById('team-input');
+    var btn = document.getElementById('team-send-btn');
+    if(pillTeam) pillTeam.classList.toggle('active', state.team.sendTarget === 'team');
+    if(pillLlm)  pillLlm.classList.toggle('active', state.team.sendTarget === 'llm');
+    if(state.team.sendTarget === 'llm'){
+        if(hint) hint.textContent = 'LLM ответит публично — все увидят и вопрос, и ответ';
+        if(ta) ta.placeholder = 'Вопрос для LLM (видно всей команде)…';
+        if(btn) btn.textContent = '🤖 ▶';
+    } else {
+        if(hint) hint.textContent = 'сообщение увидят все участники команды';
+        if(ta) ta.placeholder = 'Сообщение команде…';
+        if(btn) btn.textContent = '▶';
+    }
+    if(ta) ta.focus();
+}
+
+// Single send handler that routes based on the active target pill.
+async function teamSendRouted(){
+    if(state.team.sendTarget === 'llm'){
+        return teamSendWithLlm();
+    }
+    return teamSend();
 }
 
 async function teamSend(){
