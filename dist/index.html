@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.53';
+var APP_VERSION='0.1.54';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -551,10 +551,10 @@ body.dragging-split.col-resize { cursor:col-resize; }
                 </div>
                 <div class="col-body" id="signal-detail-body"></div>
             </div>
-            <!-- Col 2: bazaar signals feed (newest first) -->
+            <!-- Col 2: bxb pairs (cargo ↔ tonnage chains from bazaar) -->
             <div class="col" style="flex:1.0">
                 <div class="col-head">
-                    <span>🎯 Свежие сигналы</span>
+                    <span>🔗 Цепочки cargo↔tonnage</span>
                     <span class="count" id="signals-count">0</span>
                     <span class="p2-refresh" id="p2-refresh" title="Запросить апдейт у агента — подтянуть свежие сигналы из mbox/ShipNext и пересчитать совпадения." onclick="actionAgentUpdate()">🔄</span>
                     <span class="p2-refresh" title="Опубликовать новую циркуляцию" onclick="openPublishModal()">＋</span>
@@ -867,6 +867,8 @@ var state = {
     myTonnage: [],
     selectedListing: null,   // { kind:'cargo'|'tonnage', id:'...' }
     inbox: { own_matches:[], bazaar_matches:[] },
+    bazaarPairs: [],         // bxb pairs (cargo signal ↔ tonnage signal) — col 2 of view-match
+    selectedPair: null,      // id of the selected bxb pair
     selectedMatch: null,     // { type:'own'|'bazaar', data:{...} }
     publish: { side:null },  // null | 'cargo' | 'tonnage'
     settingsTab: 'connection',
@@ -2432,7 +2434,7 @@ async function boot(){
 async function refreshAll(){
     if(state.refreshPromise) return state.refreshPromise;
     state.refreshPromise = (async function(){
-        await Promise.all([refreshMyListings(), refreshInbox(), refreshPinnedLeads()]);
+        await Promise.all([refreshMyListings(), refreshInbox(), refreshPinnedLeads(), refreshBazaarPairs()]);
         renderActiveView();
         renderStatusBar(); renderMatchBadge();
         renderLeadTabs();
@@ -2985,60 +2987,88 @@ function renderMatchBadge(){
 // signal may be matched against several of my listings — those become
 // the right-column rows after the user picks one signal.
 
-function _groupBazaarBySignal(){
-    var groups = {};   // signalKey -> { sig, kind, matches: [], best_score }
-    (state.inbox.bazaar_matches || []).forEach(function(m){
-        var kind = m.bazaar_cargo_signal ? 'cargo' : (m.bazaar_tonnage_signal ? 'tonnage' : null);
-        var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal;
-        if(!kind || !sig || !sig.id) return;
-        var key = kind + ':' + sig.id;
-        if(!groups[key]) groups[key] = { key:key, kind:kind, sig:sig, matches:[], best_score:0, fresh_at:sig.first_seen_at || '' };
-        groups[key].matches.push(m);
-        var score = Number(m.score || 0);
-        if(score > groups[key].best_score) groups[key].best_score = score;
-    });
-    return Object.keys(groups).map(function(k){ return groups[k]; })
-        .sort(function(a, b){
-            // Newest first; fall back to score when timestamps tie.
-            var ta = Date.parse(a.fresh_at || '') || 0;
-            var tb = Date.parse(b.fresh_at || '') || 0;
-            if(tb !== ta) return tb - ta;
-            return b.best_score - a.best_score;
-        });
+// Each row in col 2 of the "Совпадения" tab now represents a real bxb pair
+// (cargo signal ↔ tonnage signal from bazaar), not a single bazaar signal
+// with a "N matches" badge. The pair list comes from /api/bazaar-pairs.
+async function refreshBazaarPairs(){
+    if(!state.settings.broker_id){ state.bazaarPairs = []; return; }
+    try {
+        var rows = await invoke('fetch_bazaar_pairs');
+        state.bazaarPairs = Array.isArray(rows) ? rows : [];
+    } catch(e){
+        state.bazaarPairs = [];
+        console.warn('bazaar-pairs fetch failed', e);
+    }
+}
+
+function _signalLabel(sig, kind){
+    if(!sig) return '?';
+    if(sig.title) return truncate(sig.title, 38);
+    if(kind === 'cargo'){
+        var parts = [];
+        if(sig.cargo_type) parts.push(sig.cargo_type);
+        if(sig.quantity_mt) parts.push(sig.quantity_mt+'mt');
+        if(sig.load_port || sig.disch_port) parts.push((sig.load_port||'?')+'→'+(sig.disch_port||'?'));
+        return truncate(parts.join(' ') || '?', 38);
+    }
+    var v = sig.vessel_name || sig.vessel_type || '?';
+    if(sig.dwt) v += ' '+sig.dwt+'DWT';
+    if(sig.open_port) v += ' @ '+sig.open_port;
+    return truncate(v, 38);
 }
 
 function renderSignalsFeed(){
     var body = document.getElementById('signals-body');
     var count = document.getElementById('signals-count');
     if(!body) return;
-    var groups = _groupBazaarBySignal();
-    if(count) count.textContent = groups.length;
+    var pairs = state.bazaarPairs || [];
+    if(count) count.textContent = pairs.length;
 
-    if(groups.length === 0){
-        body.innerHTML = '<div class="col-empty">Агент пока не нашёл сигналов с совпадениями.<br><span class="hint">Нажми 🔄 в шапке колонки чтобы обновить.</span></div>';
+    if(pairs.length === 0){
+        body.innerHTML = '<div class="col-empty">Пока нет пар в базаре.<br><span class="hint">Пары появляются когда matcher находит cargo-сигнал, совпадающий с tonnage-сигналом из базара. Нажми 🔄 чтобы обновить.</span></div>';
         return;
     }
 
-    var selKey = state.selectedSignal ? (state.selectedSignal.kind + ':' + state.selectedSignal.id) : null;
-    var html = groups.map(function(g){
-        var sig = g.sig;
-        var kindIcon = g.kind === 'cargo' ? '📦' : '🚢';
-        var title = sig.title || (g.kind === 'cargo'
-            ? ((sig.cargo_type || '?') + ' ' + (sig.load_port || '') + '→' + (sig.disch_port || ''))
-            : ((sig.vessel_name || sig.vessel_type || '?') + ' ' + (sig.open_port || '')));
-        var meta = (sig.source || '—') + ' · ' + g.matches.length + ' матч' + (g.matches.length === 1 ? '' : 'ей') + ' · score ' + g.best_score;
-        var ageMin = sig.first_seen_at ? Math.floor((Date.now() - Date.parse(sig.first_seen_at)) / 60000) : null;
+    var selKey = state.selectedPair || '';
+    body.innerHTML = pairs.map(function(p){
+        var c = p.cargo_signal || {}; var t = p.tonnage_signal || {};
+        var cLabel = _signalLabel(c, 'cargo');
+        var tLabel = _signalLabel(t, 'tonnage');
+        var freshTs = (c.first_seen_at || '') > (t.first_seen_at || '') ? c.first_seen_at : t.first_seen_at;
+        var ageMin = freshTs ? Math.floor((Date.now() - Date.parse(freshTs)) / 60000) : null;
         var ageLabel = ageMin == null ? '' : (ageMin < 60 ? (ageMin + 'м') : (Math.floor(ageMin / 60) + 'ч'));
-        var sel = (selKey === g.key);
-        return '<div class="row '+(sel?'active':'')+'" onclick="selectSignal(\''+g.kind+'\',\''+esc(sig.id)+'\')">'
+        var sel = (selKey === p.id);
+        var reasonsList = Array.isArray(p.reasons) ? p.reasons.slice(0, 3).join(' · ')
+                       : (p.reasons && typeof p.reasons === 'object' ? Object.keys(p.reasons).slice(0,3).join(' · ') : '');
+        return '<div class="row '+(sel?'active':'')+'" onclick="selectBazaarPair(\''+esc(p.id)+'\')">'
             + '<div class="r-top">'
-            + '<span class="r-title">'+kindIcon+' '+esc(truncate(title, 42))+'</span>'
+            + '<span class="r-title">📦 '+esc(cLabel)+'</span>'
             + '<span class="r-score">'+esc(ageLabel)+'</span>'
             + '</div>'
-            + '<div class="r-meta">'+esc(meta)+'</div>'
+            + '<div class="r-top" style="margin-top:2px;">'
+            + '<span class="r-title">🚢 '+esc(tLabel)+'</span>'
+            + '<span class="r-score">score '+Number(p.score||0)+'</span>'
+            + '</div>'
+            + (reasonsList ? '<div class="r-meta">'+esc(reasonsList)+'</div>' : '')
             + '</div>';
     }).join('');
-    body.innerHTML = html;
+}
+
+// Click on a bxb pair → populate selectedSignal (cargo side) + bxbMatches
+// + selectedBxbMatch so the existing col 1/3/4 render functions work as-is.
+function selectBazaarPair(pairId){
+    var p = (state.bazaarPairs || []).filter(function(x){ return x.id === pairId; })[0];
+    if(!p) return;
+    state.selectedPair = pairId;
+    state.selectedSignal = { kind: 'cargo', id: p.cargo_signal.id };
+    // Synthesize a single-element bxbMatches so col 3 + 4 read the tonnage side.
+    state.bxbMatches = [{
+        id: p.id, score: p.score, reasons: p.reasons,
+        opposite_signal: Object.assign({ kind: 'tonnage' }, p.tonnage_signal),
+        bazaar_tonnage_signal: p.tonnage_signal,
+    }];
+    state.selectedBxbMatch = state.bxbMatches[0];
+    renderActiveView();
 }
 
 async function selectSignal(kind, id){

@@ -646,6 +646,15 @@ async fn fetch_bazaar_cross_matches(
     request_api(&state, s, reqwest::Method::GET, path, None).await
 }
 
+/// List ALL bazaar×bazaar pairs (cargo signal ↔ tonnage signal) — used as
+/// the source for the "Совпадения" tab's col 2 so rows are actual pairs,
+/// not single signals with a "1 match" badge.
+#[tauri::command]
+async fn fetch_bazaar_pairs(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    request_api(&state, s, reqwest::Method::GET, "/api/bazaar-pairs?limit=300".to_string(), None).await
+}
+
 #[tauri::command]
 async fn fetch_my_tonnage(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
@@ -1308,6 +1317,7 @@ pub fn run() {
             fetch_my_cargo,
             fetch_my_tonnage,
             fetch_bazaar_cross_matches,
+            fetch_bazaar_pairs,
             fetch_bazaar_signal_list,
             intake_signal_via_llm,
             chat_with_broker_llm,
