@@ -789,6 +789,42 @@ async fn send_circular_email(
 // ---------- Team chat (operators sharing one broker_id) ----------
 
 #[tauri::command]
+async fn send_team_message_with_llm(
+    state: tauri::State<'_, AppState>,
+    body: String,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    if s.broker_id.is_empty() {
+        return Err("Broker not registered — open Settings and register first.".into());
+    }
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        return Err("Empty message.".into());
+    }
+    let nickname = if !s.team_nickname.trim().is_empty() {
+        s.team_nickname.trim().to_string()
+    } else if !s.display_name.trim().is_empty() {
+        s.display_name.trim().to_string()
+    } else {
+        "anon".to_string()
+    };
+    let payload = serde_json::json!({
+        "broker_id": s.broker_id,
+        "sender_nickname": nickname,
+        "body": trimmed,
+        "trigger_llm": true,
+    });
+    request_api(
+        &state,
+        s,
+        reqwest::Method::POST,
+        "/api/team/messages".to_string(),
+        Some(payload),
+    )
+    .await
+}
+
+#[tauri::command]
 async fn send_team_message(
     state: tauri::State<'_, AppState>,
     body: String,
@@ -1290,6 +1326,7 @@ pub fn run() {
             unpin_bazaar_match,
             send_circular_email,
             send_team_message,
+            send_team_message_with_llm,
             fetch_team_messages,
             generate_eml,
             open_whatsapp,

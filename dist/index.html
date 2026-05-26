@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.48';
+var APP_VERSION='0.1.49';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -154,6 +154,13 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .view-lead-stack { flex-direction:column; }
 .view-signals-stack { flex-direction:column; }
 .view-viz-stack { flex-direction:row; }
+.view-team-stack { flex-direction:column; }
+.team-fullscreen-wrap { flex:1; display:flex; flex-direction:column; max-width:1100px; width:100%;
+    margin:0 auto; padding:14px 20px; min-height:0; }
+.team-fullscreen-wrap > .team-mount { flex:1; min-height:0; border:1px solid var(--border); border-radius:6px; }
+/* LLM bubble: lives inside the same team-stream, distinct from human msgs */
+.team-msg.ai-llm { align-self:flex-start; background:rgba(108,92,231,.18); border:1px solid rgba(108,92,231,.5); max-width:88%; }
+.team-msg.ai-llm .nick { color:#a895ff; }
 
 /* Визуализатор: filter sidebar (left) + map (right) */
 .viz-sidebar { display:flex; flex-direction:column; width:280px; min-width:240px; max-width:340px;
@@ -411,6 +418,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
     <div class="mod-tab" id="nav-match" onclick="showView('match')">🎯 Совпадения <span id="match-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-signals" onclick="showView('signals')">🛒 Сигналы <span id="signals-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-viz" onclick="showView('viz')">🗺 Визуализатор</div>
+    <div class="mod-tab" id="nav-team" onclick="showView('team')">💬 Команда</div>
     <div id="lead-tabs-host" style="display:flex; align-items:center; gap:4px;"></div>
     <div class="mb-spacer"></div>
     <div class="mb-identity" id="mb-identity">Не зарегистрирован</div>
@@ -475,7 +483,8 @@ body.dragging-split.col-resize { cursor:col-resize; }
                             </div>
                             <div class="team-stream" id="team-stream"></div>
                             <div class="team-composer">
-                                <textarea id="team-input" placeholder="Сообщение… (Enter — отправить)" onkeydown="teamKeyDown(event)"></textarea>
+                                <textarea id="team-input" placeholder="Сообщение команде (Enter) · 🤖 — спросить LLM (видно всем)" onkeydown="teamKeyDown(event)"></textarea>
+                                <button class="btn btn-sm" id="team-llm-btn" onclick="teamSendWithLlm()" title="Спросить LLM — ответ увидят все участники команды">🤖</button>
                                 <button class="btn btn-accent btn-sm" onclick="teamSend()">▶</button>
                             </div>
                         </div>
@@ -706,7 +715,15 @@ body.dragging-split.col-resize { cursor:col-resize; }
         </div>
     </div>
 
-    <!-- View 5: Focused single-lead page — Map module + counterparty details.
+    <!-- View 5: Команда — full-screen group chat where team members + LLM
+         all share one room. team-block migrates here when this tab is active. -->
+    <div class="view-pane view-team-stack" id="view-team" style="display:none;">
+        <div class="team-fullscreen-wrap">
+            <div class="team-mount" id="team-mount-team"></div>
+        </div>
+    </div>
+
+    <!-- View 6: Focused single-lead page — Map module + counterparty details.
          Shown when the user clicks a lead tab; replaces view-ex / view-match. -->
     <div class="view-pane view-lead-stack" id="view-lead" style="display:none;">
         <div class="lead-header" id="lead-header"></div>
@@ -1213,7 +1230,9 @@ function renderTeamStream(){
             return;
         }
         var isMine = (m.sender_nickname === mine);
-        html += '<div class="team-msg'+(isMine?' mine':'')+'">'
+        var isAi = (m.sender_nickname || '').startsWith('🤖');
+        var cls = 'team-msg' + (isAi ? ' ai-llm' : (isMine ? ' mine' : ''));
+        html += '<div class="'+cls+'">'
               + '<div class="team-msg-meta"><span class="nick">'+esc(m.sender_nickname||'anon')+'</span><span>'+esc(_fmtTime(m.created_at))+'</span></div>'
               + '<div class="team-msg-body">'+esc(m.body||'')+'</div>'
               + '</div>';
@@ -1326,7 +1345,6 @@ async function teamSend(){
     try {
         var msg = await invoke('send_team_message', { body: body });
         ta.value = '';
-        // Optimistic append — also re-fetch via next tick to catch other side.
         if(msg && msg.id){
             var existing = {};
             state.team.messages.forEach(function(m){ existing[m.id] = true; });
@@ -1339,6 +1357,41 @@ async function teamSend(){
         showToast('Send: '+e, 'error');
     } finally {
         ta.disabled = false;
+        ta.focus();
+    }
+}
+
+// Same as teamSend but flips trigger_llm so the server fires the LLM
+// in the background; both messages (user + LLM) land in the room's
+// next poll cycle and become visible to all teammates.
+async function teamSendWithLlm(){
+    var ta = document.getElementById('team-input');
+    if(!ta) return;
+    var body = (ta.value || '').trim();
+    if(!body) return;
+    var btn = document.getElementById('team-llm-btn');
+    ta.disabled = true;
+    if(btn){ btn.disabled = true; btn.textContent = '⏳'; }
+    try {
+        var msg = await invoke('send_team_message_with_llm', { body: body });
+        ta.value = '';
+        if(msg && msg.id){
+            var existing = {};
+            state.team.messages.forEach(function(m){ existing[m.id] = true; });
+            if(!existing[msg.id]) state.team.messages.push(msg);
+            state.team.lastTs = msg.created_at;
+            state.team.lastSeenTs = msg.created_at;
+            renderTeamStream();
+        }
+        // LLM reply lands on the next poll tick (server inserts it after
+        // the user message returns) — give the user a hint that it's
+        // coming so they don't think nothing happened.
+        showToast('🤖 LLM думает… ответ появится у всех в чате', 'ok');
+    } catch(e){
+        showToast('LLM-send: '+e, 'error');
+    } finally {
+        ta.disabled = false;
+        if(btn){ btn.disabled = false; btn.textContent = '🤖'; }
         ta.focus();
     }
 }
@@ -2558,7 +2611,7 @@ function openSignalDetail(kind, id){
 
 // ---------- View switching (Эксклюзивы ↔ Совпадения ↔ Сигналы) ----------
 function showView(name){
-    if(name !== 'ex' && name !== 'match' && name !== 'signals' && name !== 'viz') return;
+    if(name !== 'ex' && name !== 'match' && name !== 'signals' && name !== 'viz' && name !== 'team') return;
     state.view = name;
     // Tear down the focused-lead view if it's open — user is leaving it.
     if(state.activeLeadId){
@@ -2573,22 +2626,30 @@ function showView(name){
     if(vsig) vsig.style.display = (name === 'signals') ? '' : 'none';
     var vviz = document.getElementById('view-viz');
     if(vviz) vviz.style.display = (name === 'viz') ? '' : 'none';
+    var vteam = document.getElementById('view-team');
+    if(vteam) vteam.style.display = (name === 'team') ? '' : 'none';
     var navEx = document.getElementById('nav-ex');
     var navMatch = document.getElementById('nav-match');
     var navSig = document.getElementById('nav-signals');
     var navViz = document.getElementById('nav-viz');
+    var navTeam = document.getElementById('nav-team');
     if(navEx) navEx.classList.toggle('active', name === 'ex');
     if(navMatch) navMatch.classList.toggle('active', name === 'match');
     if(navSig) navSig.classList.toggle('active', name === 'signals');
     if(navViz) navViz.classList.toggle('active', name === 'viz');
+    if(navTeam) navTeam.classList.toggle('active', name === 'team');
 
-    // Signals view doesn't host the team/LLM dock; only ex+match do.
-    if(name === 'ex' || name === 'match'){
+    // team-block migrates between ex / match (corner) and team (full-screen).
+    if(name === 'ex' || name === 'match' || name === 'team'){
         var teamBlock = document.getElementById('team-block');
-        var teamMount = document.getElementById(name === 'ex' ? 'team-mount-ex' : 'team-mount-match');
+        var teamMountId = name === 'ex' ? 'team-mount-ex' : (name === 'match' ? 'team-mount-match' : 'team-mount-team');
+        var teamMount = document.getElementById(teamMountId);
         if(teamBlock && teamMount && teamBlock.parentNode !== teamMount){
             teamMount.appendChild(teamBlock);
         }
+    }
+    // LLM dock only on ex + match (lead-context chat); on team view it stays where it was.
+    if(name === 'ex' || name === 'match'){
         var llmBlock = document.getElementById('llm-block');
         var llmMount = document.getElementById(name === 'ex' ? 'llm-mount-ex' : 'llm-mount-match');
         if(llmBlock && llmMount && llmBlock.parentNode !== llmMount){
