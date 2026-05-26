@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Skipi Broker",
-  "version": "0.1.50",
+  "version": "0.1.51",
   "identifier": "app.skipi.broker",
   "build": {
     "frontendDist": "../dist"
@@ -10,7 +10,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Skipi Broker 0.1.50",
+        "title": "Skipi Broker 0.1.51",
         "width": 1200,
         "height": 800,
         "resizable": true,

@@ -59,6 +59,14 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
     border-radius:5px; cursor:pointer; color:var(--text2); font-size:14px; }
 .mb-gear:hover { color:var(--text); background:var(--hover); }
 
+.mb-clock { display:flex; flex-direction:column; align-items:flex-end; padding:0 10px;
+    font-size:10px; line-height:1.15; color:var(--text2); cursor:default; user-select:none;
+    border-left:1px solid var(--border); height:24px; justify-content:center; }
+.mb-clock .mc-now { font-weight:600; color:var(--text); font-variant-numeric:tabular-nums; }
+.mb-clock .mc-state { font-size:9px; letter-spacing:0.3px; text-transform:uppercase; }
+.mb-clock.open .mc-state { color:#2ea043; }
+.mb-clock.closed .mc-state { color:#bd4040; }
+
 /* App layout: 4-panel column-view + status bar */
 .app { display:flex; flex:1; flex-direction:column; overflow:hidden; }
 .columns { flex:1; display:flex; overflow:hidden; }
@@ -431,6 +439,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
     <div id="lead-tabs-host" style="display:flex; align-items:center; gap:4px;"></div>
     <div class="mb-spacer"></div>
     <div class="mb-identity" id="mb-identity">Не зарегистрирован</div>
+    <div class="mb-clock" id="mb-clock" title="Брокерский день: пн-пт 09:00–18:00 London"></div>
     <div class="mb-gear" onclick="openSettings()" title="Settings">⚙</div>
 </div>
 
@@ -2383,6 +2392,9 @@ async function refreshAll(){
         renderActiveView();
         renderStatusBar(); renderMatchBadge();
         renderLeadTabs();
+        // Detect new matches → beep + toast. Wraps every refresh path
+        // (auto-poll, manual button, post-publish, etc.).
+        try { _afterRefreshNotify(); } catch(e) { /* never fail refresh on UI cue */ }
     })();
     try {
         return await state.refreshPromise;
@@ -3343,6 +3355,154 @@ function startAutoRefresh(){
             console.warn('auto-refresh failed', e);
         }
     }, 60000);
+}
+
+// === broker-day clock + new-match audio cue ===
+// Broker day window: Mon–Fri 09:00–18:00 London (Europe/London).
+// Most dry-bulk Med/Black Sea desks (London, Athens, Istanbul, Genoa)
+// overlap inside this band, so it's a reasonable proxy for "is the
+// market awake?". User is in Tbilisi → translates to ~13:00–22:00 local.
+function _londonNow(){
+    // Build a Date that represents the wall-clock in London. Trick: format
+    // current time as a London-tz string, then re-parse it as if it were UTC.
+    var parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Europe/London',
+        year:'numeric', month:'2-digit', day:'2-digit',
+        hour:'2-digit', minute:'2-digit', second:'2-digit',
+        hour12: false, weekday: 'short',
+    }).formatToParts(new Date());
+    var p = {};
+    parts.forEach(function(x){ p[x.type] = x.value; });
+    return {
+        weekday: p.weekday,   // 'Mon' ... 'Sun'
+        h: parseInt(p.hour, 10),
+        m: parseInt(p.minute, 10),
+        s: parseInt(p.second, 10),
+        hhmm: p.hour + ':' + p.minute,
+    };
+}
+var BROKER_OPEN_H = 9;   // inclusive
+var BROKER_CLOSE_H = 18; // exclusive
+var BROKER_DAYS = ['Mon','Tue','Wed','Thu','Fri'];
+
+function _brokerDayState(){
+    var lon = _londonNow();
+    var isWeekday = BROKER_DAYS.indexOf(lon.weekday) !== -1;
+    var open = isWeekday && lon.h >= BROKER_OPEN_H && lon.h < BROKER_CLOSE_H;
+    var secsNow = lon.h*3600 + lon.m*60 + lon.s;
+    var secsLeft;
+    if(open){
+        secsLeft = BROKER_CLOSE_H*3600 - secsNow;
+    } else {
+        // Compute seconds until the next 09:00 London Mon–Fri.
+        // Approximate: assume the next working day starts in (gap) hours.
+        // We don't need calendar arithmetic — just count to next weekday open.
+        var weekday = lon.weekday;
+        var dayIdx = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].indexOf(weekday);
+        var daysToNextOpen = 0;
+        if(isWeekday && lon.h < BROKER_OPEN_H){
+            daysToNextOpen = 0;  // open later today
+        } else {
+            // We're either past 18 on a weekday, or weekend.
+            // Walk forward day-by-day until we hit Mon–Fri.
+            var d = dayIdx;
+            daysToNextOpen = 1;
+            d = (d + 1) % 7;
+            while(d > 4){  // Sat=5, Sun=6
+                daysToNextOpen++;
+                d = (d + 1) % 7;
+            }
+        }
+        secsLeft = daysToNextOpen*86400 - secsNow + BROKER_OPEN_H*3600;
+    }
+    return { open: open, hhmm: lon.hhmm, secsLeft: secsLeft };
+}
+
+function _fmtCountdown(s){
+    if(s < 0) s = 0;
+    var h = Math.floor(s/3600);
+    var m = Math.floor((s%3600)/60);
+    var sec = s % 60;
+    if(h >= 24){
+        var d = Math.floor(h/24);
+        h = h - d*24;
+        return d + 'd ' + String(h).padStart(2,'0') + 'h';
+    }
+    return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
+}
+
+function _tickBrokerClock(){
+    var el = document.getElementById('mb-clock');
+    if(!el) return;
+    var st = _brokerDayState();
+    el.classList.toggle('open', st.open);
+    el.classList.toggle('closed', !st.open);
+    var label = st.open ? 'до закрытия' : 'до открытия';
+    var stateLabel = st.open ? 'open' : 'closed';
+    el.innerHTML = ''
+        + '<div class="mc-now">LDN ' + st.hhmm + ' · ' + _fmtCountdown(st.secsLeft) + '</div>'
+        + '<div class="mc-state">' + stateLabel + ' · ' + label + '</div>';
+}
+setInterval(_tickBrokerClock, 1000);
+// also tick immediately on script-load so the bar is filled before the user
+// sees it (otherwise it stays blank for up to a full second on cold open).
+window.addEventListener('DOMContentLoaded', _tickBrokerClock);
+
+// === match audio cue ===
+// Track latest seen bxb-match count. When refresh brings in more, play a
+// short tone. Uses WebAudio so no asset is shipped. Honors document.hidden
+// (auto-refresh is already skipped when minimised) but still fires when
+// the window is just unfocused.
+var _seenMatchIds = null;
+function _afterRefreshNotify(){
+    var cur = new Set();
+    (state.inbox && state.inbox.bazaar_matches || []).forEach(function(m){
+        if(m && m.id) cur.add(m.id);
+    });
+    if(_seenMatchIds === null){
+        // First load — just snapshot. Don't beep for the existing pile.
+        _seenMatchIds = cur;
+        return;
+    }
+    var fresh = 0;
+    cur.forEach(function(id){ if(!_seenMatchIds.has(id)) fresh++; });
+    if(fresh > 0){
+        _playMatchTone(fresh);
+        showToast('🔔 Новых совпадений: ' + fresh, 'ok');
+    }
+    _seenMatchIds = cur;
+}
+
+function _playMatchTone(count){
+    try {
+        var AC = window.AudioContext || window.webkitAudioContext;
+        if(!AC) return;
+        if(!window._matchAudioCtx) window._matchAudioCtx = new AC();
+        var ctx = window._matchAudioCtx;
+        // Two-tone ding: 880Hz then 1320Hz. Repeat one extra time if multiple
+        // matches landed simultaneously, capped at 3 dings.
+        var dings = Math.min(count, 3);
+        for(var i = 0; i < dings; i++){
+            var t0 = ctx.currentTime + i * 0.30;
+            _ding(ctx, 880, t0,        0.10);
+            _ding(ctx, 1320, t0 + 0.09, 0.14);
+        }
+    } catch(e){
+        console.warn('match tone failed', e);
+    }
+}
+function _ding(ctx, freq, when, dur){
+    var osc = ctx.createOscillator();
+    var g = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    osc.connect(g);
+    g.connect(ctx.destination);
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(0.22, when + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+    osc.start(when);
+    osc.stop(when + dur + 0.02);
 }
 
 async function refreshMyListings(){
