@@ -655,6 +655,15 @@ async fn fetch_bazaar_pairs(state: tauri::State<'_, AppState>) -> Result<JsonVal
     request_api(&state, s, reqwest::Method::GET, "/api/bazaar-pairs?limit=300".to_string(), None).await
 }
 
+/// Brokerage counterparts CRM — full profile list synced from freight_agent's
+/// competitor_profiles.csv. Used by the Контрагенты tab to enrich the local
+/// signal-derived aggregation with role, top_cargoes/routes, commission, etc.
+#[tauri::command]
+async fn fetch_counterparts(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    request_api(&state, s, reqwest::Method::GET, "/api/counterparts?limit=1000".to_string(), None).await
+}
+
 #[tauri::command]
 async fn fetch_my_tonnage(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
@@ -1318,6 +1327,7 @@ pub fn run() {
             fetch_my_tonnage,
             fetch_bazaar_cross_matches,
             fetch_bazaar_pairs,
+            fetch_counterparts,
             fetch_bazaar_signal_list,
             intake_signal_via_llm,
             chat_with_broker_llm,

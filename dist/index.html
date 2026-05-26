@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.55';
+var APP_VERSION='0.1.56';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -2440,7 +2440,7 @@ async function boot(){
 async function refreshAll(){
     if(state.refreshPromise) return state.refreshPromise;
     state.refreshPromise = (async function(){
-        await Promise.all([refreshMyListings(), refreshInbox(), refreshPinnedLeads(), refreshBazaarPairs()]);
+        await Promise.all([refreshMyListings(), refreshInbox(), refreshPinnedLeads(), refreshBazaarPairs(), refreshCounterpartsCRM()]);
         renderActiveView();
         renderStatusBar(); renderMatchBadge();
         renderLeadTabs();
@@ -2631,6 +2631,24 @@ function signalsSort(kind, col){
 // 🛒 Сигналы pre-filtered by this counterpart's email.
 
 state.partners = state.partners || { sort: { col: 'last', dir: 'desc' }, selectedEmail: null };
+state.counterpartsCRM = [];      // server-side CRM rows (competitor_profiles)
+state.counterpartsByDomain = {};  // primary_domain → CRM row lookup
+
+async function refreshCounterpartsCRM(){
+    try {
+        var rows = await invoke('fetch_counterparts');
+        state.counterpartsCRM = Array.isArray(rows) ? rows : [];
+        state.counterpartsByDomain = {};
+        state.counterpartsCRM.forEach(function(c){
+            if(c.primary_domain){
+                state.counterpartsByDomain[c.primary_domain.toLowerCase()] = c;
+            }
+        });
+    } catch(e){
+        console.warn('CRM fetch failed', e);
+        state.counterpartsCRM = []; state.counterpartsByDomain = {};
+    }
+}
 
 function _aggregateCounterparts(){
     var byEmail = {};
@@ -2649,6 +2667,7 @@ function _aggregateCounterparts(){
                 tonnageSignals: [],
                 first: '',
                 last: '',
+                crm: null,  // populated below
             };
         }
         rec[kind + 'Count']++;
@@ -2661,20 +2680,46 @@ function _aggregateCounterparts(){
     }
     (state.signalsBrowse.cargo || []).forEach(function(s){ ingest(s, 'cargo'); });
     (state.signalsBrowse.tonnage || []).forEach(function(s){ ingest(s, 'tonnage'); });
-    // Finalize: pick top-voted display name; derive role.
-    return Object.keys(byEmail).map(function(em){
+    // Build seen-set of emails from signals so we don't double-add CRM-only entries.
+    var emailRows = Object.keys(byEmail).map(function(em){
         var r = byEmail[em];
         var bestName = '', bestVotes = 0;
         Object.keys(r.nameVotes).forEach(function(n){
             if(r.nameVotes[n] > bestVotes){ bestName = n; bestVotes = r.nameVotes[n]; }
         });
-        r.name = bestName || em.split('@')[0];
+        // Enrich with CRM data from server-side profile (per-domain match)
+        var crm = state.counterpartsByDomain[r.domain.toLowerCase()];
+        r.crm = crm || null;
+        r.name = bestName || (crm && crm.company_name) || em.split('@')[0];
         r.total = r.cargoCount + r.tonnageCount;
         if(r.cargoCount > 0 && r.tonnageCount > 0) r.role = 'both';
         else if(r.cargoCount > 0) r.role = 'cargo';
         else r.role = 'tonnage';
         return r;
     });
+    // Append CRM-only counterparts that have NO active bazaar signal currently.
+    // These show role from server inference + zero current counts.
+    var seenDomains = {};
+    emailRows.forEach(function(r){ if(r.domain) seenDomains[r.domain.toLowerCase()] = true; });
+    state.counterpartsCRM.forEach(function(c){
+        if(!c.primary_domain) return;
+        if(seenDomains[c.primary_domain.toLowerCase()]) return;
+        // Map server role_inference to our role enum
+        var rolemap = { 'mixed':'both', 'owner-like':'tonnage', 'broker-like':'cargo' };
+        emailRows.push({
+            email: '(@' + c.primary_domain + ')',  // pseudo email — no concrete contact
+            domain: c.primary_domain,
+            name: c.company_name,
+            cargoCount: 0, tonnageCount: 0,
+            cargoSignals: [], tonnageSignals: [],
+            first: c.first_seen || '', last: c.last_seen || '',
+            total: 0,
+            role: rolemap[c.role_inference] || 'both',
+            crm: c,
+            crmOnly: true,
+        });
+    });
+    return emailRows;
 }
 
 function _fmtPartnerAge(ts){
@@ -2797,9 +2842,24 @@ function renderCounterpartDossier(email){
          + ' · с ' + _fmtPartnerAge(r.first) + ' по ' + _fmtPartnerAge(r.last) + ' назад</div>';
     html += '<button style="margin-top:10px; padding:7px 12px; background:var(--accent); color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:12px; font-weight:500;" onclick="partnersOpenSignalsFor(\''+esc(r.email)+'\')">🛒 Сигналы этого контрагента →</button>';
     html += '</div>';
+    // CRM-enriched profile (from server competitor_profiles.csv via sync)
+    if(r.crm){
+        var c = r.crm;
+        html += '<div style="background:var(--surface); padding:10px 14px; border-radius:6px; border:1px solid var(--accent);">';
+        html += '<div style="font-size:12px; font-weight:600; color:var(--text2); margin-bottom:8px;">📊 CRM-ПРОФИЛЬ (агрегация писем)</div>';
+        if(c.total_messages) html += '<div style="font-size:11px;"><b>Всего писем:</b> ' + c.total_messages + ' за ' + (c.active_days||'?') + ' активных дней</div>';
+        if(c.role_inference) html += '<div style="font-size:11px;"><b>Inferred роль:</b> ' + esc(c.role_inference) + ' ('+(c.cargo_posts||0)+' cargo / '+(c.tonnage_posts||0)+' tonnage / '+(c.mixed_posts||0)+' mixed)</div>';
+        if(c.response_channel_hint) html += '<div style="font-size:11px;"><b>Канал ответа:</b> ' + esc(c.response_channel_hint) + '</div>';
+        if(c.avg_commission_pct != null) html += '<div style="font-size:11px;"><b>Средняя комиссия:</b> ' + c.avg_commission_pct + '%</div>';
+        if(c.whatsapp_presence_rate != null) html += '<div style="font-size:11px;"><b>WhatsApp:</b> ' + c.whatsapp_presence_rate + '%</div>';
+        if(c.urgency_rate != null) html += '<div style="font-size:11px;"><b>Срочность:</b> ' + c.urgency_rate + '%</div>';
+        if(c.top_cargoes) html += '<div style="font-size:11px;"><b>Top грузы (исторически):</b> ' + esc(c.top_cargoes.slice(0,140)) + '</div>';
+        if(c.top_routes) html += '<div style="font-size:11px;"><b>Top маршруты:</b> ' + esc(c.top_routes.slice(0,140)) + '</div>';
+        html += '</div>';
+    }
     // Patterns
     html += '<div style="background:var(--surface); padding:10px 14px; border-radius:6px; border:1px solid var(--border);">';
-    html += '<div style="font-size:12px; font-weight:600; color:var(--text2); margin-bottom:8px;">ПАТТЕРНЫ</div>';
+    html += '<div style="font-size:12px; font-weight:600; color:var(--text2); margin-bottom:8px;">ПАТТЕРНЫ (только текущие активные сигналы)</div>';
     if(r.cargoCount > 0){
         html += '<div style="font-size:11px; margin-bottom:4px;"><b>📦 Грузы:</b> ' + topN(cargoTypes, 5) + '</div>';
         html += '<div style="font-size:11px; margin-bottom:4px;"><b>📍 Откуда:</b> ' + topN(loadPorts, 5) + '</div>';
