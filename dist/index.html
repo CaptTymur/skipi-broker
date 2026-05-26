@@ -434,6 +434,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
     <div class="mod-tab active" id="nav-ex" onclick="showView('ex')">📋 Эксклюзивы</div>
     <div class="mod-tab" id="nav-match" onclick="showView('match')">🎯 Совпадения <span id="match-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-signals" onclick="showView('signals')">🛒 Сигналы <span id="signals-badge" class="count" style="display:none;"></span></div>
+    <div class="mod-tab" id="nav-partners" onclick="showView('partners')">🤝 Контрагенты <span id="partners-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-viz" onclick="showView('viz')">🗺 Визуализатор</div>
     <div class="mod-tab" id="nav-team" onclick="showView('team')">💬 Команда</div>
     <div id="lead-tabs-host" style="display:flex; align-items:center; gap:4px;"></div>
@@ -671,6 +672,49 @@ body.dragging-split.col-resize { cursor:col-resize; }
                     <th>open</th>
                     <th>контрагент</th>
                 </tr></thead><tbody id="signals-tonnage-body"></tbody></table></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- View 3b: Контрагенты — companies we've seen on each side of the market.
+         Aggregated client-side from state.signalsBrowse (already-loaded
+         bazaar signals). Two columns: cargo-side counterparts (sources
+         of cargo enquiries) and vessel-side counterparts (sources of
+         positions). Grouped by email-domain so different desks of one
+         shipowner collapse into one row. -->
+    <div class="view-pane view-signals-stack" id="view-partners" style="display:none;">
+        <div class="signals-cols">
+            <div class="signals-col">
+                <div class="col-head">
+                    <span>📦 Cargo-side</span>
+                    <span class="count" id="partners-cargo-count">0</span>
+                    <span class="p2-refresh" title="Обновить" onclick="refreshSignalsBrowse()">🔄</span>
+                </div>
+                <div class="signals-filter-row">
+                    <input id="partners-cargo-q" placeholder="поиск по компании / email…" oninput="renderPartners()">
+                </div>
+                <div class="signals-table-wrap"><table class="signals-table"><thead><tr>
+                    <th>компания</th>
+                    <th>email-домен</th>
+                    <th onclick="partnersSort('cargo','count')">сигналов</th>
+                    <th onclick="partnersSort('cargo','last')">последний</th>
+                </tr></thead><tbody id="partners-cargo-body"></tbody></table></div>
+            </div>
+            <div class="splitter splitter-v" onmousedown="startSplitDrag(event, 'partners-v')"></div>
+            <div class="signals-col">
+                <div class="col-head">
+                    <span>🚢 Vessel-side</span>
+                    <span class="count" id="partners-tonnage-count">0</span>
+                </div>
+                <div class="signals-filter-row">
+                    <input id="partners-tonnage-q" placeholder="поиск по компании / email…" oninput="renderPartners()">
+                </div>
+                <div class="signals-table-wrap"><table class="signals-table"><thead><tr>
+                    <th>компания</th>
+                    <th>email-домен</th>
+                    <th onclick="partnersSort('tonnage','count')">позиций</th>
+                    <th onclick="partnersSort('tonnage','last')">последняя</th>
+                </tr></thead><tbody id="partners-tonnage-body"></tbody></table></div>
             </div>
         </div>
     </div>
@@ -2571,6 +2615,142 @@ function signalsSort(kind, col){
     renderSignalsBrowse();
 }
 
+// ---------- View 🤝 Контрагенты — companies aggregated from signals ----------
+//
+// Aggregates on the email-domain (after the @) so different desks of one
+// shipowner / charterer collapse into one row. The display name is the
+// most-common posted_by_name seen for that domain, falling back to the
+// domain itself. Personal mailbox domains (gmail/outlook/yahoo) are
+// rolled together under "personal mailboxes" so they don't drown out
+// real companies. Two sides: cargo-side (sources of cargo enquiries)
+// and vessel-side (sources of open positions).
+
+var PERSONAL_DOMAINS = new Set([
+    'gmail.com','outlook.com','yahoo.com','hotmail.com','mail.ru','yandex.ru',
+    'icloud.com','protonmail.com','proton.me','live.com','msn.com',
+]);
+state.partners = state.partners || { sort: { cargo: { col:'last', dir:'desc' }, tonnage: { col:'last', dir:'desc' } } };
+
+function _aggregatePartners(signals){
+    // signals: array of bazaar signal rows. Returns array of company stats.
+    var byDomain = {};
+    (signals || []).forEach(function(s){
+        var em = (s.posted_by_email || '').trim().toLowerCase();
+        if(!em || em.indexOf('@') < 0) return;
+        var domain = em.split('@')[1];
+        var personal = PERSONAL_DOMAINS.has(domain);
+        var key = personal ? '__personal__' : domain;
+        var rec = byDomain[key];
+        if(!rec){
+            rec = byDomain[key] = {
+                domain: key === '__personal__' ? 'личные почты' : domain,
+                isPersonal: personal,
+                nameVotes: {}, // candidate display names
+                emails: new Set(),
+                count: 0,
+                last: '',
+            };
+        }
+        rec.count++;
+        rec.emails.add(em);
+        var nm = (s.posted_by_name || '').trim();
+        if(nm) rec.nameVotes[nm] = (rec.nameVotes[nm] || 0) + 1;
+        var ts = s.first_seen_at || '';
+        if(ts > rec.last) rec.last = ts;
+    });
+    // Reduce nameVotes → top name; finalize.
+    return Object.keys(byDomain).map(function(k){
+        var r = byDomain[k];
+        var bestName = '', bestVotes = 0;
+        Object.keys(r.nameVotes).forEach(function(n){
+            if(r.nameVotes[n] > bestVotes){ bestName = n; bestVotes = r.nameVotes[n]; }
+        });
+        r.name = bestName || r.domain;
+        r.emails = Array.from(r.emails);
+        return r;
+    });
+}
+
+function _fmtPartnerAge(ts){
+    if(!ts) return '?';
+    var d = Date.parse(ts);
+    if(!d) return '?';
+    var diff = Date.now() - d;
+    var m = Math.floor(diff/60000);
+    if(m < 60) return m + 'м';
+    var h = Math.floor(m/60);
+    if(h < 24) return h + 'ч';
+    return Math.floor(h/24) + 'д';
+}
+
+function partnersSort(kind, col){
+    var s = state.partners.sort[kind];
+    if(s.col === col){ s.dir = (s.dir === 'desc') ? 'asc' : 'desc'; }
+    else { s.col = col; s.dir = 'desc'; }
+    renderPartners();
+}
+
+function _renderPartnersPane(kind){
+    var data = state.signalsBrowse[kind] || [];
+    var rows = _aggregatePartners(data);
+    var qEl = document.getElementById('partners-'+kind+'-q');
+    var q = (qEl && qEl.value || '').trim().toLowerCase();
+    if(q){
+        rows = rows.filter(function(r){
+            if(r.name.toLowerCase().indexOf(q) >= 0) return true;
+            if(r.domain.toLowerCase().indexOf(q) >= 0) return true;
+            return r.emails.some(function(e){ return e.indexOf(q) >= 0; });
+        });
+    }
+    var sort = state.partners.sort[kind];
+    rows.sort(function(a, b){
+        var av = a[sort.col], bv = b[sort.col];
+        if(av < bv) return sort.dir === 'desc' ? 1 : -1;
+        if(av > bv) return sort.dir === 'desc' ? -1 : 1;
+        return 0;
+    });
+    var body = document.getElementById('partners-'+kind+'-body');
+    if(!body) return;
+    if(rows.length === 0){
+        body.innerHTML = '<tr><td colspan="4" style="padding:20px; text-align:center; color:var(--text2);">Контрагентов не найдено. Сначала загрузи сигналы в 🛒 Сигналы.</td></tr>';
+    } else {
+        body.innerHTML = rows.map(function(r){
+            var emailList = r.emails.slice(0, 3).join(', ') + (r.emails.length > 3 ? ' +'+(r.emails.length-3) : '');
+            var tooltip = r.emails.join('\n');
+            var domainLabel = r.isPersonal
+                ? '<span style="color:var(--text2);">'+r.emails.length+' персональных</span>'
+                : esc(r.domain);
+            return '<tr title="'+esc(tooltip)+'" onclick="partnersOpenSignals(\''+esc(kind)+'\',\''+esc(r.domain)+'\','+r.isPersonal+')" style="cursor:pointer;">'
+                + '<td><b>'+esc(r.name)+'</b></td>'
+                + '<td>'+domainLabel+'</td>'
+                + '<td>'+r.count+'</td>'
+                + '<td>'+_fmtPartnerAge(r.last)+' назад</td>'
+                + '</tr>';
+        }).join('');
+    }
+    var cntEl = document.getElementById('partners-'+kind+'-count');
+    if(cntEl) cntEl.textContent = rows.length;
+}
+
+function renderPartners(){
+    _renderPartnersPane('cargo');
+    _renderPartnersPane('tonnage');
+}
+
+// Click on a partner row → jump to 🛒 Сигналы with that domain in the
+// search filter so the user can see all their signals.
+function partnersOpenSignals(kind, domain, isPersonal){
+    var q = isPersonal ? '@' : ('@' + domain);
+    showView('signals');
+    setTimeout(function(){
+        var qEl = document.getElementById('signals-'+kind+'-q');
+        if(qEl){
+            qEl.value = q;
+            qEl.dispatchEvent(new Event('input'));
+        }
+    }, 50);
+}
+
 function renderSignalsBrowse(){
     _renderSignalsPane('cargo');
     _renderSignalsPane('tonnage');
@@ -2680,6 +2860,8 @@ function showView(name){
     document.getElementById('view-match').style.display = (name === 'match') ? '' : 'none';
     var vsig = document.getElementById('view-signals');
     if(vsig) vsig.style.display = (name === 'signals') ? '' : 'none';
+    var vpart = document.getElementById('view-partners');
+    if(vpart) vpart.style.display = (name === 'partners') ? '' : 'none';
     var vviz = document.getElementById('view-viz');
     if(vviz) vviz.style.display = (name === 'viz') ? '' : 'none';
     var vteam = document.getElementById('view-team');
@@ -2687,11 +2869,13 @@ function showView(name){
     var navEx = document.getElementById('nav-ex');
     var navMatch = document.getElementById('nav-match');
     var navSig = document.getElementById('nav-signals');
+    var navPart = document.getElementById('nav-partners');
     var navViz = document.getElementById('nav-viz');
     var navTeam = document.getElementById('nav-team');
     if(navEx) navEx.classList.toggle('active', name === 'ex');
     if(navMatch) navMatch.classList.toggle('active', name === 'match');
     if(navSig) navSig.classList.toggle('active', name === 'signals');
+    if(navPart) navPart.classList.toggle('active', name === 'partners');
     if(navViz) navViz.classList.toggle('active', name === 'viz');
     if(navTeam) navTeam.classList.toggle('active', name === 'team');
 
@@ -2718,6 +2902,14 @@ function showView(name){
         refreshSignalsBrowse();
     } else if(name === 'signals'){
         renderSignalsBrowse();
+    }
+    // Контрагенты reuse the same signalsBrowse dataset.
+    if(name === 'partners'){
+        if(!state.signalsBrowse.loaded){
+            refreshSignalsBrowse().then(function(){ renderPartners(); });
+        } else {
+            renderPartners();
+        }
     }
     // Визуализатор reuses the same dataset; auto-load if empty, else paint.
     if(name === 'viz'){
