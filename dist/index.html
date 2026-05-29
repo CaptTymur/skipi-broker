@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.56';
+var APP_VERSION='0.1.57';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -277,22 +277,6 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 body.dragging-split { cursor:row-resize; user-select:none; }
 body.dragging-split.col-resize { cursor:col-resize; }
 
-/* LLM chat block — sibling to team-block, lives in bottom-pane-llm */
-.llm-mount { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
-.llm-block { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
-.llm-stream { flex:1; overflow-y:auto; padding:8px 10px; display:flex; flex-direction:column; gap:6px; background:var(--surface2); min-height:0; }
-.llm-msg { display:flex; flex-direction:column; max-width:88%; padding:6px 10px; border-radius:7px; font-size:11px; line-height:1.4; white-space:pre-wrap; word-break:break-word; }
-.llm-msg.user { align-self:flex-end; background:rgba(70,130,180,.18); border:1px solid rgba(70,130,180,.4); }
-.llm-msg.assistant { align-self:flex-start; background:var(--surface); border:1px solid var(--border); }
-.llm-msg.thinking { align-self:flex-start; color:var(--text3); font-style:italic; }
-.llm-empty { color:var(--text3); font-size:11px; text-align:center; padding:18px 12px; line-height:1.5; }
-.llm-composer { display:flex; gap:6px; padding:6px 8px; border-top:1px solid var(--border); flex-shrink:0; }
-.llm-composer textarea { flex:1; resize:none; min-height:30px; max-height:100px; padding:5px 7px;
-    background:var(--surface); border:1px solid var(--border); border-radius:3px; outline:none;
-    font-family:var(--font-ui); font-size:11px; color:var(--text); }
-.llm-composer textarea:focus { border-color:var(--accent); }
-.llm-composer .btn-sm { padding:0 10px; align-self:stretch; }
-
 /* View-match: signal-feed rows + match cards in right column */
 .r-top { display:flex; justify-content:space-between; align-items:baseline; gap:6px; }
 .r-top .r-score { font-size:10px; color:var(--text3); white-space:nowrap; }
@@ -515,24 +499,6 @@ body.dragging-split.col-resize { cursor:col-resize; }
                     </div>
                 </div>
             </div>
-            <div class="bottom-pane">
-                <div class="llm-mount" id="llm-mount-ex">
-                    <!-- llm-block lives here by default; showView() hops it to view-match's mount -->
-                    <div id="llm-block" class="llm-block">
-                        <div class="col-head" style="background:var(--surface2);">
-                            <span>🤖 Брокер-LLM</span>
-                            <span class="count" id="llm-context-label">—</span>
-                            <span class="p2-refresh" id="llm-reset" title="Сбросить переписку и контекст" onclick="llmReset()">↺</span>
-                        </div>
-                        <div class="llm-stream" id="llm-stream"></div>
-                        <div class="llm-composer">
-                            <textarea id="llm-input" placeholder="Спроси про пару (Enter) ИЛИ вставь WA-сигнал и нажми 📥 чтобы внести в базу" onkeydown="llmKeyDown(event)"></textarea>
-                            <button class="btn btn-sm" id="llm-intake-btn" onclick="llmIntake()" title="Внести как новый сигнал в базар + найти совпадения">📥</button>
-                            <button class="btn btn-accent btn-sm" id="llm-send-btn" onclick="llmSend()">▶</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
         </div>
     </div>
 
@@ -580,13 +546,10 @@ body.dragging-split.col-resize { cursor:col-resize; }
         </div>
         <!-- Horizontal splitter — drag to resize top columns vs bottom strip -->
         <div class="splitter splitter-h" id="splitter-vmatch-h" onmousedown="startSplitDrag(event, 'vmatch-h')"></div>
-        <!-- Bottom strip: team chat (left) + LLM-broker chat (right), with vertical splitter -->
+        <!-- Bottom strip: team chat (full width) -->
         <div class="bottom-strip" id="bottom-strip">
             <div class="bottom-pane" id="bottom-pane-team">
                 <div class="team-mount" id="team-mount-match"></div>
-            </div>
-            <div class="bottom-pane" id="bottom-pane-llm">
-                <div class="llm-mount" id="llm-mount-match"></div>
             </div>
         </div>
     </div>
@@ -882,11 +845,6 @@ var state = {
     selectedSignal: null,    // { kind:'cargo'|'tonnage', id:'...' } — driver of view-match col 2 selection
     bxbMatches: [],          // bazaar × bazaar matches for selectedSignal
     selectedBxbMatch: null,  // chosen row in col 3
-    llm: {
-        messages: [],        // { role: 'user'|'assistant', content: '...' }
-        busy: false,
-        pairKey: '',         // tracks selectedSignal × selectedBxbMatch identity; reset when changes
-    },
     pinnedLeads: [],         // All pinned bazaar matches across the broker — drives lead tabs.
     activeLeadId: null,      // When set, view-lead is shown instead of view-ex/view-match.
     leadMap: null,           // Leaflet map instance (lazy-init per lead view open).
@@ -2011,297 +1969,6 @@ function _onSplitUp(){
     document.removeEventListener('mouseup', _onSplitUp);
 }
 
-// ---------- LLM broker assistant (Ollama broker-qwen) ----------
-//
-// Locally-hosted Qwen3-14B fine-tuned for Tymur's freight brokerage
-// playbook. The chat sits in the bottom-right pane of the Совпадения
-// tab. Context (selected signal + opposite signal + matcher reasons)
-// is injected ONCE per pair — when user picks a different pair we
-// reset the conversation, the next message will carry fresh context.
-//
-// Server: nothing — calls localhost:11434 via the Rust invoke.
-
-function _llmCurrentPairKey(){
-    if(state.view === 'ex'){
-        var aL = state.selectedListing;
-        var bM = state.selectedMatch && state.selectedMatch.data;
-        return 'ex|' + (aL ? aL.kind + ':' + aL.id : '-') + '||' + (bM ? bM.id : '-');
-    }
-    var a = state.selectedSignal;
-    var b = state.selectedBxbMatch;
-    return 'match|' + (a ? a.kind + ':' + a.id : '-') + '||' + (b ? b.id : '-');
-}
-
-function _llmBuildPairContext(){
-    if(state.view === 'ex'){
-        return _llmBuildContextEx();
-    }
-    var a = state.selectedSignal;
-    var b = state.selectedBxbMatch;
-    if(!a) return null;
-    // Locate the col-2 signal's raw data via state.inbox.bazaar_matches.
-    var sigA = null;
-    (state.inbox.bazaar_matches || []).some(function(m){
-        var s = m.bazaar_cargo_signal || m.bazaar_tonnage_signal;
-        var k = m.bazaar_cargo_signal ? 'cargo' : 'tonnage';
-        if(s && s.id === a.id && k === a.kind){ sigA = s; return true; }
-        return false;
-    });
-    var lines = ['## Контекст пары сигналов'];
-    lines.push('\n**Сигнал A (' + a.kind + '):**');
-    if(sigA){
-        if(sigA.title) lines.push('- Заголовок: ' + sigA.title);
-        if(a.kind === 'cargo'){
-            if(sigA.cargo_type) lines.push('- Груз: ' + sigA.cargo_type);
-            if(sigA.quantity_mt) lines.push('- Кол-во: ' + sigA.quantity_mt + ' MT');
-            if(sigA.load_port || sigA.disch_port) lines.push('- Маршрут: ' + (sigA.load_port || '?') + ' → ' + (sigA.disch_port || '?'));
-            if(sigA.laycan_from || sigA.laycan_to) lines.push('- Laycan: ' + (sigA.laycan_from || '').slice(0,10) + ' — ' + (sigA.laycan_to || '').slice(0,10));
-        } else {
-            if(sigA.vessel_name) lines.push('- Судно: ' + sigA.vessel_name);
-            if(sigA.vessel_type) lines.push('- Тип: ' + sigA.vessel_type);
-            if(sigA.dwt) lines.push('- DWT: ' + sigA.dwt);
-            if(sigA.open_port) lines.push('- Open: ' + sigA.open_port);
-            if(sigA.open_from || sigA.open_to) lines.push('- Окно: ' + (sigA.open_from || '').slice(0,10) + ' — ' + (sigA.open_to || '').slice(0,10));
-        }
-        if(sigA.rate_indication) lines.push('- Рейт: ' + sigA.rate_indication);
-        if(sigA.posted_by_email) lines.push('- Email: ' + sigA.posted_by_email);
-        if(sigA.description) lines.push('- Описание (raw):\n' + sigA.description.slice(0, 2000));
-    }
-    if(b && b.opposite_signal){
-        var sigB = b.opposite_signal;
-        lines.push('\n**Сигнал B (' + sigB.kind + ', парный, score ' + Number(b.score || 0) + '):**');
-        if(sigB.title) lines.push('- Заголовок: ' + sigB.title);
-        if(sigB.kind === 'cargo'){
-            if(sigB.cargo_type) lines.push('- Груз: ' + sigB.cargo_type);
-            if(sigB.quantity_mt) lines.push('- Кол-во: ' + sigB.quantity_mt + ' MT');
-            if(sigB.load_port || sigB.disch_port) lines.push('- Маршрут: ' + (sigB.load_port || '?') + ' → ' + (sigB.disch_port || '?'));
-            if(sigB.laycan_from || sigB.laycan_to) lines.push('- Laycan: ' + (sigB.laycan_from || '').slice(0,10) + ' — ' + (sigB.laycan_to || '').slice(0,10));
-        } else {
-            if(sigB.vessel_name) lines.push('- Судно: ' + sigB.vessel_name);
-            if(sigB.vessel_type) lines.push('- Тип: ' + sigB.vessel_type);
-            if(sigB.dwt) lines.push('- DWT: ' + sigB.dwt);
-            if(sigB.open_port) lines.push('- Open: ' + sigB.open_port);
-            if(sigB.open_from || sigB.open_to) lines.push('- Окно: ' + (sigB.open_from || '').slice(0,10) + ' — ' + (sigB.open_to || '').slice(0,10));
-        }
-        if(sigB.rate_indication) lines.push('- Рейт: ' + sigB.rate_indication);
-        if(sigB.posted_by_email) lines.push('- Email: ' + sigB.posted_by_email);
-        if(sigB.description) lines.push('- Описание (raw):\n' + sigB.description.slice(0, 2000));
-        if(b.reasons){
-            lines.push('\n**Reasons matcher\'а:** ' + JSON.stringify(b.reasons));
-        }
-    }
-    return lines.join('\n');
-}
-
-// Context builder for view-ex: A = my listing (cargo or tonnage),
-// B = a bazaar signal from the matches feed under it.
-function _llmBuildContextEx(){
-    var aL = state.selectedListing;
-    if(!aL) return null;
-    var pool = aL.kind === 'cargo' ? state.myCargo : state.myTonnage;
-    var listing = (pool || []).filter(function(x){ return x.id === aL.id; })[0];
-    var lines = ['## Контекст пары', '\n**Моя циркуляция (' + aL.kind + '):**'];
-    if(listing){
-        if(listing.title) lines.push('- Заголовок: ' + listing.title);
-        if(aL.kind === 'cargo'){
-            if(listing.cargo_type) lines.push('- Груз: ' + listing.cargo_type);
-            if(listing.quantity_mt) lines.push('- Кол-во: ' + listing.quantity_mt + ' MT');
-            if(listing.load_port || listing.disch_port) lines.push('- Маршрут: ' + (listing.load_port || '?') + ' → ' + (listing.disch_port || '?'));
-            if(listing.laycan_from || listing.laycan_to) lines.push('- Laycan: ' + (listing.laycan_from || '').slice(0,10) + ' — ' + (listing.laycan_to || '').slice(0,10));
-        } else {
-            if(listing.vessel_name) lines.push('- Судно: ' + listing.vessel_name);
-            if(listing.vessel_type) lines.push('- Тип: ' + listing.vessel_type);
-            if(listing.dwt) lines.push('- DWT: ' + listing.dwt);
-            if(listing.open_port) lines.push('- Open: ' + listing.open_port);
-            if(listing.open_from || listing.open_to) lines.push('- Окно: ' + (listing.open_from || '').slice(0,10) + ' — ' + (listing.open_to || '').slice(0,10));
-        }
-        if(listing.rate_indication) lines.push('- Рейт: ' + listing.rate_indication);
-        if(listing.description) lines.push('- Описание:\n' + listing.description.slice(0, 2000));
-    }
-    var m = state.selectedMatch && state.selectedMatch.data;
-    if(m){
-        var sigB = m.bazaar_cargo_signal || m.bazaar_tonnage_signal || null;
-        var sigBkind = m.bazaar_cargo_signal ? 'cargo' : 'tonnage';
-        if(sigB){
-            lines.push('\n**Сигнал из базара (' + sigBkind + ', парный, score ' + Number(m.score || 0) + '):**');
-            if(sigB.title) lines.push('- Заголовок: ' + sigB.title);
-            if(sigBkind === 'cargo'){
-                if(sigB.cargo_type) lines.push('- Груз: ' + sigB.cargo_type);
-                if(sigB.quantity_mt) lines.push('- Кол-во: ' + sigB.quantity_mt + ' MT');
-                if(sigB.load_port || sigB.disch_port) lines.push('- Маршрут: ' + (sigB.load_port || '?') + ' → ' + (sigB.disch_port || '?'));
-                if(sigB.laycan_from || sigB.laycan_to) lines.push('- Laycan: ' + (sigB.laycan_from || '').slice(0,10) + ' — ' + (sigB.laycan_to || '').slice(0,10));
-            } else {
-                if(sigB.vessel_name) lines.push('- Судно: ' + sigB.vessel_name);
-                if(sigB.vessel_type) lines.push('- Тип: ' + sigB.vessel_type);
-                if(sigB.dwt) lines.push('- DWT: ' + sigB.dwt);
-                if(sigB.open_port) lines.push('- Open: ' + sigB.open_port);
-                if(sigB.open_from || sigB.open_to) lines.push('- Окно: ' + (sigB.open_from || '').slice(0,10) + ' — ' + (sigB.open_to || '').slice(0,10));
-            }
-            if(sigB.rate_indication) lines.push('- Рейт: ' + sigB.rate_indication);
-            if(sigB.posted_by_email) lines.push('- Email: ' + sigB.posted_by_email);
-            if(sigB.description) lines.push('- Описание (raw):\n' + sigB.description.slice(0, 2000));
-        }
-        if(m.reasons){
-            lines.push('\n**Reasons matcher\'а:** ' + JSON.stringify(m.reasons));
-        }
-    }
-    return lines.join('\n');
-}
-
-function llmReset(){
-    state.llm.messages = [];
-    state.llm.pairKey = '';
-    renderLlmStream();
-    var contextEl = document.getElementById('llm-context-label');
-    if(contextEl) contextEl.textContent = '—';
-}
-
-function renderLlmStream(){
-    var stream = document.getElementById('llm-stream');
-    if(!stream) return;
-    var hasPair = (state.view === 'ex')
-        ? !!state.selectedListing
-        : !!state.selectedSignal;
-    if(!hasPair){
-        var hint = state.view === 'ex'
-            ? 'Выбери эксклюзив и одно из совпадений — задай вопрос: «почему совпало», «шансы», «риски», «что уточнить». Брокер-LLM локально на этой машине.'
-            : 'Выбери сигнал в Совпадениях и пару — задай вопрос: «почему совпало», «шансы», «риски», «что уточнить». Брокер-LLM локально на этой машине.';
-        stream.innerHTML = '<div class="llm-empty">'+hint+'</div>';
-        return;
-    }
-    var html = '';
-    state.llm.messages.forEach(function(m){
-        if(m.role === 'user' || m.role === 'assistant'){
-            html += '<div class="llm-msg '+m.role+'">'+esc(m.content)+'</div>';
-        }
-    });
-    if(state.llm.busy){
-        html += '<div class="llm-msg thinking">…думаю…</div>';
-    }
-    if(html === ''){
-        var hasB = state.view === 'ex'
-            ? !!(state.selectedMatch && state.selectedMatch.data)
-            : !!state.selectedBxbMatch;
-        var pair = hasB ? 'пара выбрана' : (state.view === 'ex' ? 'выбери совпадение в col 3' : 'выбери пару в col 3');
-        stream.innerHTML = '<div class="llm-empty">'+pair+'. Спроси что-нибудь.</div>';
-        return;
-    }
-    var nearBottom = (stream.scrollHeight - stream.scrollTop - stream.clientHeight) < 80;
-    stream.innerHTML = html;
-    if(nearBottom) stream.scrollTop = stream.scrollHeight;
-    // Update context label.
-    var contextEl = document.getElementById('llm-context-label');
-    if(contextEl){
-        var hasPair2 = state.view === 'ex'
-            ? !!(state.selectedMatch && state.selectedMatch.data)
-            : !!(state.selectedBxbMatch && state.selectedBxbMatch.opposite_signal);
-        contextEl.textContent = hasPair2 ? 'пара ✓' : 'без пары';
-    }
-}
-
-function llmKeyDown(ev){
-    if(ev.key === 'Enter' && !ev.shiftKey){
-        ev.preventDefault();
-        llmSend();
-    }
-}
-
-async function llmIntake(){
-    var ta = document.getElementById('llm-input');
-    if(!ta) return;
-    var raw = (ta.value || '').trim();
-    if(!raw){ showToast('Вставь текст сигнала в окно ввода.', 'error'); return; }
-    if(state.llm.busy) return;
-    if(raw.length < 20){
-        if(!confirm('Текст очень короткий ('+raw.length+' симв.). Всё равно попробовать распарсить?')) return;
-    }
-    state.llm.busy = true;
-    ta.value = '';
-    // Echo what we sent so the user sees it in the chat.
-    state.llm.messages.push({ role:'user', content: '📥 Внести сигнал:\n' + raw });
-    renderLlmStream();
-    try {
-        var resp = await invoke('intake_signal_via_llm', { text: raw });
-        var reply;
-        if(resp && resp.ok){
-            var lines = ['✅ Сигнал внесён в базу: **' + (resp.title || resp.signal_id) + '** (id ' + (resp.signal_id || '?').slice(0,8) + ')'];
-            var mc = resp.match_count || 0;
-            if(mc === 0){
-                lines.push('\n🔎 Подходящих сигналов под него в базаре пока нет. Когда появится — он автоматически смэтчится.');
-            } else {
-                lines.push('\n🔎 Найдено '+mc+' совпадений из базара (топ '+Math.min(mc, 10)+'):');
-                (resp.matches || []).forEach(function(m){
-                    var sub = m.kind === 'cargo'
-                        ? ((m.cargo_type || '?') + ' · ' + (m.quantity_mt || '?') + ' MT · ' + (m.load_port || '?') + '→' + (m.disch_port || '?'))
-                        : ((m.vessel_name || m.title || '?') + ' · ' + (m.vessel_type || '?') + ' · ' + (m.dwt || '?') + ' DWT · open ' + (m.open_port || '?'));
-                    var contact = m.posted_by_email ? ' [' + m.posted_by_email + ']' : '';
-                    lines.push('  • score ' + m.score + ' — ' + sub + contact);
-                });
-            }
-            // Also refresh pinnedLeads / signalsBrowse so the new signal shows up in other tabs.
-            refreshPinnedLeads().catch(function(){});
-            if(state.signalsBrowse.loaded) refreshSignalsBrowse();
-            reply = lines.join('\n');
-        } else if(resp && resp.duplicate){
-            reply = '⚠ Дубликат: похожий сигнал уже в базе (id ' + (resp.existing_signal_id || '?').slice(0,8) + ' за последние 36ч). Пропустил вставку.';
-        } else {
-            var err = (resp && resp.error) || 'неизвестная ошибка';
-            var rawDump = (resp && resp.raw_model_output) ? '\n\nОтвет модели (сырой):\n' + resp.raw_model_output : '';
-            reply = '⚠ Не удалось внести: ' + err + rawDump;
-        }
-        state.llm.messages.push({ role:'assistant', content: reply });
-    } catch(e){
-        state.llm.messages.push({ role:'assistant', content: '⚠ Сервер не ответил: ' + String(e) });
-    } finally {
-        state.llm.busy = false;
-        renderLlmStream();
-        ta.focus();
-    }
-}
-
-async function llmSend(){
-    var ta = document.getElementById('llm-input');
-    if(!ta) return;
-    var raw = (ta.value || '').trim();
-    if(!raw) return;
-    if(state.llm.busy) return;
-    if(!state.selectedSignal){
-        showToast('Сначала выбери сигнал в Совпадениях.', 'error');
-        return;
-    }
-    // If user switched pair since last conversation — reset and re-inject context.
-    var pairKey = _llmCurrentPairKey();
-    var freshConversation = (pairKey !== state.llm.pairKey);
-    if(freshConversation){
-        state.llm.messages = [];
-        state.llm.pairKey = pairKey;
-    }
-    // Build outbound payload — on first turn of a fresh pair, prepend
-    // the context preamble so the LLM grounds its answers.
-    var userContent = raw;
-    if(state.llm.messages.length === 0){
-        var ctx = _llmBuildPairContext();
-        if(ctx) userContent = ctx + '\n\n---\n\n**Вопрос:** ' + raw;
-    }
-    // Echo the raw user text in the UI (not the bloated preamble).
-    state.llm.messages.push({ role:'user', content: raw });
-    // Compose the actual messages to send (with context preamble where applicable).
-    var outgoing = state.llm.messages.slice(0, -1).concat([{ role:'user', content: userContent }]);
-    state.llm.busy = true;
-    ta.value = '';
-    renderLlmStream();
-    try {
-        var resp = await invoke('chat_with_broker_llm', { messages: outgoing });
-        var content = (resp && resp.message && resp.message.content) ? String(resp.message.content) : '(пустой ответ)';
-        state.llm.messages.push({ role:'assistant', content: content });
-    } catch(e){
-        state.llm.messages.push({ role:'assistant', content: '⚠ ' + String(e) });
-    } finally {
-        state.llm.busy = false;
-        renderLlmStream();
-        ta.focus();
-    }
-}
 
 // ---------- Updater (banner + manual check) ----------
 //
@@ -2547,14 +2214,6 @@ function renderActiveView(){
         renderBxbMatchesForSelectedSignal();
         renderOppositeSignalDetail();
     }
-    // LLM consultant lives in both views — repaint after pair change
-    // and drop the conversation buffer if the chain shifted.
-    var pk = _llmCurrentPairKey();
-    if(state.llm.pairKey && pk !== state.llm.pairKey){
-        state.llm.messages = [];
-        state.llm.pairKey = '';
-    }
-    renderLlmStream();
 }
 
 // ---------- View 🛒 Сигналы — browse all bazaar signals ----------
@@ -3067,15 +2726,6 @@ function showView(name){
             teamMount.appendChild(teamBlock);
         }
     }
-    // LLM dock only on ex + match (lead-context chat); on team view it stays where it was.
-    if(name === 'ex' || name === 'match'){
-        var llmBlock = document.getElementById('llm-block');
-        var llmMount = document.getElementById(name === 'ex' ? 'llm-mount-ex' : 'llm-mount-match');
-        if(llmBlock && llmMount && llmBlock.parentNode !== llmMount){
-            llmMount.appendChild(llmBlock);
-        }
-    }
-
     // First entry to Сигналы: lazy-load the active signal lists.
     if(name === 'signals' && !state.signalsBrowse.loaded){
         refreshSignalsBrowse();
@@ -5176,9 +4826,7 @@ function renderSettingsBody(){
             '<div class="field-grid">'+
                 '<div class="field full"><label>Server URL</label><input id="set-server" value="'+esc(s.server_url||'')+'" placeholder="https://api-ru.skipi.app"></div>'+
                 '<div class="field full"><label>Bearer token</label><input id="set-bearer" value="'+esc(s.bearer_token||'')+'" placeholder="токен доступа"></div>'+
-                '<div class="field full"><label>LLM URL <span style="color:var(--text3); font-weight:normal;">— override; пусто = через skipi-server</span></label><input id="set-llm" value="'+esc(s.llm_url||'')+'" placeholder="(пусто — через api.skipi.app proxy)"></div>'+
             '</div>'+
-            '<div class="sub" style="margin-top:10px;">По умолчанию запросы к <code>broker-qwen</code> идут через <code>api.skipi.app</code>, который через SSH-туннель попадает на Linux-машину Тимура. Mac и Windows ничего не настраивают. Поле LLM URL — только для прямого override (например <code>http://localhost:11434</code> на самом Linux, чтобы обойти туннель).</div>'+
             '<div style="margin-top:18px;"><button class="btn btn-accent" onclick="saveConnection()">Сохранить</button></div>';
     } else if(t==='identity'){
         body.innerHTML = '<h3>Профиль брокера</h3><div class="sub">Регистрация участника на сервере.</div>'+
@@ -5230,7 +4878,6 @@ async function saveConnection(){
     var s = state.settings;
     s.server_url = val('set-server');
     s.bearer_token = val('set-bearer');
-    s.llm_url = val('set-llm');
     try { state.settings = await invoke('save_settings', { incoming:s }); showToast('Сохранено.', 'ok'); refreshIdentityBadge(); }
     catch(e){ showToast('Save: '+e, 'error'); }
 }
