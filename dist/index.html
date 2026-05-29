@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.59';
+var APP_VERSION='0.1.60';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -2373,6 +2373,10 @@ var FLAG_META = {
         svg:'<svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 3.5l9 9" stroke="currentColor" stroke-width="1.6"/></svg>' },
     russia_trading: { label:'RU trading',     color:'#bb1f1f', tooltip:'Работают с РФ-портами — OFAC/EU compliance check',
         svg:'<svg viewBox="0 0 16 12" width="16" height="12"><rect width="16" height="4" fill="#fff"/><rect y="4" width="16" height="4" fill="#0039a6"/><rect y="8" width="16" height="4" fill="#d52b1e"/></svg>' },
+    no_russia:      { label:'no RU',          color:'#cc0000', tooltip:'Судно НЕ ходит в Россию (явно указано в циркулярах)',
+        svg:'<svg viewBox="0 0 16 12" width="16" height="12"><rect width="16" height="4" fill="#fff"/><rect y="4" width="16" height="4" fill="#0039a6"/><rect y="8" width="16" height="4" fill="#d52b1e"/><line x1="1" y1="11" x2="15" y2="1" stroke="#cc0000" stroke-width="2.5" stroke-linecap="round"/></svg>' },
+    no_ukraine:     { label:'no UA',          color:'#cc0000', tooltip:'Судно НЕ ходит в Украину (явно указано в циркулярах)',
+        svg:'<svg viewBox="0 0 16 12" width="16" height="12"><rect width="16" height="6" fill="#005bbb"/><rect y="6" width="16" height="6" fill="#ffd500"/><line x1="1" y1="11" x2="15" y2="1" stroke="#cc0000" stroke-width="2.5" stroke-linecap="round"/></svg>' },
     wa_first:       { label:'WA-first',       color:'#25d366', tooltip:'Канал контакта: WhatsApp предпочтительнее email',
         svg:'<svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M8 1a7 7 0 00-6 10.5L1 15l3.5-1A7 7 0 108 1zm3.5 9.5c-.2.4-.8.7-1.2.8-.4 0-.6.1-2-.5-1.8-.7-3-2.5-3.1-2.6-.1-.1-.7-1-.7-1.9 0-.9.5-1.3.6-1.5.2-.2.4-.2.5-.2h.4c.1 0 .3 0 .4.3l.6 1.3c.1.1 0 .3 0 .4l-.2.3-.2.2c-.1.1-.1.2 0 .3.1.2.5.8 1.1 1.3.7.6 1.3.8 1.5.9.2.1.3 0 .4-.1l.5-.6c.1-.1.2-.1.4-.1l1.2.6c.1.1.2.1.2.2 0 .1 0 .3-.1.5z"/></svg>' },
     new:            { label:'new',            color:'#6bb86b', tooltip:'Новый контрагент: первая активность за последние 14 дней',
