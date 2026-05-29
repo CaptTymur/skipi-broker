@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.58';
+var APP_VERSION='0.1.59';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -195,6 +195,15 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
     box-shadow:0 2px 6px rgba(0,0,0,.3); padding:3px 6px; border-radius:3px; font-size:10px;
     font-family:var(--font-ui); white-space:nowrap; }
 .leaflet-tooltip.viz-cargo-label::before { display:none; }
+
+/* Counterpart behavioral flags — rendered as inline SVG badges next
+   to counterpart names in 🤝 Контрагенты, 🛒 Сигналы, 🎯 Совпадения. */
+.cp-flag-row { display:inline-flex; gap:3px; align-items:center; margin-left:5px; vertical-align:middle; }
+.cp-flag { display:inline-flex; align-items:center; justify-content:center; gap:3px;
+    padding:1px 4px; border-radius:3px; background:rgba(0,0,0,.04); border:1px solid transparent; cursor:help; }
+.cp-flag svg { display:block; }
+.cp-flag-lbl { font-size:10px; font-weight:500; white-space:nowrap; }
+.cp-flag-row.cp-flag-expanded .cp-flag { padding:2px 6px; }
 
 /* 🔍 Дедупликатор — duplicate signal clusters. Two-pane vertical. */
 .ded-card { border:1px solid var(--border); border-radius:5px; padding:8px 10px; margin-bottom:8px;
@@ -906,6 +915,7 @@ var state = {
         sort: { cargo: { col:'first_seen_at', dir:'desc' }, tonnage: { col:'first_seen_at', dir:'desc' } },
     },
     dedup: { cargo: [], tonnage: [], loaded: false, loading: false },
+    counterpartFlags: { byDomain: {}, loaded: false, loadedAt: 0 },
     viz: { map: null, layer: null },
     team: {
         messages: [],        // chronological asc
@@ -2319,6 +2329,10 @@ async function refreshSignalsBrowse(){
         state.signalsBrowse.cargo = Array.isArray(c) ? c : [];
         state.signalsBrowse.tonnage = Array.isArray(t) ? t : [];
         state.signalsBrowse.loaded = true;
+        // Counterpart flags should be loaded alongside — best-effort.
+        refreshCounterpartFlags().then(function(){
+            renderSignalsBrowse();
+        });
         renderSignalsBrowse();
     } catch(e){
         showToast('Сигналы: '+e, 'error');
@@ -2326,6 +2340,97 @@ async function refreshSignalsBrowse(){
         var btn2 = document.getElementById('signals-cargo-refresh');
         if(btn2) btn2.classList.remove('spinning');
     }
+}
+
+// ---------- Counterpart behavioral flags ----------
+//
+// Auto-computed badges per counterpart (keyed by primary email domain).
+// Server endpoint /api/counterparts/flags returns { domain: [{flag,
+// source, value, reason, set_at, set_by}, ...] }. Client caches the
+// whole map in state.counterpartFlags and renders badges in:
+//   • 🤝 Контрагенты — full row
+//   • 🛒 Сигналы     — compact next to posted_by
+//   • 🎯 Совпадения  — full row in signal-detail
+//
+// Auto flags supported (v0.1.59):
+//   spammer / stale_lister / multi_persona / relay_chain (TODO) /
+//   high_urgency / sanctions_exp / russia_trading / wa_first / new
+
+// Inline SVG icons (16x16, currentColor for stroke/fill where applicable).
+// Cheap, themable, no external assets.
+var FLAG_META = {
+    spammer:        { label:'spammer',        color:'#ff5050', tooltip:'Спаммер — высокая доля дубликатов в его публикациях',
+        svg:'<svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M3 2h10v3H3zm0 5h10v3H3zm0 5h10v3H3z"/></svg>' },
+    stale_lister:   { label:'stale',          color:'#ff9248', tooltip:'Те же позиции циркулируют 7+ дней — не закрывается',
+        svg:'<svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm.5 3v4l3 1.8-.5.9L7.5 8.5V4z"/></svg>' },
+    multi_persona:  { label:'multi-persona',  color:'#a04bff', tooltip:'Hidden-mandate: один principal через 2+ адреса',
+        svg:'<svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><circle cx="5" cy="6" r="2.5"/><circle cx="11" cy="6" r="2.5"/><path d="M1 14c.5-2.5 2-4 4-4s3.5 1.5 4 4zM7 14c.5-2.5 2-4 4-4s3.5 1.5 4 4z"/></svg>' },
+    relay_chain:    { label:'relay',          color:'#7898d6', tooltip:'Часто перенаправляет циркуляры других — relay-канал',
+        svg:'<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 4h4v8H3zM9 4h4v8H9zM7 8h2"/></svg>' },
+    high_urgency:   { label:'urgent',         color:'#ffc107', tooltip:'High-urgency: ≥70% сигналов помечены срочно — под давлением',
+        svg:'<svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M9 1L2 9h5l-1 6 7-8H8z"/></svg>' },
+    sanctions_exp:  { label:'sanctions',      color:'#cc0000', tooltip:'Sanctions exposure: ≥15% циркуляров с restricted флагом',
+        svg:'<svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 3.5l9 9" stroke="currentColor" stroke-width="1.6"/></svg>' },
+    russia_trading: { label:'RU trading',     color:'#bb1f1f', tooltip:'Работают с РФ-портами — OFAC/EU compliance check',
+        svg:'<svg viewBox="0 0 16 12" width="16" height="12"><rect width="16" height="4" fill="#fff"/><rect y="4" width="16" height="4" fill="#0039a6"/><rect y="8" width="16" height="4" fill="#d52b1e"/></svg>' },
+    wa_first:       { label:'WA-first',       color:'#25d366', tooltip:'Канал контакта: WhatsApp предпочтительнее email',
+        svg:'<svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M8 1a7 7 0 00-6 10.5L1 15l3.5-1A7 7 0 108 1zm3.5 9.5c-.2.4-.8.7-1.2.8-.4 0-.6.1-2-.5-1.8-.7-3-2.5-3.1-2.6-.1-.1-.7-1-.7-1.9 0-.9.5-1.3.6-1.5.2-.2.4-.2.5-.2h.4c.1 0 .3 0 .4.3l.6 1.3c.1.1 0 .3 0 .4l-.2.3-.2.2c-.1.1-.1.2 0 .3.1.2.5.8 1.1 1.3.7.6 1.3.8 1.5.9.2.1.3 0 .4-.1l.5-.6c.1-.1.2-.1.4-.1l1.2.6c.1.1.2.1.2.2 0 .1 0 .3-.1.5z"/></svg>' },
+    new:            { label:'new',            color:'#6bb86b', tooltip:'Новый контрагент: первая активность за последние 14 дней',
+        svg:'<svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M8 1l2 5h5l-4 3 1.5 6L8 12l-4.5 3L5 9 1 6h5z"/></svg>' },
+    no_reply:       { label:'no-reply',       color:'#888',    tooltip:'Не отвечают: писали 3+ раз без ответа',
+        svg:'<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 4h12v8H2z"/><path d="M2 4l6 5 6-5M3 3l10 10"/></svg>' },
+    verified:       { label:'verified',       color:'#1aa260', tooltip:'Verified — реальная сделка зафиксирована (manual)',
+        svg:'<svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M8 1l2 1 2-.5L13 4l2 1-.5 2L15 9l-2 .5L13 12l-2.5-.5L10 13l-2-1-2 1-.5-1.5L3 12l.5-2L1 9l.5-2L1 5l2-1L3 2l2.5.5z"/><path d="M5 8l2 2 4-4" fill="none" stroke="#fff" stroke-width="1.6"/></svg>' },
+    do_not_contact: { label:'do-not-contact', color:'#000',    tooltip:'Не контактировать (manual)',
+        svg:'<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="7"/><path d="M3 3l10 10"/></svg>' },
+};
+
+function _flagDomainOf(emailOrDomain){
+    if(!emailOrDomain) return '';
+    var s = String(emailOrDomain).trim().toLowerCase();
+    var at = s.indexOf('@');
+    if(at >= 0) s = s.slice(at+1);
+    return s;
+}
+
+function counterpartFlagsFor(emailOrDomain){
+    var d = _flagDomainOf(emailOrDomain);
+    if(!d) return [];
+    var raw = (state.counterpartFlags.byDomain || {})[d] || [];
+    // Dedup by flag — keep first occurrence (auto-sources don't carry user info).
+    var seen = {}; var out = [];
+    raw.forEach(function(f){
+        if(!f || !f.flag || seen[f.flag]) return;
+        seen[f.flag] = true; out.push(f);
+    });
+    return out;
+}
+
+function renderFlagBadges(emailOrDomain, mode){
+    var flags = counterpartFlagsFor(emailOrDomain);
+    if(flags.length === 0) return '';
+    mode = mode || 'compact';
+    return '<span class="cp-flag-row cp-flag-' + esc(mode) + '">'
+        + flags.map(function(f){
+            var meta = FLAG_META[f.flag];
+            if(!meta) return '';
+            var tip = esc(meta.tooltip || meta.label);
+            return '<span class="cp-flag" style="color:' + meta.color + ';" title="' + tip + '">'
+                + meta.svg + (mode === 'expanded' ? '<span class="cp-flag-lbl">' + esc(meta.label) + '</span>' : '')
+                + '</span>';
+        }).join('')
+        + '</span>';
+}
+
+async function refreshCounterpartFlags(){
+    try {
+        var map = await invoke('fetch_counterpart_flags');
+        if(map && typeof map === 'object'){
+            state.counterpartFlags.byDomain = map;
+            state.counterpartFlags.loaded = true;
+            state.counterpartFlags.loadedAt = Date.now();
+        }
+    } catch(e){ /* silent — badges are non-critical */ }
 }
 
 // ---------- View 🔍 Дедупликатор — duplicate clusters from server ----------
@@ -2346,6 +2451,7 @@ async function refreshDedup(){
         state.dedup.cargo = Array.isArray(c) ? c : [];
         state.dedup.tonnage = Array.isArray(t) ? t : [];
         state.dedup.loaded = true;
+        await refreshCounterpartFlags();
         renderDedup();
     } catch(e){
         showToast('Дедупликатор: '+e, 'error');
@@ -2366,16 +2472,18 @@ function _dedupClusterCard(c){
     var copies = (c.members || []).filter(function(m){ return !m.is_canonical; });
     var title = esc((canonical.title || '(без темы)').slice(0, 110));
     var canonSender = esc((canonical.posted_by_email || canonical.posted_by_name || '—').slice(0, 40));
+    var canonFlags = renderFlagBadges(canonical.posted_by_email, 'compact');
     var canonTs = esc((canonical.first_seen_at || '').slice(0, 16).replace('T', ' '));
     var copiesHtml = copies.map(function(m){
         var snd = esc((m.posted_by_email || m.posted_by_name || '—').slice(0, 40));
+        var snFlags = renderFlagBadges(m.posted_by_email, 'compact');
         var ts  = esc((m.first_seen_at || '').slice(0, 16).replace('T', ' '));
         var ttl = esc((m.title || '').slice(0, 80));
         return ''
             + '<div class="ded-copy">'
             +   '<span class="ded-cp-tag">🔁</span>'
             +   '<span class="ded-cp-ts">' + ts + '</span>'
-            +   '<span class="ded-cp-sender">' + snd + '</span>'
+            +   '<span class="ded-cp-sender">' + snd + snFlags + '</span>'
             +   '<span class="ded-cp-title">' + ttl + '</span>'
             + '</div>';
     }).join('');
@@ -2390,7 +2498,7 @@ function _dedupClusterCard(c){
         +   '<div class="ded-canon-row">'
         +     '<span class="ded-cp-tag">🟢</span>'
         +     '<span class="ded-cp-ts">' + canonTs + '</span>'
-        +     '<span class="ded-cp-sender">' + canonSender + '</span>'
+        +     '<span class="ded-cp-sender">' + canonSender + canonFlags + '</span>'
         +     '<span class="ded-cp-title">canonical</span>'
         +   '</div>'
         +   copiesHtml
@@ -2583,7 +2691,7 @@ function renderPartners(){
             var roleIcon = r.role === 'both' ? '📦🚢' : (r.role === 'cargo' ? '📦' : '🚢');
             var sel = state.partners.selectedEmail === r.email;
             return '<tr class="'+(sel?'active':'')+'" onclick="selectCounterpart(\''+esc(r.email)+'\')" style="cursor:pointer;">'
-                + '<td><b>'+roleIcon+' '+esc(r.name)+'</b></td>'
+                + '<td><b>'+roleIcon+' '+esc(r.name)+'</b>'+renderFlagBadges(r.domain || r.email, 'compact')+'</td>'
                 + '<td><code style="font-size:11px;">'+esc(r.email)+'</code></td>'
                 + '<td>'+r.cargoCount+'</td>'
                 + '<td>'+r.tonnageCount+'</td>'
@@ -2644,7 +2752,7 @@ function renderCounterpartDossier(email){
     html += '<div style="display:flex; flex-direction:column; gap:14px;">';
     // Header card
     html += '<div style="background:var(--surface2); padding:12px 14px; border-radius:6px;">';
-    html += '<div style="font-size:14px; font-weight:600; margin-bottom:4px;">'+esc(r.name)+'</div>';
+    html += '<div style="font-size:14px; font-weight:600; margin-bottom:4px;">'+esc(r.name)+renderFlagBadges(r.domain || r.email, 'expanded')+'</div>';
     html += '<div style="font-size:11px; color:var(--text2); font-family:monospace;">'+esc(r.email)+'</div>';
     html += '<div style="font-size:11px; color:var(--text2); margin-top:6px;">'
          + roleLabel + ' · ' + r.cargoCount + ' cargo · ' + r.tonnageCount + ' tonnage'
@@ -2800,7 +2908,7 @@ function _renderSignalsPane(kind){
                 + '<td class="qty-cell">'+(s.quantity_mt ? esc(String(s.quantity_mt)) : '—')+'</td>'
                 + '<td class="route-cell">'+esc(route)+'</td>'
                 + '<td>'+esc(laycan)+'</td>'
-                + '<td class="contact-cell" title="'+esc(contact)+'">'+esc(contact)+'</td>'
+                + '<td class="contact-cell" title="'+esc(contact)+'">'+esc(contact)+renderFlagBadges(s.posted_by_email, 'compact')+'</td>'
                 + '</tr>';
         } else {
             var open = (s.open_port || '?');
@@ -2812,7 +2920,7 @@ function _renderSignalsPane(kind){
                 + '<td>'+esc((s.vessel_type || '—').slice(0,18))+'</td>'
                 + '<td class="dwt-cell">'+(s.dwt ? esc(String(s.dwt)) : '—')+'</td>'
                 + '<td>'+esc(open)+' · '+esc(win)+'</td>'
-                + '<td class="contact-cell" title="'+esc(contact)+'">'+esc(contact)+'</td>'
+                + '<td class="contact-cell" title="'+esc(contact)+'">'+esc(contact)+renderFlagBadges(s.posted_by_email, 'compact')+'</td>'
                 + '</tr>';
         }
     }).join('');
@@ -2896,6 +3004,10 @@ function showView(name){
     }
     // Контрагенты reuse the same signalsBrowse dataset.
     if(name === 'partners'){
+        // refresh flags every time we open the tab to keep badges fresh.
+        refreshCounterpartFlags().then(function(){
+            if(state.view === 'partners') renderPartners();
+        });
         if(!state.signalsBrowse.loaded){
             refreshSignalsBrowse().then(function(){ renderPartners(); });
         } else {

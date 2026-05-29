@@ -515,6 +515,18 @@ async fn fetch_bazaar_signal_list(
     request_api(&state, s, reqwest::Method::GET, path, None).await
 }
 
+/// Counterpart behavioral flags map (domain → list of flags).
+/// Server computes auto-flags from bazaar dedup + counterpart CRM
+/// (spammer / multi-persona / sanctions exposure / wa-first etc.)
+/// Cached server-side 5 min; client refetches per view-open.
+#[tauri::command]
+async fn fetch_counterpart_flags(
+    state: tauri::State<'_, AppState>,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    request_api(&state, s, reqwest::Method::GET, "/api/counterparts/flags".to_string(), None).await
+}
+
 /// Duplicate clusters of bazaar signals — feeds the 🔍 Дедупликатор
 /// tab. Server-side clusters cargo (or tonnage) signals by content
 /// similarity (cargo_type+qty±10%+ports+laycan, or IMO/type+dwt±5%
@@ -1230,6 +1242,7 @@ pub fn run() {
             fetch_counterparts,
             fetch_bazaar_signal_list,
             fetch_duplicate_clusters,
+            fetch_counterpart_flags,
             fetch_matches,
             fetch_matches_inbox,
             engage_listing,
