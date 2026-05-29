@@ -515,6 +515,59 @@ async fn fetch_bazaar_signal_list(
     request_api(&state, s, reqwest::Method::GET, path, None).await
 }
 
+/// Mail: list cached messages from drybulk@ shared inbox.
+#[tauri::command]
+async fn fetch_mail_inbox(
+    state: tauri::State<'_, AppState>,
+    folder: Option<String>,
+    limit: Option<u32>,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let f = folder.unwrap_or_else(|| "INBOX".to_string());
+    let lim = limit.unwrap_or(50);
+    let path = format!("/api/mail/messages?folder={}&limit={}", f, lim);
+    request_api(&state, s, reqwest::Method::GET, path, None).await
+}
+
+/// Mail: fetch one message body by id.
+#[tauri::command]
+async fn fetch_mail_message(
+    state: tauri::State<'_, AppState>,
+    message_id: String,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let path = format!("/api/mail/messages/{}", message_id);
+    request_api(&state, s, reqwest::Method::GET, path, None).await
+}
+
+/// Mail: trigger immediate IMAP poll (refresh).
+#[tauri::command]
+async fn poll_mail(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    request_api(&state, s, reqwest::Method::POST, "/api/mail/poll".to_string(), None).await
+}
+
+/// Mail: send via drybulk@ — SMTP through server.
+#[tauri::command]
+async fn send_mail(
+    state: tauri::State<'_, AppState>,
+    to: String,
+    cc: Option<String>,
+    subject: String,
+    body: String,
+    in_reply_to: Option<String>,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let body_json = serde_json::json!({
+        "to": to,
+        "cc": cc.unwrap_or_default(),
+        "subject": subject,
+        "body": body,
+        "in_reply_to": in_reply_to,
+    });
+    request_api(&state, s, reqwest::Method::POST, "/api/mail/send".to_string(), Some(body_json)).await
+}
+
 /// Counterpart behavioral flags map (domain → list of flags).
 /// Server computes auto-flags from bazaar dedup + counterpart CRM
 /// (spammer / multi-persona / sanctions exposure / wa-first etc.)
@@ -1243,6 +1296,10 @@ pub fn run() {
             fetch_bazaar_signal_list,
             fetch_duplicate_clusters,
             fetch_counterpart_flags,
+            fetch_mail_inbox,
+            fetch_mail_message,
+            poll_mail,
+            send_mail,
             fetch_matches,
             fetch_matches_inbox,
             engage_listing,

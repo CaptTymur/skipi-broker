@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.60';
+var APP_VERSION='0.1.61';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -455,6 +455,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
     <div class="mod-tab" id="nav-dedup" onclick="showView('dedup')">🔍 Дедупликатор <span id="dedup-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-partners" onclick="showView('partners')">🤝 Контрагенты <span id="partners-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-viz" onclick="showView('viz')">🗺 Визуализатор</div>
+    <div class="mod-tab" id="nav-mail" onclick="showView('mail')">📧 Почта <span id="mail-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-team" onclick="showView('team')">💬 Команда</div>
     <div id="lead-tabs-host" style="display:flex; align-items:center; gap:4px;"></div>
     <div class="mb-spacer"></div>
@@ -809,6 +810,58 @@ body.dragging-split.col-resize { cursor:col-resize; }
         </div>
         <div class="viz-map-wrap">
             <div id="viz-map"></div>
+        </div>
+    </div>
+
+    <!-- View 📧 Почта — shared drybulk@montlinechartering.com inbox via
+         server-side IMAP. Two pane: list left, message body right. -->
+    <div class="view-pane view-signals-stack" id="view-mail" style="display:none;">
+        <div class="signals-cols">
+            <div class="signals-col" style="max-width:480px;">
+                <div class="col-head">
+                    <span>📥 Inbox — drybulk@</span>
+                    <span class="count" id="mail-count">0</span>
+                    <span class="p2-refresh" id="mail-refresh" title="Обновить (poll IMAP)" onclick="refreshMail(true)">🔄</span>
+                    <span class="p2-refresh" title="Написать новое" onclick="openMailCompose()">✏</span>
+                </div>
+                <div class="signals-table-wrap" id="mail-list-body" style="overflow-y:auto;"></div>
+            </div>
+            <div class="splitter splitter-v" onmousedown="startSplitDrag(event, 'mail-v')"></div>
+            <div class="signals-col">
+                <div class="col-head">
+                    <span id="mail-detail-title">Выбери письмо слева</span>
+                    <span class="p2-refresh" title="Ответить" id="mail-reply-btn" style="display:none;" onclick="openMailReply()">↩</span>
+                </div>
+                <div class="signals-table-wrap" id="mail-detail-body" style="padding:14px 18px; overflow-y:auto;">
+                    <div style="color:var(--text3); font-size:12px; padding:40px; text-align:center;">
+                        Inbox пишется через broker@'s IMAP с фильтром по Delivered-To: drybulk@.<br>
+                        Письма видны всем команде, ничего не настраивать.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mail compose modal -->
+    <div id="mail-compose-overlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeMailCompose()">
+        <div class="modal-body" style="max-width:720px;">
+            <div class="modal-head">
+                <span>✏ Новое письмо от drybulk@montlinechartering.com</span>
+                <span class="p2-refresh" onclick="closeMailCompose()">✕</span>
+            </div>
+            <div style="padding:14px;">
+                <div class="field"><label>Кому</label><input id="mail-to" placeholder="email@..."></div>
+                <div class="field"><label>Cc</label><input id="mail-cc" placeholder="(пусто)"></div>
+                <div class="field"><label>Тема</label><input id="mail-subject" placeholder="..."></div>
+                <div class="field" style="margin-top:8px;"><label>Сообщение</label>
+                    <textarea id="mail-body" rows="10" style="width:100%; padding:8px; background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:3px; font-family:var(--font-ui); font-size:12px;"></textarea>
+                </div>
+                <input type="hidden" id="mail-reply-id">
+                <div style="margin-top:14px; display:flex; gap:8px;">
+                    <button class="btn btn-accent" onclick="sendMailFromCompose()">▶ Отправить</button>
+                    <button class="btn" onclick="closeMailCompose()">Отмена</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -2437,6 +2490,137 @@ async function refreshCounterpartFlags(){
     } catch(e){ /* silent — badges are non-critical */ }
 }
 
+// ---------- View 📧 Почта — shared drybulk@ inbox via server ----------
+state.mail = state.mail || { messages: [], loaded: false, selectedId: null, currentMsg: null };
+
+async function refreshMail(forcePoll){
+    var btn = document.getElementById('mail-refresh');
+    if(btn) btn.classList.add('spinning');
+    try {
+        if(forcePoll){
+            try { await invoke('poll_mail'); } catch(e){ /* server may be down */ }
+        }
+        var data = await invoke('fetch_mail_inbox', { folder:'INBOX', limit:100 });
+        if(data && Array.isArray(data.messages)){
+            state.mail.messages = data.messages;
+            state.mail.loaded = true;
+            renderMailList();
+        }
+    } catch(e){ showToast('Почта: '+e, 'error'); }
+    finally { if(btn) btn.classList.remove('spinning'); }
+}
+
+function renderMailList(){
+    var body = document.getElementById('mail-list-body');
+    var count = document.getElementById('mail-count');
+    var badge = document.getElementById('mail-badge');
+    var msgs = state.mail.messages || [];
+    if(count) count.textContent = msgs.length;
+    var unread = msgs.filter(function(m){ return !m.is_read; }).length;
+    if(badge){
+        if(unread > 0){ badge.textContent = unread; badge.style.display = ''; }
+        else { badge.style.display = 'none'; }
+    }
+    if(!body) return;
+    if(msgs.length === 0){
+        body.innerHTML = '<div style="padding:30px; text-align:center; color:var(--text3); font-size:11px;">Inbox пуст. Нажми 🔄 чтобы запросить опрос IMAP.</div>';
+        return;
+    }
+    body.innerHTML = msgs.map(function(m){
+        var name = esc((m.from_name || m.from || '?').slice(0, 30));
+        var subj = esc((m.subject || '(no subject)').slice(0, 65));
+        var dt = m.date_received ? esc(m.date_received.slice(0,16).replace('T',' ')) : '';
+        var unr = m.is_read ? '' : 'background:rgba(70,130,180,.08);';
+        var weight = m.is_read ? '400' : '600';
+        var sel = state.mail.selectedId === m.id ? 'border-left:3px solid var(--accent);' : '';
+        return '<div onclick="openMailMessage(\''+esc(m.id)+'\')" style="padding:7px 10px; cursor:pointer; border-bottom:1px solid var(--border); '+unr+' '+sel+'">'
+            +   '<div style="font-size:11px; font-weight:'+weight+'; color:var(--text);">'+name+'</div>'
+            +   '<div style="font-size:11px; color:var(--text2); margin-top:2px;">'+subj+renderFlagBadges(m.from, 'compact')+'</div>'
+            +   '<div style="font-size:10px; color:var(--text3); margin-top:2px;">'+dt+'</div>'
+            + '</div>';
+    }).join('');
+}
+
+async function openMailMessage(id){
+    state.mail.selectedId = id;
+    renderMailList();
+    var dbody = document.getElementById('mail-detail-body');
+    var dtitle = document.getElementById('mail-detail-title');
+    var replyBtn = document.getElementById('mail-reply-btn');
+    if(dbody) dbody.innerHTML = '<div style="padding:30px; text-align:center; color:var(--text3);">Загружаю…</div>';
+    try {
+        var m = await invoke('fetch_mail_message', { messageId: id });
+        state.mail.currentMsg = m;
+        if(dtitle) dtitle.textContent = (m.subject || '(no subject)').slice(0, 100);
+        if(replyBtn) replyBtn.style.display = '';
+        var meta = '<div style="font-size:11px; color:var(--text2); margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid var(--border);">'
+            + '<b>'+esc(m.from_name || m.from || '')+'</b> &lt;'+esc(m.from || '')+'&gt;'+renderFlagBadges(m.from, 'expanded')+'<br>'
+            + '<span style="color:var(--text3);">→ '+esc(m.to || '')+'</span>'
+            + (m.cc ? '<br><span style="color:var(--text3);">cc: '+esc(m.cc)+'</span>' : '')
+            + '<br><span style="color:var(--text3);">'+esc((m.date_received||'').slice(0,16).replace('T',' '))+'</span>'
+            + '</div>';
+        var bodyContent = '';
+        if(m.body_text){
+            bodyContent = '<pre style="white-space:pre-wrap; word-break:break-word; font-family:var(--font-ui); font-size:12px; line-height:1.5;">'+esc(m.body_text)+'</pre>';
+        } else if(m.body_html){
+            bodyContent = '<div style="font-size:12px;">'+m.body_html+'</div>';
+        } else {
+            bodyContent = '<div style="color:var(--text3);">(пустое тело)</div>';
+        }
+        if(dbody) dbody.innerHTML = meta + bodyContent;
+    } catch(e){
+        if(dbody) dbody.innerHTML = '<div style="color:var(--accent); padding:20px;">Ошибка: '+esc(String(e))+'</div>';
+    }
+}
+
+function openMailCompose(){
+    document.getElementById('mail-to').value = '';
+    document.getElementById('mail-cc').value = '';
+    document.getElementById('mail-subject').value = '';
+    document.getElementById('mail-body').value = '';
+    document.getElementById('mail-reply-id').value = '';
+    document.getElementById('mail-compose-overlay').style.display = 'flex';
+}
+
+function openMailReply(){
+    var m = state.mail.currentMsg;
+    if(!m) return;
+    document.getElementById('mail-to').value = m.from || '';
+    document.getElementById('mail-cc').value = '';
+    var subj = m.subject || '';
+    document.getElementById('mail-subject').value = subj.startsWith('Re:') ? subj : 'Re: ' + subj;
+    var quote = (m.body_text || '').split('\n').map(function(l){ return '> '+l; }).join('\n');
+    document.getElementById('mail-body').value = '\n\n--- Original message ---\n' + quote;
+    document.getElementById('mail-reply-id').value = m.message_id || '';
+    document.getElementById('mail-compose-overlay').style.display = 'flex';
+    setTimeout(function(){ document.getElementById('mail-body').focus(); document.getElementById('mail-body').setSelectionRange(0,0); }, 50);
+}
+
+function closeMailCompose(){
+    document.getElementById('mail-compose-overlay').style.display = 'none';
+}
+
+async function sendMailFromCompose(){
+    var to = document.getElementById('mail-to').value.trim();
+    var cc = document.getElementById('mail-cc').value.trim();
+    var subject = document.getElementById('mail-subject').value.trim();
+    var body = document.getElementById('mail-body').value;
+    var replyId = document.getElementById('mail-reply-id').value.trim() || null;
+    if(!to){ showToast('Укажи получателя', 'error'); return; }
+    try {
+        var r = await invoke('send_mail', { to:to, cc:cc, subject:subject, body:body, inReplyTo:replyId });
+        if(r && r.sent){
+            showToast('✓ Отправлено', 'ok');
+            closeMailCompose();
+            setTimeout(function(){ refreshMail(true); }, 1500);
+        } else {
+            showToast('Ошибка: ' + (r && r.reason ? r.reason : 'unknown'), 'error');
+        }
+    } catch(e){
+        showToast('Send: '+e, 'error');
+    }
+}
+
 // ---------- View 🔍 Дедупликатор — duplicate clusters from server ----------
 //
 // Server endpoint /api/bazaar/duplicate-clusters does the clustering;
@@ -2947,7 +3131,7 @@ function openSignalDetail(kind, id){
 
 // ---------- View switching (Эксклюзивы ↔ Совпадения ↔ Сигналы) ----------
 function showView(name){
-    if(name !== 'ex' && name !== 'match' && name !== 'signals' && name !== 'dedup' && name !== 'partners' && name !== 'viz' && name !== 'team') return;
+    if(name !== 'ex' && name !== 'match' && name !== 'signals' && name !== 'dedup' && name !== 'partners' && name !== 'viz' && name !== 'mail' && name !== 'team') return;
     state.view = name;
     // Tear down the focused-lead view if it's open — user is leaving it.
     if(state.activeLeadId){
@@ -2966,6 +3150,8 @@ function showView(name){
     if(vpart) vpart.style.display = (name === 'partners') ? '' : 'none';
     var vviz = document.getElementById('view-viz');
     if(vviz) vviz.style.display = (name === 'viz') ? '' : 'none';
+    var vmail = document.getElementById('view-mail');
+    if(vmail) vmail.style.display = (name === 'mail') ? '' : 'none';
     var vteam = document.getElementById('view-team');
     if(vteam) vteam.style.display = (name === 'team') ? '' : 'none';
     var navEx = document.getElementById('nav-ex');
@@ -2974,6 +3160,7 @@ function showView(name){
     var navDed = document.getElementById('nav-dedup');
     var navPart = document.getElementById('nav-partners');
     var navViz = document.getElementById('nav-viz');
+    var navMail = document.getElementById('nav-mail');
     var navTeam = document.getElementById('nav-team');
     if(navEx) navEx.classList.toggle('active', name === 'ex');
     if(navMatch) navMatch.classList.toggle('active', name === 'match');
@@ -2981,6 +3168,7 @@ function showView(name){
     if(navDed) navDed.classList.toggle('active', name === 'dedup');
     if(navPart) navPart.classList.toggle('active', name === 'partners');
     if(navViz) navViz.classList.toggle('active', name === 'viz');
+    if(navMail) navMail.classList.toggle('active', name === 'mail');
     if(navTeam) navTeam.classList.toggle('active', name === 'team');
 
     // team-block migrates between ex / match (corner) and team (full-screen).
@@ -3017,6 +3205,10 @@ function showView(name){
         } else {
             renderPartners();
         }
+    }
+    // 📧 Почта — load inbox on tab open
+    if(name === 'mail'){
+        refreshMail(false);
     }
     // Визуализатор reuses the same dataset; auto-load if empty, else paint.
     if(name === 'viz'){
