@@ -515,6 +515,23 @@ async fn fetch_bazaar_signal_list(
     request_api(&state, s, reqwest::Method::GET, path, None).await
 }
 
+/// Duplicate clusters of bazaar signals — feeds the 🔍 Дедупликатор
+/// tab. Server-side clusters cargo (or tonnage) signals by content
+/// similarity (cargo_type+qty±10%+ports+laycan, or IMO/type+dwt±5%
+/// for tonnage); each cluster surfaces the canonical (earliest) signal
+/// and all duplicate copies, with a strength tag canonical / duplicate
+/// / heavy-spam.
+#[tauri::command]
+async fn fetch_duplicate_clusters(
+    state: tauri::State<'_, AppState>,
+    kind: String,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let k = if kind == "tonnage" { "tonnage" } else { "cargo" };
+    let path = format!("/api/bazaar/duplicate-clusters?kind={}&only_with_dups=true", k);
+    request_api(&state, s, reqwest::Method::GET, path, None).await
+}
+
 /// Bazaar × bazaar matches — opposite-side bazaar signals that the
 /// engine paired with the given signal (universal, no broker scoping).
 #[tauri::command]
@@ -1212,6 +1229,7 @@ pub fn run() {
             fetch_bazaar_pairs,
             fetch_counterparts,
             fetch_bazaar_signal_list,
+            fetch_duplicate_clusters,
             fetch_matches,
             fetch_matches_inbox,
             engage_listing,

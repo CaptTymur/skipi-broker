@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.57';
+var APP_VERSION='0.1.58';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -195,6 +195,31 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
     box-shadow:0 2px 6px rgba(0,0,0,.3); padding:3px 6px; border-radius:3px; font-size:10px;
     font-family:var(--font-ui); white-space:nowrap; }
 .leaflet-tooltip.viz-cargo-label::before { display:none; }
+
+/* 🔍 Дедупликатор — duplicate signal clusters. Two-pane vertical. */
+.ded-card { border:1px solid var(--border); border-radius:5px; padding:8px 10px; margin-bottom:8px;
+    background:var(--surface); font-size:11px; }
+.ded-card.ded-heavy-spam { border-color:rgba(255,80,80,.65); background:rgba(255,80,80,.05); }
+.ded-card.ded-duplicate  { border-color:rgba(255,193,7,.65); background:rgba(255,193,7,.05); }
+.ded-head { display:flex; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap; }
+.ded-strength { font-size:10px; padding:2px 7px; border-radius:9px; font-weight:600; }
+.ded-strength.ded-spam { background:rgba(255,80,80,.85); color:#fff; }
+.ded-strength.ded-dup  { background:rgba(255,193,7,.85); color:#222; }
+.ded-strength.ded-can  { background:rgba(80,180,80,.85); color:#fff; }
+.ded-size { color:var(--text); font-weight:600; font-size:11px; }
+.ded-senders { color:var(--text2); font-size:10px; }
+.ded-canon-title { color:var(--text); font-weight:500; flex:1; min-width:0; overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap; }
+.ded-canon-row, .ded-copy { display:flex; gap:8px; align-items:baseline; padding:3px 6px;
+    font-variant-numeric:tabular-nums; }
+.ded-canon-row { color:var(--text); background:rgba(80,180,80,.06); border-radius:3px; }
+.ded-copy { color:var(--text2); }
+.ded-cp-tag { width:18px; font-size:10px; }
+.ded-cp-ts { color:var(--text3); font-size:10px; min-width:96px; }
+.ded-cp-sender { color:var(--text2); font-size:10px; min-width:200px; max-width:260px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ded-cp-title { color:var(--text3); font-size:10px; flex:1; overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap; }
 
 /* Сигналы — browse module. Two-pane table, ShipNext-like. */
 .signals-cols { display:flex; flex:1; min-height:0; }
@@ -418,6 +443,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
     <div class="mod-tab active" id="nav-ex" onclick="showView('ex')">📋 Эксклюзивы</div>
     <div class="mod-tab" id="nav-match" onclick="showView('match')">🎯 Совпадения <span id="match-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-signals" onclick="showView('signals')">🛒 Сигналы <span id="signals-badge" class="count" style="display:none;"></span></div>
+    <div class="mod-tab" id="nav-dedup" onclick="showView('dedup')">🔍 Дедупликатор <span id="dedup-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-partners" onclick="showView('partners')">🤝 Контрагенты <span id="partners-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-viz" onclick="showView('viz')">🗺 Визуализатор</div>
     <div class="mod-tab" id="nav-team" onclick="showView('team')">💬 Команда</div>
@@ -645,6 +671,32 @@ body.dragging-split.col-resize { cursor:col-resize; }
         </div>
     </div>
 
+    <!-- View 🔍 Дедупликатор — duplicate signal clusters from server.
+         Two vertical panes (cargo|tonnage), each lists clusters with
+         the canonical signal expanded and N duplicate copies under it.
+         Server endpoint /api/bazaar/duplicate-clusters does the work;
+         client just renders. -->
+    <div class="view-pane view-signals-stack" id="view-dedup" style="display:none;">
+        <div class="signals-cols">
+            <div class="signals-col">
+                <div class="col-head">
+                    <span>📦 Дубли грузов</span>
+                    <span class="count" id="dedup-cargo-count">0</span>
+                    <span class="p2-refresh" id="dedup-cargo-refresh" title="Обновить" onclick="refreshDedup()">🔄</span>
+                </div>
+                <div class="signals-table-wrap" id="dedup-cargo-body" style="padding:8px 10px; overflow-y:auto;"></div>
+            </div>
+            <div class="splitter splitter-v" onmousedown="startSplitDrag(event, 'dedup-v')"></div>
+            <div class="signals-col">
+                <div class="col-head">
+                    <span>🚢 Дубли тоннажа</span>
+                    <span class="count" id="dedup-tonnage-count">0</span>
+                </div>
+                <div class="signals-table-wrap" id="dedup-tonnage-body" style="padding:8px 10px; overflow-y:auto;"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- View 3b: Контрагенты — companies we've seen on each side of the market.
          Aggregated client-side from state.signalsBrowse (already-loaded
          bazaar signals). Two columns: cargo-side counterparts (sources
@@ -853,6 +905,7 @@ var state = {
         loaded: false,
         sort: { cargo: { col:'first_seen_at', dir:'desc' }, tonnage: { col:'first_seen_at', dir:'desc' } },
     },
+    dedup: { cargo: [], tonnage: [], loaded: false, loading: false },
     viz: { map: null, layer: null },
     team: {
         messages: [],        // chronological asc
@@ -2275,6 +2328,103 @@ async function refreshSignalsBrowse(){
     }
 }
 
+// ---------- View 🔍 Дедупликатор — duplicate clusters from server ----------
+//
+// Server endpoint /api/bazaar/duplicate-clusters does the clustering;
+// client just renders cards. Two vertical panes (cargo|tonnage), each
+// cluster shows canonical signal + N duplicate copies with their
+// sender + timestamp.
+
+async function refreshDedup(){
+    if(state.dedup.loading) return;
+    state.dedup.loading = true;
+    var btn = document.getElementById('dedup-cargo-refresh');
+    if(btn) btn.classList.add('spinning');
+    try {
+        var c = await invoke('fetch_duplicate_clusters', { kind:'cargo' });
+        var t = await invoke('fetch_duplicate_clusters', { kind:'tonnage' });
+        state.dedup.cargo = Array.isArray(c) ? c : [];
+        state.dedup.tonnage = Array.isArray(t) ? t : [];
+        state.dedup.loaded = true;
+        renderDedup();
+    } catch(e){
+        showToast('Дедупликатор: '+e, 'error');
+    } finally {
+        state.dedup.loading = false;
+        if(btn) btn.classList.remove('spinning');
+    }
+}
+
+function _dedupStrengthBadge(s){
+    if(s === 'heavy-spam') return '<span class="ded-strength ded-spam">🔴 spam</span>';
+    if(s === 'duplicate')  return '<span class="ded-strength ded-dup">🟡 дубль</span>';
+    return '<span class="ded-strength ded-can">🟢</span>';
+}
+
+function _dedupClusterCard(c){
+    var canonical = (c.members || []).filter(function(m){ return m.is_canonical; })[0] || (c.members||[])[0] || {};
+    var copies = (c.members || []).filter(function(m){ return !m.is_canonical; });
+    var title = esc((canonical.title || '(без темы)').slice(0, 110));
+    var canonSender = esc((canonical.posted_by_email || canonical.posted_by_name || '—').slice(0, 40));
+    var canonTs = esc((canonical.first_seen_at || '').slice(0, 16).replace('T', ' '));
+    var copiesHtml = copies.map(function(m){
+        var snd = esc((m.posted_by_email || m.posted_by_name || '—').slice(0, 40));
+        var ts  = esc((m.first_seen_at || '').slice(0, 16).replace('T', ' '));
+        var ttl = esc((m.title || '').slice(0, 80));
+        return ''
+            + '<div class="ded-copy">'
+            +   '<span class="ded-cp-tag">🔁</span>'
+            +   '<span class="ded-cp-ts">' + ts + '</span>'
+            +   '<span class="ded-cp-sender">' + snd + '</span>'
+            +   '<span class="ded-cp-title">' + ttl + '</span>'
+            + '</div>';
+    }).join('');
+    return ''
+        + '<div class="ded-card ded-' + esc(c.strength) + '">'
+        +   '<div class="ded-head">'
+        +     _dedupStrengthBadge(c.strength)
+        +     '<span class="ded-size">×' + c.size + '</span>'
+        +     '<span class="ded-senders" title="уникальных отправителей">👤 ' + c.unique_senders + '</span>'
+        +     '<span class="ded-canon-title">' + title + '</span>'
+        +   '</div>'
+        +   '<div class="ded-canon-row">'
+        +     '<span class="ded-cp-tag">🟢</span>'
+        +     '<span class="ded-cp-ts">' + canonTs + '</span>'
+        +     '<span class="ded-cp-sender">' + canonSender + '</span>'
+        +     '<span class="ded-cp-title">canonical</span>'
+        +   '</div>'
+        +   copiesHtml
+        + '</div>';
+}
+
+function renderDedup(){
+    var cBody = document.getElementById('dedup-cargo-body');
+    var tBody = document.getElementById('dedup-tonnage-body');
+    var cCount = document.getElementById('dedup-cargo-count');
+    var tCount = document.getElementById('dedup-tonnage-count');
+    var badge = document.getElementById('dedup-badge');
+    var cargo = state.dedup.cargo || [];
+    var tonnage = state.dedup.tonnage || [];
+    if(cCount) cCount.textContent = cargo.length;
+    if(tCount) tCount.textContent = tonnage.length;
+    var totalSize = cargo.reduce(function(a,c){return a+(c.size||0);},0)
+                  + tonnage.reduce(function(a,c){return a+(c.size||0);},0);
+    if(badge){
+        if(totalSize > 0){ badge.textContent = totalSize; badge.style.display = ''; }
+        else { badge.style.display = 'none'; }
+    }
+    if(cBody){
+        cBody.innerHTML = cargo.length === 0
+            ? '<div style="padding:30px; text-align:center; color:var(--text3); font-size:11px;">Дублей грузов нет 👍</div>'
+            : cargo.map(_dedupClusterCard).join('');
+    }
+    if(tBody){
+        tBody.innerHTML = tonnage.length === 0
+            ? '<div style="padding:30px; text-align:center; color:var(--text3); font-size:11px;">Дублей тоннажа нет 👍</div>'
+            : tonnage.map(_dedupClusterCard).join('');
+    }
+}
+
 function signalsSort(kind, col){
     var s = state.signalsBrowse.sort[kind];
     if(s.col === col){ s.dir = (s.dir === 'desc') ? 'asc' : 'desc'; }
@@ -2685,7 +2835,7 @@ function openSignalDetail(kind, id){
 
 // ---------- View switching (Эксклюзивы ↔ Совпадения ↔ Сигналы) ----------
 function showView(name){
-    if(name !== 'ex' && name !== 'match' && name !== 'signals' && name !== 'partners' && name !== 'viz' && name !== 'team') return;
+    if(name !== 'ex' && name !== 'match' && name !== 'signals' && name !== 'dedup' && name !== 'partners' && name !== 'viz' && name !== 'team') return;
     state.view = name;
     // Tear down the focused-lead view if it's open — user is leaving it.
     if(state.activeLeadId){
@@ -2698,6 +2848,8 @@ function showView(name){
     document.getElementById('view-match').style.display = (name === 'match') ? '' : 'none';
     var vsig = document.getElementById('view-signals');
     if(vsig) vsig.style.display = (name === 'signals') ? '' : 'none';
+    var vded = document.getElementById('view-dedup');
+    if(vded) vded.style.display = (name === 'dedup') ? '' : 'none';
     var vpart = document.getElementById('view-partners');
     if(vpart) vpart.style.display = (name === 'partners') ? '' : 'none';
     var vviz = document.getElementById('view-viz');
@@ -2707,12 +2859,14 @@ function showView(name){
     var navEx = document.getElementById('nav-ex');
     var navMatch = document.getElementById('nav-match');
     var navSig = document.getElementById('nav-signals');
+    var navDed = document.getElementById('nav-dedup');
     var navPart = document.getElementById('nav-partners');
     var navViz = document.getElementById('nav-viz');
     var navTeam = document.getElementById('nav-team');
     if(navEx) navEx.classList.toggle('active', name === 'ex');
     if(navMatch) navMatch.classList.toggle('active', name === 'match');
     if(navSig) navSig.classList.toggle('active', name === 'signals');
+    if(navDed) navDed.classList.toggle('active', name === 'dedup');
     if(navPart) navPart.classList.toggle('active', name === 'partners');
     if(navViz) navViz.classList.toggle('active', name === 'viz');
     if(navTeam) navTeam.classList.toggle('active', name === 'team');
@@ -2731,6 +2885,14 @@ function showView(name){
         refreshSignalsBrowse();
     } else if(name === 'signals'){
         renderSignalsBrowse();
+    }
+    // 🔍 Дедупликатор: lazy-load duplicate clusters.
+    if(name === 'dedup'){
+        if(!state.dedup.loaded && !state.dedup.loading){
+            refreshDedup();
+        } else {
+            renderDedup();
+        }
     }
     // Контрагенты reuse the same signalsBrowse dataset.
     if(name === 'partners'){
