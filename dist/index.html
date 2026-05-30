@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.61';
+var APP_VERSION='0.1.62';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
 </script>
@@ -401,6 +401,32 @@ body.dragging-split.col-resize { cursor:col-resize; }
 /* Forms */
 .field-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px 14px; }
 .field-grid.three { grid-template-columns:1fr 1fr 1fr; }
+.mail-tab { padding:3px 9px; border-radius:3px; cursor:pointer; font-size:12px; color:var(--text2);
+    border:1px solid transparent; }
+.mail-tab:hover { background:var(--surface); color:var(--text); }
+.mail-tab.active { background:var(--surface); color:var(--text); border-color:var(--border); font-weight:600; }
+.compose-from-row { padding:8px 12px; background:var(--surface); border:1px solid var(--border);
+    border-radius:3px; font-size:11px; color:var(--text2); margin-bottom:10px;
+    display:flex; align-items:center; gap:8px; }
+.compose-from-row b { color:var(--text); font-weight:600; }
+.compose-row { display:flex; align-items:center; gap:0; margin-bottom:8px;
+    border-bottom:1px solid var(--border); }
+.compose-row label { font-size:11px; color:var(--text2); width:56px; flex:0 0 56px;
+    text-transform:uppercase; padding:6px 0; }
+.compose-row input { flex:1; border:0; background:transparent; color:var(--text);
+    font-family:var(--font-ui); font-size:13px; padding:8px 4px; outline:none; }
+.compose-cc-toggle { font-size:11px; color:var(--accent); cursor:pointer; padding:4px 6px;
+    user-select:none; }
+.compose-cc-toggle:hover { text-decoration:underline; }
+.compose-subject input { font-weight:600; font-size:14px; }
+.compose-body { width:100%; min-height:280px; padding:12px; background:var(--surface);
+    color:var(--text); border:1px solid var(--border); border-radius:3px;
+    font-family:var(--font-ui); font-size:13px; line-height:1.5; resize:vertical;
+    box-sizing:border-box; }
+.compose-body:focus { outline:none; border-color:var(--accent); }
+.compose-footer { display:flex; align-items:center; gap:10px; margin-top:14px;
+    padding-top:12px; border-top:1px solid var(--border); }
+.compose-footer .sending { font-size:11px; color:var(--text3); }
 .field { display:flex; flex-direction:column; }
 .field.full { grid-column:1/-1; }
 .field label { font-size:10px; color:var(--text2); margin-bottom:3px; text-transform:uppercase;
@@ -819,7 +845,10 @@ body.dragging-split.col-resize { cursor:col-resize; }
         <div class="signals-cols">
             <div class="signals-col" style="max-width:480px;">
                 <div class="col-head">
-                    <span>📥 Inbox — drybulk@</span>
+                    <span style="display:inline-flex; gap:4px;">
+                        <span class="mail-tab active" id="mail-tab-inbox" onclick="switchMailFolder('INBOX')">📥 Входящие</span>
+                        <span class="mail-tab" id="mail-tab-sent" onclick="switchMailFolder('SENT')">📤 Отправленные</span>
+                    </span>
                     <span class="count" id="mail-count">0</span>
                     <span class="p2-refresh" id="mail-refresh" title="Обновить (poll IMAP)" onclick="refreshMail(true)">🔄</span>
                     <span class="p2-refresh" title="Написать новое" onclick="openMailCompose()">✏</span>
@@ -844,22 +873,38 @@ body.dragging-split.col-resize { cursor:col-resize; }
 
     <!-- Mail compose modal -->
     <div id="mail-compose-overlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeMailCompose()">
-        <div class="modal-body" style="max-width:720px;">
+        <div class="modal-body" style="max-width:880px; width:90%;">
             <div class="modal-head">
-                <span>✏ Новое письмо от drybulk@montlinechartering.com</span>
+                <span id="mail-compose-title">✏ Новое письмо</span>
                 <span class="p2-refresh" onclick="closeMailCompose()">✕</span>
             </div>
-            <div style="padding:14px;">
-                <div class="field"><label>Кому</label><input id="mail-to" placeholder="email@..."></div>
-                <div class="field"><label>Cc</label><input id="mail-cc" placeholder="(пусто)"></div>
-                <div class="field"><label>Тема</label><input id="mail-subject" placeholder="..."></div>
-                <div class="field" style="margin-top:8px;"><label>Сообщение</label>
-                    <textarea id="mail-body" rows="10" style="width:100%; padding:8px; background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:3px; font-family:var(--font-ui); font-size:12px;"></textarea>
+            <div style="padding:16px 18px 18px 18px;">
+                <div class="compose-from-row">
+                    <span>От:</span>
+                    <b>Montline Dry Bulk Desk</b>
+                    <span style="color:var(--text3);">&lt;drybulk@montlinechartering.com&gt;</span>
                 </div>
+                <div class="compose-row">
+                    <label>Кому</label>
+                    <input id="mail-to" placeholder="email или несколько через запятую" autocomplete="off">
+                    <span class="compose-cc-toggle" id="mail-cc-toggle" onclick="toggleComposeCc()">Cc</span>
+                </div>
+                <div class="compose-row" id="mail-cc-row" style="display:none;">
+                    <label>Cc</label>
+                    <input id="mail-cc" placeholder="копия" autocomplete="off">
+                </div>
+                <div class="compose-row compose-subject">
+                    <label>Тема</label>
+                    <input id="mail-subject" placeholder="кратко суть письма" autocomplete="off">
+                </div>
+                <textarea id="mail-body" class="compose-body" placeholder="Текст сообщения…"></textarea>
                 <input type="hidden" id="mail-reply-id">
-                <div style="margin-top:14px; display:flex; gap:8px;">
-                    <button class="btn btn-accent" onclick="sendMailFromCompose()">▶ Отправить</button>
+                <div class="compose-footer">
+                    <button class="btn btn-accent" id="mail-send-btn" onclick="sendMailFromCompose()">▶ Отправить</button>
                     <button class="btn" onclick="closeMailCompose()">Отмена</button>
+                    <span class="sending" id="mail-send-status"></span>
+                    <span style="flex:1;"></span>
+                    <span style="font-size:10px; color:var(--text3);">Ctrl+Enter — отправить</span>
                 </div>
             </div>
         </div>
@@ -2491,16 +2536,35 @@ async function refreshCounterpartFlags(){
 }
 
 // ---------- View 📧 Почта — shared drybulk@ inbox via server ----------
-state.mail = state.mail || { messages: [], loaded: false, selectedId: null, currentMsg: null };
+state.mail = state.mail || { messages: [], loaded: false, selectedId: null, currentMsg: null, folder: 'INBOX' };
+
+function switchMailFolder(folder){
+    if(state.mail.folder === folder) return;
+    state.mail.folder = folder;
+    state.mail.selectedId = null;
+    state.mail.currentMsg = null;
+    var inbox = document.getElementById('mail-tab-inbox');
+    var sent = document.getElementById('mail-tab-sent');
+    if(inbox) inbox.classList.toggle('active', folder === 'INBOX');
+    if(sent) sent.classList.toggle('active', folder === 'SENT');
+    var dbody = document.getElementById('mail-detail-body');
+    var dtitle = document.getElementById('mail-detail-title');
+    var replyBtn = document.getElementById('mail-reply-btn');
+    if(dtitle) dtitle.textContent = folder === 'SENT' ? 'Выбери отправленное' : 'Выбери письмо слева';
+    if(dbody) dbody.innerHTML = '<div style="color:var(--text3); font-size:12px; padding:40px; text-align:center;">Загружаю…</div>';
+    if(replyBtn) replyBtn.style.display = 'none';
+    refreshMail(false);
+}
 
 async function refreshMail(forcePoll){
     var btn = document.getElementById('mail-refresh');
     if(btn) btn.classList.add('spinning');
+    var folder = state.mail.folder || 'INBOX';
     try {
         if(forcePoll){
             try { await invoke('poll_mail'); } catch(e){ /* server may be down */ }
         }
-        var data = await invoke('fetch_mail_inbox', { folder:'INBOX', limit:100 });
+        var data = await invoke('fetch_mail_inbox', { folder:folder, limit:100 });
         if(data && Array.isArray(data.messages)){
             state.mail.messages = data.messages;
             state.mail.loaded = true;
@@ -2526,16 +2590,24 @@ function renderMailList(){
         body.innerHTML = '<div style="padding:30px; text-align:center; color:var(--text3); font-size:11px;">Inbox пуст. Нажми 🔄 чтобы запросить опрос IMAP.</div>';
         return;
     }
+    var isSent = state.mail.folder === 'SENT';
     body.innerHTML = msgs.map(function(m){
-        var name = esc((m.from_name || m.from || '?').slice(0, 30));
+        var header;
+        if(isSent){
+            var to = (m.to || '').replace(/<[^>]+>/g, '').trim() || (m.to || '');
+            header = '→ ' + esc(to.slice(0, 50));
+        } else {
+            header = esc((m.from_name || m.from || '?').slice(0, 30));
+        }
         var subj = esc((m.subject || '(no subject)').slice(0, 65));
         var dt = m.date_received ? esc(m.date_received.slice(0,16).replace('T',' ')) : '';
-        var unr = m.is_read ? '' : 'background:rgba(70,130,180,.08);';
-        var weight = m.is_read ? '400' : '600';
+        var unr = (isSent || m.is_read) ? '' : 'background:rgba(70,130,180,.08);';
+        var weight = (isSent || m.is_read) ? '400' : '600';
         var sel = state.mail.selectedId === m.id ? 'border-left:3px solid var(--accent);' : '';
+        var flagSource = isSent ? (m.to || '') : m.from;
         return '<div onclick="openMailMessage(\''+esc(m.id)+'\')" style="padding:7px 10px; cursor:pointer; border-bottom:1px solid var(--border); '+unr+' '+sel+'">'
-            +   '<div style="font-size:11px; font-weight:'+weight+'; color:var(--text);">'+name+'</div>'
-            +   '<div style="font-size:11px; color:var(--text2); margin-top:2px;">'+subj+renderFlagBadges(m.from, 'compact')+'</div>'
+            +   '<div style="font-size:11px; font-weight:'+weight+'; color:var(--text);">'+header+'</div>'
+            +   '<div style="font-size:11px; color:var(--text2); margin-top:2px;">'+subj+renderFlagBadges(flagSource, 'compact')+'</div>'
             +   '<div style="font-size:10px; color:var(--text3); margin-top:2px;">'+dt+'</div>'
             + '</div>';
     }).join('');
@@ -2573,27 +2645,54 @@ async function openMailMessage(id){
     }
 }
 
-function openMailCompose(){
+function _resetComposeForm(){
     document.getElementById('mail-to').value = '';
     document.getElementById('mail-cc').value = '';
     document.getElementById('mail-subject').value = '';
     document.getElementById('mail-body').value = '';
     document.getElementById('mail-reply-id').value = '';
+    var status = document.getElementById('mail-send-status'); if(status) status.textContent = '';
+    var btn = document.getElementById('mail-send-btn'); if(btn) btn.disabled = false;
+    var ccRow = document.getElementById('mail-cc-row'); if(ccRow) ccRow.style.display = 'none';
+    var ccToggle = document.getElementById('mail-cc-toggle'); if(ccToggle) ccToggle.style.display = '';
+}
+
+function toggleComposeCc(){
+    var row = document.getElementById('mail-cc-row');
+    var toggle = document.getElementById('mail-cc-toggle');
+    if(!row) return;
+    row.style.display = 'flex';
+    if(toggle) toggle.style.display = 'none';
+    setTimeout(function(){ document.getElementById('mail-cc').focus(); }, 30);
+}
+
+function openMailCompose(){
+    _resetComposeForm();
+    var title = document.getElementById('mail-compose-title');
+    if(title) title.textContent = '✏ Новое письмо';
     document.getElementById('mail-compose-overlay').style.display = 'flex';
+    setTimeout(function(){ document.getElementById('mail-to').focus(); }, 50);
 }
 
 function openMailReply(){
     var m = state.mail.currentMsg;
     if(!m) return;
+    _resetComposeForm();
+    var title = document.getElementById('mail-compose-title');
+    if(title) title.textContent = '↩ Ответ на письмо';
     document.getElementById('mail-to').value = m.from || '';
-    document.getElementById('mail-cc').value = '';
     var subj = m.subject || '';
     document.getElementById('mail-subject').value = subj.startsWith('Re:') ? subj : 'Re: ' + subj;
     var quote = (m.body_text || '').split('\n').map(function(l){ return '> '+l; }).join('\n');
-    document.getElementById('mail-body').value = '\n\n--- Original message ---\n' + quote;
+    var senderName = m.from_name || m.from || 'sender';
+    var dt = (m.date_received || '').slice(0,16).replace('T',' ');
+    document.getElementById('mail-body').value = '\n\n--- ' + dt + ' ' + senderName + ' писал(а): ---\n' + quote;
     document.getElementById('mail-reply-id').value = m.message_id || '';
     document.getElementById('mail-compose-overlay').style.display = 'flex';
-    setTimeout(function(){ document.getElementById('mail-body').focus(); document.getElementById('mail-body').setSelectionRange(0,0); }, 50);
+    setTimeout(function(){
+        var ta = document.getElementById('mail-body');
+        ta.focus(); ta.setSelectionRange(0,0);
+    }, 50);
 }
 
 function closeMailCompose(){
@@ -2607,6 +2706,13 @@ async function sendMailFromCompose(){
     var body = document.getElementById('mail-body').value;
     var replyId = document.getElementById('mail-reply-id').value.trim() || null;
     if(!to){ showToast('Укажи получателя', 'error'); return; }
+    if(!subject){
+        if(!confirm('Тема пустая — отправить?')) return;
+    }
+    var btn = document.getElementById('mail-send-btn');
+    var status = document.getElementById('mail-send-status');
+    if(btn) btn.disabled = true;
+    if(status) status.textContent = 'Отправляю…';
     try {
         var r = await invoke('send_mail', { to:to, cc:cc, subject:subject, body:body, inReplyTo:replyId });
         if(r && r.sent){
@@ -2614,12 +2720,28 @@ async function sendMailFromCompose(){
             closeMailCompose();
             setTimeout(function(){ refreshMail(true); }, 1500);
         } else {
+            if(status) status.textContent = '';
+            if(btn) btn.disabled = false;
             showToast('Ошибка: ' + (r && r.reason ? r.reason : 'unknown'), 'error');
         }
     } catch(e){
+        if(status) status.textContent = '';
+        if(btn) btn.disabled = false;
         showToast('Send: '+e, 'error');
     }
 }
+
+// Ctrl/Cmd+Enter inside compose body → send
+document.addEventListener('keydown', function(ev){
+    var overlay = document.getElementById('mail-compose-overlay');
+    if(!overlay || overlay.style.display !== 'flex') return;
+    if((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter'){
+        ev.preventDefault();
+        sendMailFromCompose();
+    } else if(ev.key === 'Escape'){
+        closeMailCompose();
+    }
+});
 
 // ---------- View 🔍 Дедупликатор — duplicate clusters from server ----------
 //
