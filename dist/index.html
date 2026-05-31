@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.63';
+var APP_VERSION='0.1.64';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 
 // ---------- i18n (shared across Skipi family via localStorage 'skipi-ui-language') ----------
@@ -21,18 +21,101 @@ var UI_LANG_OPTIONS=[
     ['id','Indonesian / Bahasa Indonesia'],
 ];
 var UI_LANG_VALID=UI_LANG_OPTIONS.reduce(function(a,o){a[o[0]]=true;return a;},{});
+// First wave of translations — top navigation, key column headers and the
+// Settings panel. Everything else falls back to Russian (default) or English
+// until a native speaker for tl/hi/id reviews. Professional shipbroking
+// terminology in English mirrors Clarksons / SSY style.
+var UI_STRINGS={
+    ru:{
+        'nav.exclusives':'📋 Эксклюзивы','nav.matches':'🎯 Совпадения','nav.signals':'🛒 Сигналы',
+        'nav.duplicates':'🔍 Дедупликатор','nav.counterparts':'🤝 Контрагенты',
+        'nav.map':'🗺 Визуализатор','nav.mail':'📧 Почта','nav.team':'💬 Команда',
+        'top.notRegistered':'Не зарегистрирован','top.gear':'Настройки',
+        'settings.title':'Настройки','settings.tab.general':'Общие','settings.tab.connection':'Подключение',
+        'settings.tab.identity':'Профиль брокера','settings.tab.reply':'Reply-to',
+        'settings.tab.appearance':'Внешний вид','settings.tab.about':'О программе',
+        'settings.general.title':'Общие','settings.general.desc':'Основные настройки приложения.',
+        'settings.lang.label':'Язык интерфейса',
+        'settings.lang.desc':'Выбранный язык сохраняется и синхронизируется со Скипи Моряком на этом устройстве.',
+    },
+    en:{
+        'nav.exclusives':'📋 Exclusives','nav.matches':'🎯 Matches','nav.signals':'🛒 Bazaar',
+        'nav.duplicates':'🔍 Duplicates','nav.counterparts':'🤝 Counterparties',
+        'nav.map':'🗺 Map','nav.mail':'📧 Mail','nav.team':'💬 Desk',
+        'top.notRegistered':'Not registered','top.gear':'Settings',
+        'settings.title':'Settings','settings.tab.general':'General','settings.tab.connection':'Connection',
+        'settings.tab.identity':'Broker profile','settings.tab.reply':'Reply-to',
+        'settings.tab.appearance':'Appearance','settings.tab.about':'About',
+        'settings.general.title':'General','settings.general.desc':'Basic application settings.',
+        'settings.lang.label':'Interface language',
+        'settings.lang.desc':'Selected language is saved and synced with Skipi Seafarer on this device.',
+    },
+    tl:{
+        'nav.exclusives':'📋 Exclusives','nav.matches':'🎯 Matches','nav.signals':'🛒 Bazaar',
+        'nav.duplicates':'🔍 Duplicates','nav.counterparts':'🤝 Counterparties',
+        'nav.map':'🗺 Mapa','nav.mail':'📧 Mail','nav.team':'💬 Desk',
+        'top.notRegistered':'Hindi naka-rehistro','top.gear':'Settings',
+        'settings.title':'Settings','settings.tab.general':'Pangkalahatan','settings.tab.connection':'Connection',
+        'settings.tab.identity':'Broker profile','settings.tab.reply':'Reply-to',
+        'settings.tab.appearance':'Hitsura','settings.tab.about':'Tungkol',
+        'settings.general.title':'Pangkalahatan','settings.general.desc':'Pangunahing settings ng application.',
+        'settings.lang.label':'Wika ng interface',
+        'settings.lang.desc':'Naka-save at naka-sync ang piniling wika sa Skipi Seafarer sa device na ito.',
+    },
+    hi:{
+        'nav.exclusives':'📋 Exclusives','nav.matches':'🎯 Matches','nav.signals':'🛒 Bazaar',
+        'nav.duplicates':'🔍 Duplicates','nav.counterparts':'🤝 Counterparties',
+        'nav.map':'🗺 मानचित्र','nav.mail':'📧 मेल','nav.team':'💬 डेस्क',
+        'top.notRegistered':'पंजीकृत नहीं','top.gear':'सेटिंग्स',
+        'settings.title':'सेटिंग्स','settings.tab.general':'सामान्य','settings.tab.connection':'कनेक्शन',
+        'settings.tab.identity':'ब्रोकर प्रोफ़ाइल','settings.tab.reply':'Reply-to',
+        'settings.tab.appearance':'दिखावट','settings.tab.about':'के बारे में',
+        'settings.general.title':'सामान्य','settings.general.desc':'Application की मूल settings.',
+        'settings.lang.label':'Interface भाषा',
+        'settings.lang.desc':'चयनित भाषा इस device पर Skipi Seafarer के साथ saved + synced रहती है.',
+    },
+    id:{
+        'nav.exclusives':'📋 Eksklusif','nav.matches':'🎯 Kecocokan','nav.signals':'🛒 Bazaar',
+        'nav.duplicates':'🔍 Duplikat','nav.counterparts':'🤝 Counterparties',
+        'nav.map':'🗺 Peta','nav.mail':'📧 Surat','nav.team':'💬 Desk',
+        'top.notRegistered':'Belum terdaftar','top.gear':'Pengaturan',
+        'settings.title':'Pengaturan','settings.tab.general':'Umum','settings.tab.connection':'Koneksi',
+        'settings.tab.identity':'Profil broker','settings.tab.reply':'Reply-to',
+        'settings.tab.appearance':'Tampilan','settings.tab.about':'Tentang',
+        'settings.general.title':'Umum','settings.general.desc':'Pengaturan dasar aplikasi.',
+        'settings.lang.label':'Bahasa antarmuka',
+        'settings.lang.desc':'Bahasa yang dipilih disimpan dan disinkronkan dengan Skipi Seafarer di perangkat ini.',
+    },
+};
 function getUiLang(){
     var lang=localStorage.getItem(UI_LANG_KEY)||'ru';
     return UI_LANG_VALID[lang]?lang:'ru';
+}
+function tr(key){
+    var lang=getUiLang();
+    return (UI_STRINGS[lang]&&UI_STRINGS[lang][key]) || UI_STRINGS.en[key] || UI_STRINGS.ru[key] || key;
+}
+// Apply translations to every element with a data-i18n attribute. Called
+// once on DOMContentLoaded and again on every language change.
+function applyI18n(){
+    document.documentElement.lang=getUiLang();
+    var els=document.querySelectorAll('[data-i18n]');
+    for(var i=0;i<els.length;i++){
+        var key=els[i].getAttribute('data-i18n');
+        if(key) els[i].textContent=tr(key);
+    }
+    var titleEls=document.querySelectorAll('[data-i18n-title]');
+    for(var j=0;j<titleEls.length;j++){
+        var k2=titleEls[j].getAttribute('data-i18n-title');
+        if(k2) titleEls[j].title=tr(k2);
+    }
 }
 function setUiLang(lang){
     if(!UI_LANG_VALID[lang]) lang='ru';
     localStorage.setItem(UI_LANG_KEY,lang);
     document.documentElement.lang=lang;
-    // UI strings are not yet wired — settings re-render is enough so the
-    // dropdown shows the saved choice. Full string translation is a separate
-    // task (v0.1.64+); for now this scaffolding lets the user persist a
-    // preference that Seafarer + future Broker views will respect.
+    applyI18n();
+    try{ if(typeof renderSettingsNav==='function') renderSettingsNav(); }catch(e){}
     try{ if(typeof renderSettingsBody==='function') renderSettingsBody(); }catch(e){}
 }
 function uiLanguageSelectHtml(){
@@ -44,7 +127,7 @@ function uiLanguageSelectHtml(){
 
 document.addEventListener('DOMContentLoaded', function(){
     updateTitlebar();
-    document.documentElement.lang=getUiLang();
+    applyI18n();
 });
 </script>
 <style>
@@ -540,19 +623,19 @@ body.dragging-split.col-resize { cursor:col-resize; }
 <div id="update-banner-host"></div>
 
 <div class="modules-bar">
-    <div class="mod-tab active" id="nav-ex" onclick="showView('ex')">📋 Эксклюзивы</div>
-    <div class="mod-tab" id="nav-match" onclick="showView('match')">🎯 Совпадения <span id="match-badge" class="count" style="display:none;"></span></div>
-    <div class="mod-tab" id="nav-signals" onclick="showView('signals')">🛒 Сигналы <span id="signals-badge" class="count" style="display:none;"></span></div>
-    <div class="mod-tab" id="nav-dedup" onclick="showView('dedup')">🔍 Дедупликатор <span id="dedup-badge" class="count" style="display:none;"></span></div>
-    <div class="mod-tab" id="nav-partners" onclick="showView('partners')">🤝 Контрагенты <span id="partners-badge" class="count" style="display:none;"></span></div>
-    <div class="mod-tab" id="nav-viz" onclick="showView('viz')">🗺 Визуализатор</div>
-    <div class="mod-tab" id="nav-mail" onclick="showView('mail')">📧 Почта <span id="mail-badge" class="count" style="display:none;"></span></div>
-    <div class="mod-tab" id="nav-team" onclick="showView('team')">💬 Команда</div>
+    <div class="mod-tab active" id="nav-ex" onclick="showView('ex')"><span data-i18n="nav.exclusives">📋 Эксклюзивы</span></div>
+    <div class="mod-tab" id="nav-match" onclick="showView('match')"><span data-i18n="nav.matches">🎯 Совпадения</span> <span id="match-badge" class="count" style="display:none;"></span></div>
+    <div class="mod-tab" id="nav-signals" onclick="showView('signals')"><span data-i18n="nav.signals">🛒 Сигналы</span> <span id="signals-badge" class="count" style="display:none;"></span></div>
+    <div class="mod-tab" id="nav-dedup" onclick="showView('dedup')"><span data-i18n="nav.duplicates">🔍 Дедупликатор</span> <span id="dedup-badge" class="count" style="display:none;"></span></div>
+    <div class="mod-tab" id="nav-partners" onclick="showView('partners')"><span data-i18n="nav.counterparts">🤝 Контрагенты</span> <span id="partners-badge" class="count" style="display:none;"></span></div>
+    <div class="mod-tab" id="nav-viz" onclick="showView('viz')"><span data-i18n="nav.map">🗺 Визуализатор</span></div>
+    <div class="mod-tab" id="nav-mail" onclick="showView('mail')"><span data-i18n="nav.mail">📧 Почта</span> <span id="mail-badge" class="count" style="display:none;"></span></div>
+    <div class="mod-tab" id="nav-team" onclick="showView('team')"><span data-i18n="nav.team">💬 Команда</span></div>
     <div id="lead-tabs-host" style="display:flex; align-items:center; gap:4px;"></div>
     <div class="mb-spacer"></div>
-    <div class="mb-identity" id="mb-identity">Не зарегистрирован</div>
+    <div class="mb-identity" id="mb-identity" data-i18n="top.notRegistered">Не зарегистрирован</div>
     <div class="mb-clock" id="mb-clock" title="Брокерский день: пн-пт 09:00–18:00 London"></div>
-    <div class="mb-gear" onclick="openSettings()" title="Settings">⚙</div>
+    <div class="mb-gear" onclick="openSettings()" data-i18n-title="top.gear" title="Настройки">⚙</div>
 </div>
 
 <div class="app">
@@ -614,9 +697,10 @@ body.dragging-split.col-resize { cursor:col-resize; }
                             <div class="team-stream" id="team-stream"></div>
                             <div class="team-target-row">
                                 <span class="tt-label">Кому:</span>
-                                <span class="tt-pill active" id="tt-team" onclick="setTeamTarget('team')">👥 Команде</span>
-                                <span class="tt-pill" id="tt-llm" onclick="setTeamTarget('llm')">🤖 LLM</span>
-                                <span class="tt-hint" id="tt-hint">сообщение увидят все участники команды</span>
+                                <span class="tt-pill active" id="tt-ai" onclick="setTeamTarget('ai')">🤖 AI Assistant</span>
+                                <span class="tt-pill" id="tt-tm1" onclick="setTeamTarget('tm1')">👤 <span class="tt-name">Виктория</span></span>
+                                <span class="tt-pill" id="tt-tm2" onclick="setTeamTarget('tm2')">👤 <span class="tt-name">Саша</span></span>
+                                <span class="tt-hint" id="tt-hint">по умолчанию AI Assistant — я подгружаю контекст из открытого модуля</span>
                             </div>
                             <div class="team-composer">
                                 <textarea id="team-input" placeholder="Сообщение команде…" onkeydown="teamKeyDown(event)"></textarea>
@@ -1087,7 +1171,7 @@ var state = {
         polling: false,
         unread: 0,           // unread badge in P1 team header
         lastSeenTs: null,    // newest ts at last "scrolled to bottom"
-        sendTarget: 'team',  // 'team' = colleagues only; 'llm' = LLM responds inline, all see
+        sendTarget: 'ai',    // 'ai' = AI Assistant (LLM, default); 'tm1' = team member 1 (Виктория); 'tm2' = team member 2 (Саша). All messages still land in the shared room.
     },
     refreshPromise: null,
     pendingUpdate: null,     // tauri-plugin-updater Update object when newer release detected
@@ -1333,9 +1417,11 @@ function setTheme(t){ localStorage.setItem('skipi-broker-theme', t); applyTheme(
 function refreshIdentityBadge(){
     var el=document.getElementById('mb-identity');
     if(state.settings.broker_id){
+        el.removeAttribute('data-i18n'); // dynamic content, never replace via applyI18n
         el.innerHTML = '<strong>'+esc(state.settings.display_name||'unnamed')+'</strong> · <code>'+esc(state.settings.broker_id.slice(0,8))+'</code>';
     } else {
-        el.textContent = 'Не зарегистрирован - откройте настройки';
+        el.setAttribute('data-i18n','top.notRegistered');
+        el.textContent = tr('top.notRegistered');
     }
     var srv = state.settings.server_url ? state.settings.server_url.replace(/^https?:\/\//,'') : '—';
     document.getElementById('sb-server').textContent = srv;
@@ -1596,22 +1682,39 @@ function emitTeamEvent(eventType, summary){
     });
 }
 
+// Recipient targeting in the team chat. Three capsules:
+//   'ai'   — AI Assistant (LLM) — default. Triggers server-side LLM.
+//   'tm1'  — Team member 1 (Виктория by default; configurable).
+//   'tm2'  — Team member 2 (Саша by default).
+// All messages still land in the shared room — everyone sees them — but
+// the addressee chip steers the LLM and gives Тимур a single-click choice
+// of who he's talking to without retyping the addressee every time.
+function _teamMemberLabel(slot){
+    var s = (state.settings || {});
+    if(slot === 'tm1') return s.team_member_1_name || 'Виктория';
+    if(slot === 'tm2') return s.team_member_2_name || 'Саша';
+    return '';
+}
 function setTeamTarget(tgt){
-    state.team.sendTarget = (tgt === 'llm') ? 'llm' : 'team';
-    var pillTeam = document.getElementById('tt-team');
-    var pillLlm = document.getElementById('tt-llm');
+    if(tgt !== 'ai' && tgt !== 'tm1' && tgt !== 'tm2') tgt = 'ai';
+    state.team.sendTarget = tgt;
+    var pillAi  = document.getElementById('tt-ai');
+    var pillTm1 = document.getElementById('tt-tm1');
+    var pillTm2 = document.getElementById('tt-tm2');
     var hint = document.getElementById('tt-hint');
     var ta = document.getElementById('team-input');
     var btn = document.getElementById('team-send-btn');
-    if(pillTeam) pillTeam.classList.toggle('active', state.team.sendTarget === 'team');
-    if(pillLlm)  pillLlm.classList.toggle('active', state.team.sendTarget === 'llm');
-    if(state.team.sendTarget === 'llm'){
-        if(hint) hint.textContent = 'LLM ответит публично — все увидят и вопрос, и ответ';
-        if(ta) ta.placeholder = 'Вопрос для LLM (видно всей команде)…';
+    if(pillAi)  pillAi.classList.toggle('active', tgt === 'ai');
+    if(pillTm1) pillTm1.classList.toggle('active', tgt === 'tm1');
+    if(pillTm2) pillTm2.classList.toggle('active', tgt === 'tm2');
+    if(tgt === 'ai'){
+        if(hint) hint.textContent = 'AI Assistant ответит в чат, контекст модуля подгружу автоматически';
+        if(ta) ta.placeholder = 'Вопрос AI Assistant (видно всей команде)…';
         if(btn) btn.textContent = '🤖 ▶';
     } else {
-        if(hint) hint.textContent = 'сообщение увидят все участники команды';
-        if(ta) ta.placeholder = 'Сообщение команде…';
+        var who = _teamMemberLabel(tgt);
+        if(hint) hint.textContent = 'Сообщение направлено ' + who + ' — увидят все в команде';
+        if(ta) ta.placeholder = 'Сообщение для ' + who + '…';
         if(btn) btn.textContent = '▶';
     }
     if(ta) ta.focus();
@@ -1619,17 +1722,73 @@ function setTeamTarget(tgt){
 
 // Single send handler that routes based on the active target pill.
 async function teamSendRouted(){
-    if(state.team.sendTarget === 'llm'){
+    var tgt = state.team.sendTarget || 'ai';
+    if(tgt === 'ai'){
         return teamSendWithLlm();
     }
-    return teamSend();
+    // Team-member-targeted: prepend addressee tag so chat history makes
+    // sense ("To Виктория: ...") without changing the server schema.
+    return teamSend('@' + _teamMemberLabel(tgt) + ': ');
 }
 
-async function teamSend(){
+// Capture the current module context so the LLM doesn't need a separate
+// "which match are we talking about" round-trip. Returns a short textual
+// summary that gets prepended to the user's question. Module is read
+// from `state.view`; selected entity from the relevant slot in `state`.
+function captureViewContext(){
+    var view = state.view || 'ex';
+    var lines = [];
+    try {
+        if(view === 'match'){
+            var sig = state.selectedSignal;
+            var match = state.selectedBxbMatch;
+            if(sig) lines.push('Модуль: 🎯 Совпадения. Выбран сигнал: ' + sig.kind + ' / id=' + sig.id);
+            if(match && match.cargo_signal && match.tonnage_signal){
+                lines.push('Cargo:   ' + (match.cargo_signal.cargo_type || '?') + ' | '
+                    + (match.cargo_signal.quantity_mt || '?') + ' mt | '
+                    + (match.cargo_signal.load_port || '?') + ' → ' + (match.cargo_signal.disch_port || '?')
+                    + ' | поставил: ' + (match.cargo_signal.posted_by_email || '?'));
+                lines.push('Tonnage: ' + (match.tonnage_signal.vessel_name || match.tonnage_signal.vessel_imo || match.tonnage_signal.vessel_type || '?') + ' | '
+                    + (match.tonnage_signal.dwt || '?') + ' dwt | open ' + (match.tonnage_signal.open_port || '?')
+                    + ' | поставил: ' + (match.tonnage_signal.posted_by_email || '?'));
+                if(match.score != null) lines.push('Score: ' + match.score + (match.reasons ? ' | reasons: ' + JSON.stringify(match.reasons).slice(0,200) : ''));
+            }
+        } else if(view === 'ex'){
+            var lst = state.selectedListing;
+            if(lst) lines.push('Модуль: 📋 Эксклюзивы. Открыта own ' + lst.kind + ' / id=' + lst.id);
+            var m = state.selectedMatch;
+            if(m && m.data){
+                lines.push('Кандидат из базара (' + (m.type||'?') + '): ' + JSON.stringify(m.data).slice(0,400));
+            }
+        } else if(view === 'signals'){
+            var sb = state.signalsBrowse;
+            lines.push('Модуль: 🛒 Сигналы. Лента: cargo=' + (sb.cargo||[]).length + ', tonnage=' + (sb.tonnage||[]).length);
+        } else if(view === 'dedup'){
+            var dd = state.dedup;
+            lines.push('Модуль: 🔍 Дедупликатор. Кластеры: cargo=' + (dd.cargo||[]).length + ', tonnage=' + (dd.tonnage||[]).length);
+        } else if(view === 'partners'){
+            lines.push('Модуль: 👥 Контрагенты.');
+        } else if(view === 'mail'){
+            var msg = state.mail && state.mail.currentMsg;
+            if(msg){
+                lines.push('Модуль: 📧 Почта. Открыто письмо: ' + (msg.subject || '(no subject)'));
+                lines.push('От: ' + (msg.from_name || msg.from || '?') + ' <' + (msg.from||'') + '>');
+                if(msg.body_text){
+                    lines.push('Текст (фрагмент): ' + String(msg.body_text).slice(0,500));
+                }
+            }
+        }
+    } catch(e){ /* context is a nice-to-have — never break send */ }
+    if(lines.length === 0) return '';
+    return '[Контекст]\n' + lines.join('\n') + '\n\n';
+}
+
+async function teamSend(prefix){
     var ta = document.getElementById('team-input');
     if(!ta) return;
     var body = (ta.value || '').trim();
     if(!body) return;
+    if(prefix) body = prefix + body;
     ta.disabled = true;
     try {
         var msg = await invoke('send_team_message', { body: body });
@@ -1656,8 +1815,13 @@ async function teamSend(){
 async function teamSendWithLlm(){
     var ta = document.getElementById('team-input');
     if(!ta) return;
-    var body = (ta.value || '').trim();
-    if(!body) return;
+    var raw = (ta.value || '').trim();
+    if(!raw) return;
+    // Prepend a one-paragraph context snapshot from the active module so
+    // the AI sees what Тимур is looking at without having to ask. Empty
+    // string when nothing is selected (then the message is sent as-is).
+    var ctx = captureViewContext();
+    var body = ctx + raw;
     var btn = document.getElementById('team-llm-btn');
     ta.disabled = true;
     if(btn){ btn.disabled = true; btn.textContent = '⏳'; }
@@ -5463,12 +5627,12 @@ function closeSettings(){
 }
 function renderSettingsNav(){
     var tabs = [
-        {id:'general',    label:'Общие'},
-        {id:'connection', label:'Подключение'},
-        {id:'identity',   label:'Профиль брокера'},
-        {id:'reply',      label:'Reply-to'},
-        {id:'appearance', label:'Внешний вид'},
-        {id:'about',      label:'О программе'},
+        {id:'general',    label:tr('settings.tab.general')},
+        {id:'connection', label:tr('settings.tab.connection')},
+        {id:'identity',   label:tr('settings.tab.identity')},
+        {id:'reply',      label:tr('settings.tab.reply')},
+        {id:'appearance', label:tr('settings.tab.appearance')},
+        {id:'about',      label:tr('settings.tab.about')},
     ];
     if(!state.settingsTab) state.settingsTab='general';
     document.getElementById('set-nav').innerHTML = tabs.map(function(t){
@@ -5484,12 +5648,12 @@ function renderSettingsBody(){
     if(t==='general'){
         body.innerHTML =
             '<div class="settings-section">'+
-                '<h3>Общие</h3>'+
-                '<div class="section-desc">Основные настройки приложения.</div>'+
+                '<h3>'+esc(tr('settings.general.title'))+'</h3>'+
+                '<div class="section-desc">'+esc(tr('settings.general.desc'))+'</div>'+
                 '<div class="setting-row">'+
                     '<div class="setting-info">'+
-                        '<div class="setting-label">Язык интерфейса</div>'+
-                        '<div class="setting-desc">Выбранный язык сохраняется и синхронизируется со Скипи Моряком на этом устройстве. Перевод строк интерфейса будет подключён в следующих версиях.</div>'+
+                        '<div class="setting-label">'+esc(tr('settings.lang.label'))+'</div>'+
+                        '<div class="setting-desc">'+esc(tr('settings.lang.desc'))+'</div>'+
                     '</div>'+
                     '<div class="setting-control">'+uiLanguageSelectHtml()+'</div>'+
                 '</div>'+
