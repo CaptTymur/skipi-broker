@@ -5,8 +5,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.68';
-function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
+var APP_VERSION='0.1.69';
+function updateTitlebar(){
+    var t = 'Skipi Broker '+APP_VERSION;
+    document.title = t;
+    // Tauri 2 window title is separate from <title>. Push it via the
+    // window API so the OS-level titlebar updates after auto-update.
+    try {
+        if(window.__TAURI__ && window.__TAURI__.window){
+            var w = window.__TAURI__.window.getCurrentWindow
+                  ? window.__TAURI__.window.getCurrentWindow()
+                  : (window.__TAURI__.window.getCurrent && window.__TAURI__.window.getCurrent());
+            if(w && w.setTitle) w.setTitle(t);
+        }
+    } catch(_){}
+}
 
 // ---------- i18n (shared across Skipi family via localStorage 'skipi-ui-language') ----------
 // Architecture mirrors Skipi Seafarer (skipi-public). Languages list and storage key
