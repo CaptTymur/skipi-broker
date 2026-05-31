@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.69';
+var APP_VERSION='0.1.70';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -141,6 +141,15 @@ function uiLanguageSelectHtml(){
 document.addEventListener('DOMContentLoaded', function(){
     updateTitlebar();
     applyI18n();
+    // Restore per-device chat_sound preference (set via shift-click on 🔔).
+    try {
+        var v = localStorage.getItem('skipi-broker-chat-sound');
+        if(v === '0' && typeof state !== 'undefined' && state){
+            state.settings = state.settings || {};
+            state.settings.chat_sound = false;
+        }
+    } catch(_){}
+    if(typeof _renderSoundBtn === 'function') _renderSoundBtn();
 });
 </script>
 <style>
@@ -751,6 +760,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
                             <div class="team-attach-thumbs" id="team-attach-thumbs"></div>
                             <div class="team-composer">
                                 <button class="team-attach-btn" id="team-attach-btn" title="Прикрепить скрин (или вставить Ctrl+V)" onclick="teamAttachClick()">📎</button>
+                                <button class="team-attach-btn" id="team-sound-btn" title="Тест звука уведомления / переключить" onclick="toggleChatSound(event)">🔔</button>
                                 <input type="file" id="team-attach-input" accept="image/*" multiple style="display:none;" onchange="teamAttachFile(event)">
                                 <textarea id="team-input" placeholder="Сообщение команде… (Ctrl+V — вставить картинку)" onkeydown="teamKeyDown(event)" onpaste="teamPaste(event)"></textarea>
                                 <button class="btn btn-accent btn-sm" id="team-send-btn" onclick="teamSendRouted()">▶</button>
@@ -1687,6 +1697,39 @@ function teamAttachClick(){
     if(inp) inp.click();
 }
 
+// 🔔 button: short-click plays a test beep (also primes AudioContext);
+// shift-click toggles chat_sound on/off and persists into settings.
+function toggleChatSound(ev){
+    if(!state.settings) state.settings = {};
+    if(ev && ev.shiftKey){
+        var newVal = !(state.settings.chat_sound === false);   // currently on → turn off; currently off → turn on
+        state.settings.chat_sound = !newVal ? false : true;
+        // Persist locally — chat_sound is a per-device preference, no
+        // need for server round-trip.
+        try { localStorage.setItem('skipi-broker-chat-sound', state.settings.chat_sound === false ? '0' : '1'); } catch(_){}
+        _renderSoundBtn();
+        showToast(state.settings.chat_sound === false ? '🔕 звук уведомлений выключен' : '🔔 звук уведомлений включён', 'ok');
+        return;
+    }
+    // Normal click: prime + play once so user hears confirmation.
+    _primeAudioCtx();
+    var prev = state.settings.chat_sound;
+    state.settings.chat_sound = true;          // force-allow for the test
+    _playChatBeep();
+    state.settings.chat_sound = prev;
+    _renderSoundBtn();
+}
+
+function _renderSoundBtn(){
+    var b = document.getElementById('team-sound-btn');
+    if(!b) return;
+    var off = (state.settings && state.settings.chat_sound === false);
+    b.textContent = off ? '🔕' : '🔔';
+    b.title = off
+        ? 'Звук уведомлений выключен. Клик — тест, Shift+клик — включить'
+        : 'Звук уведомлений включён. Клик — тест, Shift+клик — выключить';
+}
+
 function teamAttachFile(ev){
     var files = Array.prototype.slice.call((ev.target && ev.target.files) || []);
     files.forEach(_processImageAttach);
@@ -1838,25 +1881,56 @@ function copySigId(ev, el){
 // operator. Uses one shared AudioContext lazily created on first
 // notification — first call needs a user gesture in some browsers.
 var _audioCtx = null;
+// Prime the AudioContext on the first user gesture inside the window.
+// Chromium/Tauri WebView suspend AudioContext until at least one user
+// interaction; without this, programmatic beeps during chat polling are
+// silently dropped — which is what Тимур was hitting since v0.1.35.
+function _primeAudioCtx(){
+    try {
+        if(!_audioCtx){
+            var Ctor = window.AudioContext || window.webkitAudioContext;
+            if(Ctor) _audioCtx = new Ctor();
+        }
+        if(_audioCtx && _audioCtx.state === 'suspended'){
+            _audioCtx.resume();
+        }
+    } catch(_){}
+}
+document.addEventListener('pointerdown', _primeAudioCtx, { once: false });
+document.addEventListener('keydown',     _primeAudioCtx, { once: false });
+
 function _playChatBeep(){
     try {
+        // Settings opt-out — broker can mute beeps if showing the app on
+        // stage. Default = on. Setting lives in state.settings.chat_sound.
+        if(state && state.settings && state.settings.chat_sound === false) return;
         if(!_audioCtx){
             var Ctor = window.AudioContext || window.webkitAudioContext;
             if(!Ctor) return;
             _audioCtx = new Ctor();
         }
+        if(_audioCtx.state === 'suspended'){
+            // Best-effort resume; if it fails, the beep is silent but the
+            // unread badge still updates so the broker won't miss the msg.
+            try { _audioCtx.resume(); } catch(_){}
+        }
+        // Two-tone soft chime: high blip then a lower settle. More
+        // recognisable than a single pure tone but still gentle enough
+        // not to startle in a quiet office.
         var t0 = _audioCtx.currentTime;
         var o = _audioCtx.createOscillator();
         var g = _audioCtx.createGain();
         o.type = 'sine';
         o.frequency.setValueAtTime(880, t0);
-        o.frequency.exponentialRampToValueAtTime(660, t0 + 0.18);
+        o.frequency.setValueAtTime(660, t0 + 0.10);
+        o.frequency.exponentialRampToValueAtTime(520, t0 + 0.32);
         g.gain.setValueAtTime(0.0001, t0);
-        g.gain.exponentialRampToValueAtTime(0.18, t0 + 0.02);
-        g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.22);
+        g.gain.exponentialRampToValueAtTime(0.16, t0 + 0.02);
+        g.gain.setValueAtTime(0.12, t0 + 0.10);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.36);
         o.connect(g); g.connect(_audioCtx.destination);
         o.start(t0);
-        o.stop(t0 + 0.25);
+        o.stop(t0 + 0.40);
     } catch(e){ /* swallow — audio is non-critical */ }
 }
 
