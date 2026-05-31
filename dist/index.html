@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.66';
+var APP_VERSION='0.1.67';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 
 // ---------- i18n (shared across Skipi family via localStorage 'skipi-ui-language') ----------
@@ -1007,6 +1007,10 @@ body.dragging-split.col-resize { cursor:col-resize; }
         </div>
         <div class="viz-map-wrap">
             <div id="viz-map"></div>
+            <div id="viz-empty-hint" style="display:none; position:absolute; top:12px; right:12px;
+                background:rgba(20,28,40,.92); color:#dcddde; border:1px solid rgba(124,111,247,.5);
+                border-radius:4px; padding:8px 12px; font-size:11px; line-height:1.4; z-index:500;
+                box-shadow:0 4px 12px rgba(0,0,0,.5); max-width:240px;"></div>
         </div>
     </div>
 
@@ -2250,15 +2254,26 @@ function renderVizMap(){
     if(!map) return;
     state.viz.layer.clearLayers();
     var showCargo = (document.getElementById('viz-show-cargo') || {}).checked;
-    var cargoes = state.signalsBrowse.cargo || [];
+    // IMPORTANT: build the cargo set from bazaar_matches directly, NOT from
+    // state.signalsBrowse.cargo. signalsBrowse is the "active feed" — a
+    // matched cargo signal may have aged out of it (snapshot in match still
+    // valid). Iterating signalsBrowse silently drops valid matches.
     var matchIdx = _vizCargoSignalMatchIndex();
+    var seen = {};
+    var cargoes = [];
+    Object.keys(matchIdx).forEach(function(sigId){
+        var first = matchIdx[sigId][0];
+        var snap = (first && first.bazaar_cargo_signal) || null;
+        if(!snap) return;
+        if(seen[snap.id]) return;
+        seen[snap.id] = 1;
+        cargoes.push(snap);
+    });
     var visible = [];
     if(showCargo){
         cargoes.forEach(function(s){
-            // Only plot cargo signals that have ≥1 match — map is the
-            // "matches geography" view, not raw inbox noise.
-            var matches = matchIdx[s.id];
-            if(!matches || matches.length === 0) return;
+            var matches = matchIdx[s.id] || [];
+            if(matches.length === 0) return;
             if(!_vizFilterCargo(s)) return;
             var loadC = _portCoords(s.load_port);
             var dischC = _portCoords(s.disch_port);
@@ -2297,6 +2312,22 @@ function renderVizMap(){
     }
     document.getElementById('viz-visible-count').textContent = visible.length;
     _vizRenderList(visible);
+    // Demo-friendly empty-state hint: if we have matched cargoes but none
+    // resolved to a port coordinate, surface that explicitly so the broker
+    // doesn't think the module is broken.
+    var hintHost = document.getElementById('viz-empty-hint');
+    if(hintHost){
+        if(cargoes.length === 0){
+            hintHost.style.display = 'none';
+        } else if(visible.length === 0){
+            hintHost.style.display = '';
+            hintHost.innerHTML = '<b>'+cargoes.length+'</b> совпадений в базе,<br>'
+                + 'но порты ('+esc((cargoes[0] && cargoes[0].load_port) || '?')+'…)<br>'
+                + 'не распознаны в каталоге координат.';
+        } else {
+            hintHost.style.display = 'none';
+        }
+    }
 }
 
 // Click on a map marker — jump to Совпадения focused on the first
@@ -4489,6 +4520,11 @@ async function refreshInbox(){
     } catch(e){
         showToast('Inbox: '+e, 'error');
         state.inbox = { own_matches:[], bazaar_matches:[] };
+    }
+    // Map view is "matches geography" — repaint after inbox changes so the
+    // user doesn't see a stale empty map after backend yields new pairs.
+    if(state.view === 'viz' && state.viz && state.viz.map){
+        try { renderVizMap(); } catch(_){}
     }
 }
 
