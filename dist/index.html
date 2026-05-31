@@ -5,9 +5,47 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.62';
+var APP_VERSION='0.1.63';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
-document.addEventListener('DOMContentLoaded', function(){ updateTitlebar(); });
+
+// ---------- i18n (shared across Skipi family via localStorage 'skipi-ui-language') ----------
+// Architecture mirrors Skipi Seafarer (skipi-public). Languages list and storage key
+// are intentionally identical so a user who switches language in Seafarer sees
+// the same language pre-selected when they open Broker on the same machine.
+var UI_LANG_KEY='skipi-ui-language';
+var UI_LANG_OPTIONS=[
+    ['ru','Русский'],
+    ['en','English'],
+    ['tl','Tagalog'],
+    ['hi','Hindi / हिन्दी'],
+    ['id','Indonesian / Bahasa Indonesia'],
+];
+var UI_LANG_VALID=UI_LANG_OPTIONS.reduce(function(a,o){a[o[0]]=true;return a;},{});
+function getUiLang(){
+    var lang=localStorage.getItem(UI_LANG_KEY)||'ru';
+    return UI_LANG_VALID[lang]?lang:'ru';
+}
+function setUiLang(lang){
+    if(!UI_LANG_VALID[lang]) lang='ru';
+    localStorage.setItem(UI_LANG_KEY,lang);
+    document.documentElement.lang=lang;
+    // UI strings are not yet wired — settings re-render is enough so the
+    // dropdown shows the saved choice. Full string translation is a separate
+    // task (v0.1.64+); for now this scaffolding lets the user persist a
+    // preference that Seafarer + future Broker views will respect.
+    try{ if(typeof renderSettingsBody==='function') renderSettingsBody(); }catch(e){}
+}
+function uiLanguageSelectHtml(){
+    var cur=getUiLang();
+    return '<select id="i-lang" onchange="setUiLang(this.value)">'
+        + UI_LANG_OPTIONS.map(function(o){return '<option value="'+o[0]+'"'+(cur===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('')
+        + '</select>';
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+    updateTitlebar();
+    document.documentElement.lang=getUiLang();
+});
 </script>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
@@ -459,6 +497,33 @@ body.dragging-split.col-resize { cursor:col-resize; }
 .set-body { flex:1; padding:22px 26px; overflow-y:auto; }
 .set-body h3 { font-size:14px; margin-bottom:4px; font-weight:600; }
 .set-body .sub { font-size:11px; color:var(--text2); margin-bottom:16px; }
+
+/* Settings sections — ported from Skipi Seafarer so the look is consistent
+   across the family. Used for the new General tab (language selector). */
+.settings-section { margin-bottom:32px; }
+.settings-section h3 { font-size:20px; font-weight:600; margin-bottom:4px; }
+.settings-section .section-desc { font-size:12px; color:var(--text2); margin-bottom:20px; }
+.setting-row { display:flex; align-items:center; justify-content:space-between;
+    padding:14px 16px; border-bottom:1px solid var(--border); background:var(--bg); }
+.setting-row:first-of-type { border-radius:8px 8px 0 0; }
+.setting-row:last-of-type { border-bottom:none; border-radius:0 0 8px 8px; }
+.setting-row:only-of-type { border-radius:8px; }
+.setting-info { flex:1; margin-right:16px; }
+.setting-info .setting-label { font-size:13px; font-weight:500; }
+.setting-info .setting-desc { font-size:11px; color:var(--text2); margin-top:2px; line-height:1.4; }
+.setting-control { flex-shrink:0; }
+.setting-control select { padding:5px 10px; background:var(--surface2);
+    border:1px solid var(--border); border-radius:4px; color:var(--text);
+    font-size:12px; cursor:pointer; min-width:200px; }
+.setting-control select:focus { border-color:var(--accent); outline:none; }
+/* Toggle switch (for future on/off settings) */
+.toggle { position:relative; width:36px; height:20px; cursor:pointer; display:inline-block; }
+.toggle input { display:none; }
+.toggle .slider { position:absolute; inset:0; background:var(--border); border-radius:10px; transition:.2s; }
+.toggle .slider:before { content:''; position:absolute; height:16px; width:16px;
+    left:2px; bottom:2px; background:var(--text2); border-radius:50%; transition:.2s; }
+.toggle input:checked + .slider { background:var(--accent); }
+.toggle input:checked + .slider:before { transform:translateX(16px); background:#fff; }
 
 /* Toasts */
 .toast-host { position:fixed; right:14px; bottom:34px; display:flex; flex-direction:column; gap:8px; z-index:100; }
@@ -5398,12 +5463,14 @@ function closeSettings(){
 }
 function renderSettingsNav(){
     var tabs = [
+        {id:'general',    label:'Общие'},
         {id:'connection', label:'Подключение'},
         {id:'identity',   label:'Профиль брокера'},
         {id:'reply',      label:'Reply-to'},
         {id:'appearance', label:'Внешний вид'},
         {id:'about',      label:'О программе'},
     ];
+    if(!state.settingsTab) state.settingsTab='general';
     document.getElementById('set-nav').innerHTML = tabs.map(function(t){
         return '<div class="set-nav-item '+(state.settingsTab===t.id?'active':'')
             +'" onclick="state.settingsTab=\''+t.id+'\'; renderSettingsNav(); renderSettingsBody();">'+esc(t.label)+'</div>';
@@ -5411,9 +5478,23 @@ function renderSettingsNav(){
 }
 function renderSettingsBody(){
     var body = document.getElementById('set-body');
+    if(!body) return;
     var s = state.settings;
-    var t = state.settingsTab;
-    if(t==='connection'){
+    var t = state.settingsTab || 'general';
+    if(t==='general'){
+        body.innerHTML =
+            '<div class="settings-section">'+
+                '<h3>Общие</h3>'+
+                '<div class="section-desc">Основные настройки приложения.</div>'+
+                '<div class="setting-row">'+
+                    '<div class="setting-info">'+
+                        '<div class="setting-label">Язык интерфейса</div>'+
+                        '<div class="setting-desc">Выбранный язык сохраняется и синхронизируется со Скипи Моряком на этом устройстве. Перевод строк интерфейса будет подключён в следующих версиях.</div>'+
+                    '</div>'+
+                    '<div class="setting-control">'+uiLanguageSelectHtml()+'</div>'+
+                '</div>'+
+            '</div>';
+    } else if(t==='connection'){
         body.innerHTML = '<h3>Подключение к серверу</h3><div class="sub">Доска брокера по умолчанию идет через Timeweb, с резервом на основной сервер.</div>'+
             '<div class="field-grid">'+
                 '<div class="field full"><label>Server URL</label><input id="set-server" value="'+esc(s.server_url||'')+'" placeholder="https://api-ru.skipi.app"></div>'+
