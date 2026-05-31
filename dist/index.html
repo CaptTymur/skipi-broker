@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.65';
+var APP_VERSION='0.1.66';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 
 // ---------- i18n (shared across Skipi family via localStorage 'skipi-ui-language') ----------
@@ -310,12 +310,33 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .viz-list-item .vli-title { color:var(--text); font-weight:500; }
 .viz-list-item .vli-meta { font-size:10px; color:var(--text3); }
 .viz-map-wrap { flex:1; position:relative; }
-#viz-map { position:absolute; inset:0; }
+/* Bloomberg-terminal style: solid dark sea, country contours only.
+   Background colour is the "sea"; land polygons get a subtle fill via
+   .viz-country class set in JS. */
+#viz-map { position:absolute; inset:0; background:#0a1320; }
+[data-theme="light"] #viz-map { background:#e6edf5; }
+.leaflet-container.viz-mapbg { background:#0a1320 !important; }
+[data-theme="light"] .leaflet-container.viz-mapbg { background:#e6edf5 !important; }
+/* Pulsing origin dot — drawn as a div icon so we can keyframe it */
+.viz-pulse { position:relative; width:14px; height:14px; }
+.viz-pulse .core { position:absolute; top:50%; left:50%; width:8px; height:8px; margin:-4px 0 0 -4px;
+    border-radius:50%; background:#7c6ff7; box-shadow:0 0 8px #7c6ff7, 0 0 16px rgba(124,111,247,.6); }
+.viz-pulse .ring { position:absolute; top:50%; left:50%; width:8px; height:8px; margin:-4px 0 0 -4px;
+    border-radius:50%; border:1.5px solid #7c6ff7; opacity:.7; animation:vizPulse 1.8s ease-out infinite; }
+.viz-pulse.hot .core { background:#e2b93d; box-shadow:0 0 10px #e2b93d, 0 0 20px rgba(226,185,61,.7); }
+.viz-pulse.hot .ring { border-color:#e2b93d; animation-duration:1.2s; }
+@keyframes vizPulse {
+    0%   { transform:scale(1); opacity:.7; }
+    100% { transform:scale(3.5); opacity:0; }
+}
 /* Cargo arrow marker (origin dot) tooltip styling */
-.leaflet-tooltip.viz-cargo-label { background:var(--bg); color:var(--text); border:1px solid rgba(78,201,112,.6);
-    box-shadow:0 2px 6px rgba(0,0,0,.3); padding:3px 6px; border-radius:3px; font-size:10px;
+.leaflet-tooltip.viz-cargo-label { background:rgba(20,28,40,.95); color:#dcddde; border:1px solid rgba(124,111,247,.6);
+    box-shadow:0 2px 8px rgba(0,0,0,.6); padding:4px 7px; border-radius:3px; font-size:10px;
     font-family:var(--font-ui); white-space:nowrap; }
+[data-theme="light"] .leaflet-tooltip.viz-cargo-label { background:rgba(255,255,255,.95); color:#1e1e1e; }
 .leaflet-tooltip.viz-cargo-label::before { display:none; }
+.leaflet-tooltip.viz-cargo-label .vz-badge { display:inline-block; background:#7c6ff7; color:#fff;
+    padding:1px 5px; border-radius:8px; font-size:9px; font-weight:600; margin-left:4px; }
 
 /* Counterpart behavioral flags — rendered as inline SVG badges next
    to counterpart names in 🤝 Контрагенты, 🛒 Сигналы, 🎯 Совпадения. */
@@ -2178,16 +2199,50 @@ function _vizInitMap(){
         return null;
     }
     if(state.viz.map) return state.viz.map;
-    var map = L.map('viz-map', { worldCopyJump:true, preferCanvas:true });
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap', maxZoom: 11,
-    }).addTo(map);
-    map.setView([30, 30], 2);
+    // Solid sea + country contours only — no OSM tiles, no landscape.
+    // The "wow effect" geography Тимур wants for Posidonia demos.
+    var map = L.map('viz-map', {
+        worldCopyJump:true, preferCanvas:true,
+        zoomControl:true, attributionControl:false,
+        minZoom:2, maxZoom:8,
+    });
+    map.getContainer().classList.add('viz-mapbg');
+    map.setView([25, 30], 2);
     state.viz.map = map;
+    state.viz.countries = L.layerGroup().addTo(map);
     state.viz.layer = L.layerGroup().addTo(map);
+    // Land polygons — subtle fill + crisp border. Loaded once, cached.
+    fetch('leaflet/world.geojson').then(function(r){ return r.json(); }).then(function(gj){
+        var isLight = (document.documentElement.getAttribute('data-theme') === 'light');
+        var landFill   = isLight ? '#f4f7fb' : '#1a2535';
+        var landStroke = isLight ? '#8a9bb0' : '#3d5775';
+        L.geoJSON(gj, {
+            style: function(){ return {
+                fillColor: landFill, fillOpacity: 1,
+                color: landStroke, weight: 0.7, opacity: 0.9,
+                interactive: false,
+            }; },
+        }).addTo(state.viz.countries);
+        try { map.invalidateSize(); } catch(_){}
+    }).catch(function(e){ console.warn('world.geojson load failed', e); });
     // Tauri WebView occasionally stalls layout on first map render.
     setTimeout(function(){ try { map.invalidateSize(); } catch(_){} }, 50);
     return map;
+}
+
+// Builds a lookup: cargo_signal_id → array of bazaar_matches it participates in.
+// Map view shows only signals that have ≥1 match, so the broker sees
+// actionable geography, not noise.
+function _vizCargoSignalMatchIndex(){
+    var idx = {};
+    var bm = (state.inbox && state.inbox.bazaar_matches) || [];
+    bm.forEach(function(m){
+        var cs = m.bazaar_cargo_signal;
+        if(!cs || !cs.id) return;
+        if(!idx[cs.id]) idx[cs.id] = [];
+        idx[cs.id].push(m);
+    });
+    return idx;
 }
 
 function renderVizMap(){
@@ -2196,39 +2251,65 @@ function renderVizMap(){
     state.viz.layer.clearLayers();
     var showCargo = (document.getElementById('viz-show-cargo') || {}).checked;
     var cargoes = state.signalsBrowse.cargo || [];
+    var matchIdx = _vizCargoSignalMatchIndex();
     var visible = [];
     if(showCargo){
         cargoes.forEach(function(s){
+            // Only plot cargo signals that have ≥1 match — map is the
+            // "matches geography" view, not raw inbox noise.
+            var matches = matchIdx[s.id];
+            if(!matches || matches.length === 0) return;
             if(!_vizFilterCargo(s)) return;
             var loadC = _portCoords(s.load_port);
             var dischC = _portCoords(s.disch_port);
-            if(!loadC) return; // no origin → can't plot
+            if(!loadC) return;
+            s._vizMatches = matches;       // cache for list + click navigation
             visible.push(s);
-            // Origin marker — small green dot.
-            var dot = L.circleMarker(loadC, {
-                radius: 5, color:'#4ec970', weight:1.5, fillColor:'#4ec970', fillOpacity:0.85,
+            var hot = matches.some(function(m){ return (m.score || 0) >= 80; });
+            // Pulsing origin dot — divIcon so we can keyframe via CSS.
+            var icon = L.divIcon({
+                className:'',
+                html:'<div class="viz-pulse'+(hot?' hot':'')+'"><div class="ring"></div><div class="core"></div></div>',
+                iconSize:[14,14], iconAnchor:[7,7],
             });
-            var label = (s.cargo_type || s.title || '?') + (s.quantity_mt ? ' · '+s.quantity_mt+' MT' : '');
-            dot.bindTooltip(label, { className:'viz-cargo-label', direction:'top', offset:[0,-6] });
-            dot.bindPopup(_vizCargoPopup(s));
-            state.viz.layer.addLayer(dot);
-            // Line to destination (if known).
+            var marker = L.marker(loadC, { icon:icon, riseOnHover:true });
+            var label = (s.cargo_type || s.title || '?')
+                      + (s.quantity_mt ? ' · '+s.quantity_mt+' MT' : '')
+                      + ' <span class="vz-badge">' + matches.length + '</span>';
+            marker.bindTooltip(label, { className:'viz-cargo-label', direction:'top', offset:[0,-10] });
+            marker.on('click', function(){ vizOpenSignalMatches(s.id); });
+            state.viz.layer.addLayer(marker);
+            // Route line to destination (if known) — accent-coloured glow.
             if(dischC){
                 var line = L.polyline([loadC, dischC], {
-                    color:'#4ec970', weight:1.4, opacity:0.45, dashArray:'5 5',
+                    color:'#7c6ff7', weight:1.6, opacity:0.55, dashArray:'4 6',
                 });
                 state.viz.layer.addLayer(line);
                 var dischDot = L.circleMarker(dischC, {
-                    radius: 3, color:'#e55561', weight:1, fillColor:'#e55561', fillOpacity:0.6,
+                    radius: 3.5, color:'#7c6ff7', weight:1.2,
+                    fillColor:'#7c6ff7', fillOpacity:0.45,
                 });
                 dischDot.bindTooltip('↓ ' + (s.disch_port || '?'), { className:'viz-cargo-label', direction:'top', offset:[0,-4] });
+                dischDot.on('click', function(){ vizOpenSignalMatches(s.id); });
                 state.viz.layer.addLayer(dischDot);
             }
         });
     }
-    // Tonnage layer reserved — not painted yet.
     document.getElementById('viz-visible-count').textContent = visible.length;
     _vizRenderList(visible);
+}
+
+// Click on a map marker — jump to Совпадения focused on the first
+// (highest-score) match where this cargo signal participates.
+function vizOpenSignalMatches(signalId){
+    var matches = (_vizCargoSignalMatchIndex()[signalId] || []).slice();
+    if(matches.length === 0){ showView('matches'); return; }
+    matches.sort(function(a, b){ return (b.score || 0) - (a.score || 0); });
+    var pick = matches[0];
+    showView('matches');
+    setTimeout(function(){
+        try { selectMatch('bazaar', pick.id); } catch(e){ console.warn('selectMatch failed', e); }
+    }, 40);
 }
 
 function _vizCargoPopup(s){
@@ -2257,8 +2338,10 @@ function _vizRenderList(visible){
     host.innerHTML = visible.slice(0, 50).map(function(s){
         var title = (s.cargo_type || s.title || '?').slice(0, 30);
         var meta = (s.quantity_mt ? s.quantity_mt+' MT · ' : '') + (s.load_port || '?')+' → '+(s.disch_port || '?');
-        return '<div class="viz-list-item" onclick="vizFocusSignal(\''+esc(s.id)+'\')">'
-             + '<div class="vli-title">'+esc(title)+'</div>'
+        var nMatches = (s._vizMatches && s._vizMatches.length) || 0;
+        var badge = nMatches ? ' <span class="vz-badge" style="background:#7c6ff7;color:#fff;padding:0 5px;border-radius:8px;font-size:9px;">'+nMatches+'</span>' : '';
+        return '<div class="viz-list-item" onclick="vizOpenSignalMatches(\''+esc(s.id)+'\')">'
+             + '<div class="vli-title">'+esc(title)+badge+'</div>'
              + '<div class="vli-meta">'+esc(meta)+'</div>'
              + '</div>';
     }).join('');
