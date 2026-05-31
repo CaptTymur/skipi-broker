@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.64';
+var APP_VERSION='0.1.65';
 function updateTitlebar(){ document.title='Skipi Broker '+APP_VERSION; }
 
 // ---------- i18n (shared across Skipi family via localStorage 'skipi-ui-language') ----------
@@ -698,6 +698,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
                             <div class="team-target-row">
                                 <span class="tt-label">Кому:</span>
                                 <span class="tt-pill active" id="tt-ai" onclick="setTeamTarget('ai')">🤖 AI Assistant</span>
+                                <span class="tt-pill" id="tt-tm0" onclick="setTeamTarget('tm0')">👤 <span class="tt-name">Тимур</span></span>
                                 <span class="tt-pill" id="tt-tm1" onclick="setTeamTarget('tm1')">👤 <span class="tt-name">Виктория</span></span>
                                 <span class="tt-pill" id="tt-tm2" onclick="setTeamTarget('tm2')">👤 <span class="tt-name">Саша</span></span>
                                 <span class="tt-hint" id="tt-hint">по умолчанию AI Assistant — я подгружаю контекст из открытого модуля</span>
@@ -1171,7 +1172,7 @@ var state = {
         polling: false,
         unread: 0,           // unread badge in P1 team header
         lastSeenTs: null,    // newest ts at last "scrolled to bottom"
-        sendTarget: 'ai',    // 'ai' = AI Assistant (LLM, default); 'tm1' = team member 1 (Виктория); 'tm2' = team member 2 (Саша). All messages still land in the shared room.
+        sendTarget: 'ai',    // 'ai' = AI Assistant (LLM, default); 'tm0' = team member 0 (Тимур); 'tm1' = team member 1 (Виктория); 'tm2' = team member 2 (Саша). All messages still land in the shared room.
     },
     refreshPromise: null,
     pendingUpdate: null,     // tauri-plugin-updater Update object when newer release detected
@@ -1691,20 +1692,23 @@ function emitTeamEvent(eventType, summary){
 // of who he's talking to without retyping the addressee every time.
 function _teamMemberLabel(slot){
     var s = (state.settings || {});
+    if(slot === 'tm0') return s.team_member_0_name || 'Тимур';
     if(slot === 'tm1') return s.team_member_1_name || 'Виктория';
     if(slot === 'tm2') return s.team_member_2_name || 'Саша';
     return '';
 }
 function setTeamTarget(tgt){
-    if(tgt !== 'ai' && tgt !== 'tm1' && tgt !== 'tm2') tgt = 'ai';
+    if(tgt !== 'ai' && tgt !== 'tm0' && tgt !== 'tm1' && tgt !== 'tm2') tgt = 'ai';
     state.team.sendTarget = tgt;
     var pillAi  = document.getElementById('tt-ai');
+    var pillTm0 = document.getElementById('tt-tm0');
     var pillTm1 = document.getElementById('tt-tm1');
     var pillTm2 = document.getElementById('tt-tm2');
     var hint = document.getElementById('tt-hint');
     var ta = document.getElementById('team-input');
     var btn = document.getElementById('team-send-btn');
     if(pillAi)  pillAi.classList.toggle('active', tgt === 'ai');
+    if(pillTm0) pillTm0.classList.toggle('active', tgt === 'tm0');
     if(pillTm1) pillTm1.classList.toggle('active', tgt === 'tm1');
     if(pillTm2) pillTm2.classList.toggle('active', tgt === 'tm2');
     if(tgt === 'ai'){
