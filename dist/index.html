@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.70';
+var APP_VERSION='0.1.71';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -3972,14 +3972,13 @@ function showView(name){
 function renderMatchBadge(){
     var el = document.getElementById('match-badge');
     if(!el) return;
-    var freshThreshold = Date.now() - 24 * 3600 * 1000;
-    var fresh = (state.inbox.bazaar_matches || []).filter(function(m){
-        var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal;
-        if(!sig || !sig.first_seen_at) return false;
-        return Date.parse(sig.first_seen_at) >= freshThreshold;
-    }).length;
-    if(fresh > 0){
-        el.textContent = fresh;
+    // Show TOTAL active matches in the nav badge — Тимур wanted a always-on
+    // counter in the module header, consistent with other modules (Сигналы,
+    // Эксклюзивы). The previous "fresh-only ≤24h" badge hid the count when
+    // matcher hadn't run recently — which looked like the module was empty.
+    var total = (state.inbox.bazaar_matches || []).length;
+    if(total > 0){
+        el.textContent = total;
         el.style.display = '';
     } else {
         el.style.display = 'none';
@@ -4131,7 +4130,12 @@ function renderSelectedSignalDetail(){
         return false;
     });
     if(!sig){
-        body.innerHTML = '<div class="col-empty">Сигнал больше не в матчинге.</div>';
+        // Stale selection — the user had a signal selected that's no longer
+        // referenced by any active match (e.g. after a cleanup or rebuild).
+        // Quietly clear the selection and fall back to the empty hint that
+        // matches !selSig — don't show a scary "no longer matching" line.
+        state.selectedSignal = null;
+        body.innerHTML = '<div class="col-empty">Выбери сигнал в соседней колонке.</div>';
         if(meta) meta.textContent = '';
         return;
     }
