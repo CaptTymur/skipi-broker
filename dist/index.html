@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.71';
+var APP_VERSION='0.1.72';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -520,6 +520,26 @@ body.dragging-split.col-resize { cursor:col-resize; }
 .team-msg-meta { font-size:9px; color:var(--text3); margin-bottom:1px; display:flex; gap:6px; }
 .team-msg-meta .nick { color:var(--text2); font-weight:600; }
 .team-msg-body { font-size:11px; line-height:1.4; white-space:pre-wrap; word-break:break-word; }
+/* Right-click on a message gives a small floating menu with "Ответить". */
+.team-msg { cursor:context-menu; }
+.team-ctx-menu { position:fixed; background:var(--surface); border:1px solid var(--border); border-radius:5px;
+    box-shadow:0 4px 16px rgba(0,0,0,.4); z-index:9000; min-width:140px; padding:4px 0; font-size:11px; }
+.team-ctx-menu .item { padding:6px 12px; cursor:pointer; color:var(--text); display:flex; gap:6px; align-items:center; }
+.team-ctx-menu .item:hover { background:var(--hover); color:var(--accent); }
+/* Quoted reply block — both above composer (pending) and inline in rendered message. */
+.team-reply-quote { padding:4px 8px 5px 10px; margin-bottom:4px; border-left:3px solid var(--accent);
+    background:rgba(124,111,247,.10); border-radius:0 4px 4px 0; font-size:10px; color:var(--text2); line-height:1.35; }
+.team-reply-quote .nick { color:var(--accent); font-weight:600; }
+.team-reply-quote .snippet { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px; display:inline-block; vertical-align:bottom; margin-left:4px; }
+/* Pending reply preview row (above composer, sibling of attach-thumbs). */
+.team-pending-reply { display:none; padding:5px 10px 5px 8px; background:var(--surface2); border-top:1px solid var(--border);
+    border-bottom:1px solid var(--border); font-size:10px; color:var(--text2); align-items:center; gap:6px; }
+.team-pending-reply.active { display:flex; }
+.team-pending-reply .label { color:var(--accent); font-weight:600; }
+.team-pending-reply .nick { color:var(--text); font-weight:500; }
+.team-pending-reply .snippet { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; opacity:.85; }
+.team-pending-reply .cancel { cursor:pointer; padding:0 4px; color:var(--text3); }
+.team-pending-reply .cancel:hover { color:var(--red); }
 .team-img { max-width:280px; max-height:200px; border-radius:4px; cursor:zoom-in; display:block;
     margin:4px 0 2px 0; border:1px solid var(--border); object-fit:contain; background:var(--bg); }
 .team-attach-btn { padding:0 9px; align-self:stretch; background:var(--surface2); border:1px solid var(--border);
@@ -756,6 +776,12 @@ body.dragging-split.col-resize { cursor:col-resize; }
                                 <span class="tt-pill" id="tt-tm1" onclick="setTeamTarget('tm1')">👤 <span class="tt-name">Виктория</span></span>
                                 <span class="tt-pill" id="tt-tm2" onclick="setTeamTarget('tm2')">👤 <span class="tt-name">Саша</span></span>
                                 <span class="tt-hint" id="tt-hint">по умолчанию AI Assistant — я подгружаю контекст из открытого модуля</span>
+                            </div>
+                            <div class="team-pending-reply" id="team-pending-reply">
+                                <span class="label">↩</span>
+                                <span class="nick" id="team-pending-reply-nick"></span>
+                                <span class="snippet" id="team-pending-reply-snippet"></span>
+                                <span class="cancel" onclick="_cancelTeamReply()">×</span>
                             </div>
                             <div class="team-attach-thumbs" id="team-attach-thumbs"></div>
                             <div class="team-composer">
@@ -1236,6 +1262,7 @@ var state = {
         lastSeenTs: null,    // newest ts at last "scrolled to bottom"
         sendTarget: 'ai',    // 'ai' = AI Assistant (LLM, default); 'tm0' = team member 0 (Тимур); 'tm1' = team member 1 (Виктория); 'tm2' = team member 2 (Саша). All messages still land in the shared room.
         pendingAttach: [],   // image dataURLs queued by 📎 / Ctrl+V, flushed into the body on next teamSend
+        pendingReplyTo: null, // {id, sender, snippet} — set by right-click "Ответить", consumed on next teamSend
     },
     refreshPromise: null,
     pendingUpdate: null,     // tauri-plugin-updater Update object when newer release detected
@@ -1642,7 +1669,7 @@ function renderTeamStream(){
         var isMine = (m.sender_nickname === mine);
         var isAi = (m.sender_nickname || '').startsWith('🤖');
         var cls = 'team-msg' + (isAi ? ' ai-llm' : (isMine ? ' mine' : ''));
-        html += '<div class="'+cls+'">'
+        html += '<div class="'+cls+'" oncontextmenu="_onTeamMsgContextMenu(event,\''+esc(m.id)+'\')">'
               + '<div class="team-msg-meta"><span class="nick">'+esc(m.sender_nickname||'anon')+'</span><span>'+esc(_fmtTime(m.created_at))+'</span></div>'
               + '<div class="team-msg-body">'+_renderTeamBody(m.body||'')+'</div>'
               + '</div>';
@@ -1820,18 +1847,126 @@ function _consumeAttachTokens(){
 // (click to open a fullscreen lightbox). All other text passes through esc.
 function _renderTeamBody(body){
     if(!body) return '';
+    // Pull leading reply-quote lines (one or more lines starting with `> `)
+    // and render them as a distinct visual quote-block above the body. The
+    // rest of the body is then rendered with normal image/text logic.
+    var quoteHtml = '';
+    var rest = body;
+    var qMatch = body.match(/^((?:>[^\n]*\n)+)/);
+    if(qMatch){
+        var qBlock = qMatch[1];
+        rest = body.slice(qBlock.length).replace(/^\n+/, '');
+        // Each `> @nick: text` line becomes its own quote line.
+        var lines = qBlock.split('\n').filter(function(s){ return s.length > 0; });
+        lines.forEach(function(line){
+            var inner = line.replace(/^>\s?/, '');
+            // Try to colour the @nick at start.
+            var nickMatch = inner.match(/^@([^:\s]+):\s*(.*)$/);
+            if(nickMatch){
+                quoteHtml += '<div class="team-reply-quote">'
+                    + '<span class="nick">@'+esc(nickMatch[1])+'</span>'
+                    + '<span class="snippet">'+esc(nickMatch[2])+'</span>'
+                    + '</div>';
+            } else {
+                quoteHtml += '<div class="team-reply-quote">'
+                    + '<span class="snippet">'+esc(inner)+'</span>'
+                    + '</div>';
+            }
+        });
+    }
     var re = /\[img:(data:image\/[a-zA-Z+.\-]+;base64,[A-Za-z0-9+/=]+)\]/g;
     var out = [];
     var last = 0;
     var m;
-    while((m = re.exec(body)) !== null){
-        if(m.index > last) out.push(esc(body.slice(last, m.index)));
+    while((m = re.exec(rest)) !== null){
+        if(m.index > last) out.push(esc(rest.slice(last, m.index)));
         // Safe: dataUrl content is base64, can't break out of attribute
         out.push('<img class="team-img" src="'+m[1]+'" onclick="openTeamImgLightbox(this.src)">');
         last = m.index + m[0].length;
     }
-    if(last < body.length) out.push(esc(body.slice(last)));
-    return out.join('');
+    if(last < rest.length) out.push(esc(rest.slice(last)));
+    return quoteHtml + out.join('');
+}
+
+// ---------- Reply-to (right-click on a message) ----------
+//
+// Right-click on a team message opens a tiny floating menu with "Ответить".
+// Selecting it stores the target in state.team.pendingReplyTo and shows a
+// preview strip above the composer. When the next message is sent, the
+// composer prepends a quote block `> @sender: snippet\n\n` to the body so
+// the server stays text-only and other clients render the quote in-band.
+
+function _onTeamMsgContextMenu(ev, msgId){
+    ev.preventDefault();
+    ev.stopPropagation();
+    var msg = (state.team.messages || []).filter(function(m){ return m.id === msgId; })[0];
+    if(!msg) return;
+    _closeTeamCtxMenu();
+    var menu = document.createElement('div');
+    menu.className = 'team-ctx-menu';
+    menu.id = 'team-ctx-menu';
+    menu.innerHTML = '<div class="item" onclick="_chooseReplyTo(\''+esc(msgId)+'\')">↩ Ответить</div>';
+    document.body.appendChild(menu);
+    // Position near click point but clamp inside the viewport.
+    var x = ev.clientX, y = ev.clientY;
+    var rect = menu.getBoundingClientRect();
+    if(x + rect.width  > window.innerWidth)  x = window.innerWidth  - rect.width  - 6;
+    if(y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 6;
+    menu.style.left = x + 'px';
+    menu.style.top  = y + 'px';
+    // Close on any outside click.
+    setTimeout(function(){
+        document.addEventListener('mousedown', _closeTeamCtxMenu, { once: true });
+    }, 0);
+}
+
+function _closeTeamCtxMenu(){
+    var m = document.getElementById('team-ctx-menu');
+    if(m) m.remove();
+}
+
+function _chooseReplyTo(msgId){
+    _closeTeamCtxMenu();
+    var msg = (state.team.messages || []).filter(function(m){ return m.id === msgId; })[0];
+    if(!msg) return;
+    // Strip any leading quote/img tokens from snippet preview.
+    var rawBody = (msg.body || '').replace(/^(?:>[^\n]*\n)+/, '').replace(/\[img:[^\]]+\]/g, '🖼').trim();
+    state.team.pendingReplyTo = {
+        id: msg.id,
+        sender: msg.sender_nickname || 'anon',
+        snippet: rawBody.slice(0, 90),
+    };
+    _renderPendingReply();
+    var ta = document.getElementById('team-input');
+    if(ta) ta.focus();
+}
+
+function _cancelTeamReply(){
+    state.team.pendingReplyTo = null;
+    _renderPendingReply();
+}
+
+function _renderPendingReply(){
+    var bar = document.getElementById('team-pending-reply');
+    if(!bar) return;
+    var p = state.team && state.team.pendingReplyTo;
+    if(!p){ bar.classList.remove('active'); return; }
+    bar.classList.add('active');
+    var nick = document.getElementById('team-pending-reply-nick');
+    var snip = document.getElementById('team-pending-reply-snippet');
+    if(nick) nick.textContent = p.sender;
+    if(snip) snip.textContent = p.snippet;
+}
+
+function _consumeReplyPrefix(){
+    var p = state.team && state.team.pendingReplyTo;
+    if(!p) return '';
+    // Quote block — server stays text-only, render parses it back as a
+    // visual quote on every client. One leading line per quote.
+    var line = '> @' + p.sender + ': ' + (p.snippet || '');
+    state.team.pendingReplyTo = null;
+    _renderPendingReply();
+    return line + '\n\n';
 }
 
 function openTeamImgLightbox(src){
@@ -2055,8 +2190,9 @@ async function teamSend(prefix){
     if(!ta) return;
     var text = (ta.value || '').trim();
     var atts = _consumeAttachTokens();
+    var reply = _consumeReplyPrefix();
     if(!text && !atts) return;
-    var body = (prefix ? prefix : '') + text + (atts ? (text ? '\n' : '') + atts : '');
+    var body = reply + (prefix ? prefix : '') + text + (atts ? (text ? '\n' : '') + atts : '');
     ta.disabled = true;
     try {
         var msg = await invoke('send_team_message', { body: body });
@@ -2085,12 +2221,13 @@ async function teamSendWithLlm(){
     if(!ta) return;
     var raw = (ta.value || '').trim();
     var atts = _consumeAttachTokens();
+    var reply = _consumeReplyPrefix();
     if(!raw && !atts) return;
     // Prepend a one-paragraph context snapshot from the active module so
     // the AI sees what Тимур is looking at without having to ask. Empty
     // string when nothing is selected (then the message is sent as-is).
     var ctx = captureViewContext();
-    var body = ctx + raw + (atts ? (raw ? '\n' : '') + atts : '');
+    var body = reply + ctx + raw + (atts ? (raw ? '\n' : '') + atts : '');
     var btn = document.getElementById('team-llm-btn');
     ta.disabled = true;
     if(btn){ btn.disabled = true; btn.textContent = '⏳'; }
