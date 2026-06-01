@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.73';
+var APP_VERSION='0.1.74';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -2620,7 +2620,26 @@ function _vizInitMap(){
 // Map view shows only signals that have ≥1 match, so the broker sees
 // actionable geography, not noise.
 function _vizCargoSignalMatchIndex(){
+    // Primary source: state.bazaarPairs (bazaar × bazaar pairs, the global
+    // signal index). state.inbox.bazaar_matches is broker-scoped own×bazaar
+    // and returns nothing if the broker has no own listings — which leaves
+    // the map empty. bxb pairs is what makes the map a market dashboard.
     var idx = {};
+    var pairs = (state.bazaarPairs || []);
+    pairs.forEach(function(p){
+        var cs = p.cargo_signal;
+        if(!cs || !cs.id) return;
+        if(!idx[cs.id]) idx[cs.id] = [];
+        idx[cs.id].push({
+            id: p.id,
+            score: p.score,
+            bazaar_cargo_signal: cs,
+            bazaar_tonnage_signal: p.tonnage_signal,
+            reasons: p.reasons,
+        });
+    });
+    // Fallback merge: also include own × bazaar matches if any are present —
+    // they participate in the same map view for brokers that have listings.
     var bm = (state.inbox && state.inbox.bazaar_matches) || [];
     bm.forEach(function(m){
         var cs = m.bazaar_cargo_signal;
@@ -4061,12 +4080,15 @@ function showView(name){
     if(name === 'mail'){
         refreshMail(false);
     }
-    // Визуализатор: карта рендерится из state.inbox.bazaar_matches (а не из
-    // signalsBrowse). Чтобы не было пустого окна, форсим оба refresh'а и
-    // только потом рисуем — fresh inbox + fresh signal feed.
+    // Визуализатор: карта рендерится из state.bazaarPairs (bxb pairs из
+    // /api/bazaar-pairs) — это глобальная картина базара. Дополняем
+    // state.inbox.bazaar_matches (own × bazaar) если есть. Чтобы не было
+    // пустого окна, форсим все нужные refresh'и параллельно.
     if(name === 'viz'){
+        var pairsEmpty = !(state.bazaarPairs && state.bazaarPairs.length);
         var inboxEmpty = !(state.inbox && state.inbox.bazaar_matches && state.inbox.bazaar_matches.length);
         var promises = [];
+        if(pairsEmpty)                  promises.push(refreshBazaarPairs());
         if(inboxEmpty)                  promises.push(refreshInbox());
         if(!state.signalsBrowse.loaded) promises.push(refreshSignalsBrowse());
         if(promises.length){
@@ -4151,6 +4173,11 @@ async function refreshBazaarPairs(){
     } catch(e){
         state.bazaarPairs = [];
         console.warn('bazaar-pairs fetch failed', e);
+    }
+    // Repaint the visualizer if it's the active view — fresh bxb pairs
+    // mean new pulsing dots without waiting for a manual re-open.
+    if(state.view === 'viz' && state.viz && state.viz.map){
+        try { renderVizMap(); } catch(_){}
     }
 }
 
