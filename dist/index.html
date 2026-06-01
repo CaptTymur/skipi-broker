@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.72';
+var APP_VERSION='0.1.73';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -2264,7 +2264,12 @@ async function teamSendWithLlm(){
 
 var PORT_COORDS = {
     "constanta":[44.17,28.65], "constantza":[44.17,28.65], "burgas":[42.50,27.47],
-    "varna":[43.21,27.92], "odessa":[46.49,30.74], "yuzhny":[46.62,31.10],
+    "varna":[43.21,27.92], "odessa":[46.49,30.74], "odesa":[46.49,30.74], "yuzhny":[46.62,31.10],
+    "chornomorsk":[46.27,30.65], "illichevsk":[46.31,30.66], "pivdennyi":[46.62,31.10],
+    "kandla":[22.97,70.22], "mundra":[22.83,69.72], "paradip":[20.27,86.61], "visakhapatnam":[17.69,83.30],
+    "chennai":[13.08,80.27], "tuticorin":[8.78,78.13], "krishnapatnam":[14.27,80.13], "mumbai":[18.94,72.84],
+    "dar es salaam":[-6.80,39.30], "tanga":[-5.07,39.10], "mtwara":[-10.27,40.18],
+    "fos":[43.43,4.95], "marseille":[43.30,5.36],
     "novorossiysk":[44.72,37.78], "tuapse":[44.10,39.07], "kavkaz":[45.34,36.69],
     "yeisk":[46.71,38.27], "rostov":[47.23,39.72], "taganrog":[47.22,38.91],
     "mariupol":[47.10,37.55], "kerch":[45.36,36.47], "sevastopol":[44.62,33.53],
@@ -4056,10 +4061,16 @@ function showView(name){
     if(name === 'mail'){
         refreshMail(false);
     }
-    // Визуализатор reuses the same dataset; auto-load if empty, else paint.
+    // Визуализатор: карта рендерится из state.inbox.bazaar_matches (а не из
+    // signalsBrowse). Чтобы не было пустого окна, форсим оба refresh'а и
+    // только потом рисуем — fresh inbox + fresh signal feed.
     if(name === 'viz'){
-        if(!state.signalsBrowse.loaded){
-            refreshSignalsBrowse().then(function(){ setTimeout(renderVizMap, 50); });
+        var inboxEmpty = !(state.inbox && state.inbox.bazaar_matches && state.inbox.bazaar_matches.length);
+        var promises = [];
+        if(inboxEmpty)                  promises.push(refreshInbox());
+        if(!state.signalsBrowse.loaded) promises.push(refreshSignalsBrowse());
+        if(promises.length){
+            Promise.all(promises).then(function(){ setTimeout(renderVizMap, 50); });
         } else {
             setTimeout(renderVizMap, 50);
         }
