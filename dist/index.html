@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.76';
+var APP_VERSION='0.1.77';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -632,6 +632,16 @@ body.dragging-split.col-resize { cursor:col-resize; }
     border:1px solid transparent; }
 .mail-tab:hover { background:var(--surface); color:var(--text); }
 .mail-tab.active { background:var(--surface); color:var(--text); border-color:var(--border); font-weight:600; }
+.mch-tab { padding:3px 8px; border-radius:3px; cursor:pointer; color:var(--text2);
+    border:1px solid transparent; user-select:none; }
+.mch-tab:hover { background:var(--surface2); color:var(--text); }
+.mch-tab.active { background:var(--surface2); color:var(--text); border-color:var(--accent); }
+.mch-tab .mch-n { color:var(--text3); font-size:10px; margin-left:2px; }
+.mch-pill { display:inline-block; font-size:9px; padding:0 4px; border-radius:3px;
+    background:rgba(124,111,247,0.12); color:var(--accent); margin-right:4px; }
+.mch-pill-drybulk { background:rgba(78,201,112,0.12); color:var(--green); }
+.mch-pill-info    { background:rgba(91,155,224,0.12); color:var(--blue); }
+.mch-pill-broker  { background:rgba(124,111,247,0.12); color:var(--accent); }
 .compose-from-row { padding:8px 12px; background:var(--surface); border:1px solid var(--border);
     border-radius:3px; font-size:11px; color:var(--text2); margin-bottom:10px;
     display:flex; align-items:center; gap:8px; }
@@ -1123,6 +1133,12 @@ body.dragging-split.col-resize { cursor:col-resize; }
                     <span class="count" id="mail-count">0</span>
                     <span class="p2-refresh" id="mail-refresh" title="Обновить (poll IMAP)" onclick="refreshMail(true)">🔄</span>
                     <span class="p2-refresh" title="Написать новое" onclick="openMailCompose()">✏</span>
+                </div>
+                <div id="mail-channel-tabs" style="display:flex; gap:2px; padding:6px 10px; background:var(--surface); border-bottom:1px solid var(--border); font-size:11px; flex-wrap:wrap;">
+                    <span class="mch-tab active" data-ch="all"     onclick="switchMailChannel('all')"     title="Все каналы">🌐 Все <span class="mch-n" id="mch-n-all">·</span></span>
+                    <span class="mch-tab"        data-ch="drybulk" onclick="switchMailChannel('drybulk')" title="Outreach Wave — drybulk@montlinechartering.com">🚢 drybulk <span class="mch-n" id="mch-n-drybulk">·</span></span>
+                    <span class="mch-tab"        data-ch="info"    onclick="switchMailChannel('info')"    title="Группа info@montlinechartering.com">📨 info <span class="mch-n" id="mch-n-info">·</span></span>
+                    <span class="mch-tab"        data-ch="broker"  onclick="switchMailChannel('broker')"  title="Личная переписка broker@capt-tymur.com">📥 broker <span class="mch-n" id="mch-n-broker">·</span></span>
                 </div>
                 <div class="signals-table-wrap" id="mail-list-body" style="overflow-y:auto;"></div>
             </div>
@@ -3513,7 +3529,7 @@ async function refreshCounterpartFlags(){
 }
 
 // ---------- View 📧 Почта — shared drybulk@ inbox via server ----------
-state.mail = state.mail || { messages: [], loaded: false, selectedId: null, currentMsg: null, folder: 'INBOX' };
+state.mail = state.mail || { messages: [], loaded: false, selectedId: null, currentMsg: null, folder: 'INBOX', channel: 'all' };
 
 function switchMailFolder(folder){
     if(state.mail.folder === folder) return;
@@ -3541,7 +3557,9 @@ async function refreshMail(forcePoll){
         if(forcePoll){
             try { await invoke('poll_mail'); } catch(e){ /* server may be down */ }
         }
-        var data = await invoke('fetch_mail_inbox', { folder:folder, limit:100 });
+        // Always fetch all channels — filter locally so the per-channel
+        // tabs can update their counts without a round-trip.
+        var data = await invoke('fetch_mail_inbox', { folder:folder, channel:'all', limit:200 });
         if(data && Array.isArray(data.messages)){
             state.mail.messages = data.messages;
             state.mail.loaded = true;
@@ -3551,11 +3569,39 @@ async function refreshMail(forcePoll){
     finally { if(btn) btn.classList.remove('spinning'); }
 }
 
+function switchMailChannel(ch){
+    state.mail.channel = ch;
+    state.mail.selectedId = null;
+    state.mail.currentMsg = null;
+    var dbody = document.getElementById('mail-detail-body');
+    var dtitle = document.getElementById('mail-detail-title');
+    var replyBtn = document.getElementById('mail-reply-btn');
+    if(dtitle) dtitle.textContent = 'Выбери письмо слева';
+    if(dbody) dbody.innerHTML = '<div style="color:var(--text3); font-size:12px; padding:40px; text-align:center;">Выбери письмо из этого канала.</div>';
+    if(replyBtn) replyBtn.style.display = 'none';
+    // Toggle visual active state on channel tabs
+    var tabs = document.querySelectorAll('#mail-channel-tabs .mch-tab');
+    tabs.forEach(function(t){ t.classList.toggle('active', t.getAttribute('data-ch') === ch); });
+    renderMailList();
+}
+
 function renderMailList(){
     var body = document.getElementById('mail-list-body');
     var count = document.getElementById('mail-count');
     var badge = document.getElementById('mail-badge');
-    var msgs = state.mail.messages || [];
+    var allMsgs = state.mail.messages || [];
+    // Per-channel counters in tab strip
+    var byCh = { all: allMsgs.length, drybulk: 0, info: 0, broker: 0 };
+    allMsgs.forEach(function(m){
+        var c = m.channel || 'broker';
+        if(byCh[c] !== undefined) byCh[c]++;
+    });
+    ['all','drybulk','info','broker'].forEach(function(k){
+        var el = document.getElementById('mch-n-'+k);
+        if(el) el.textContent = byCh[k] || 0;
+    });
+    var ch = state.mail.channel || 'all';
+    var msgs = ch === 'all' ? allMsgs : allMsgs.filter(function(m){ return (m.channel || 'broker') === ch; });
     if(count) count.textContent = msgs.length;
     var unread = msgs.filter(function(m){ return !m.is_read; }).length;
     if(badge){
@@ -3564,7 +3610,7 @@ function renderMailList(){
     }
     if(!body) return;
     if(msgs.length === 0){
-        body.innerHTML = '<div style="padding:30px; text-align:center; color:var(--text3); font-size:11px;">Inbox пуст. Нажми 🔄 чтобы запросить опрос IMAP.</div>';
+        body.innerHTML = '<div style="padding:30px; text-align:center; color:var(--text3); font-size:11px;">В этом канале писем нет. Нажми 🔄 чтобы запросить опрос IMAP.</div>';
         return;
     }
     var isSent = state.mail.folder === 'SENT';
@@ -3582,8 +3628,13 @@ function renderMailList(){
         var weight = (isSent || m.is_read) ? '400' : '600';
         var sel = state.mail.selectedId === m.id ? 'border-left:3px solid var(--accent);' : '';
         var flagSource = isSent ? (m.to || '') : m.from;
+        var ch = m.channel || 'broker';
+        var chIcon = ch === 'drybulk' ? '🚢' : (ch === 'info' ? '📨' : '📥');
+        var chTag = (state.mail.channel === 'all')
+            ? '<span class="mch-pill mch-pill-'+ch+'" title="канал: '+ch+'">'+chIcon+'</span>'
+            : '';
         return '<div onclick="openMailMessage(\''+esc(m.id)+'\')" style="padding:7px 10px; cursor:pointer; border-bottom:1px solid var(--border); '+unr+' '+sel+'">'
-            +   '<div style="font-size:11px; font-weight:'+weight+'; color:var(--text);">'+header+'</div>'
+            +   '<div style="font-size:11px; font-weight:'+weight+'; color:var(--text);">'+chTag+' '+header+'</div>'
             +   '<div style="font-size:11px; color:var(--text2); margin-top:2px;">'+subj+renderFlagBadges(flagSource, 'compact')+'</div>'
             +   '<div style="font-size:10px; color:var(--text3); margin-top:2px;">'+dt+'</div>'
             + '</div>';

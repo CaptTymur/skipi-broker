@@ -515,17 +515,22 @@ async fn fetch_bazaar_signal_list(
     request_api(&state, s, reqwest::Method::GET, path, None).await
 }
 
-/// Mail: list cached messages from drybulk@ shared inbox.
+/// Mail: list cached messages from broker@ inbox, optionally filtered by
+/// channel (drybulk | info | broker | all=None).
 #[tauri::command]
 async fn fetch_mail_inbox(
     state: tauri::State<'_, AppState>,
     folder: Option<String>,
+    channel: Option<String>,
     limit: Option<u32>,
 ) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let f = folder.unwrap_or_else(|| "INBOX".to_string());
-    let lim = limit.unwrap_or(50);
-    let path = format!("/api/mail/messages?folder={}&limit={}", f, lim);
+    let lim = limit.unwrap_or(100);
+    let path = match channel.as_deref() {
+        Some(c) if c != "all" => format!("/api/mail/messages?folder={}&channel={}&limit={}", f, c, lim),
+        _ => format!("/api/mail/messages?folder={}&limit={}", f, lim),
+    };
     request_api(&state, s, reqwest::Method::GET, path, None).await
 }
 
