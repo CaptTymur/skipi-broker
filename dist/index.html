@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.74';
+var APP_VERSION='0.1.75';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -4296,7 +4296,10 @@ function renderSelectedSignalDetail(){
         if(meta) meta.textContent = '';
         return;
     }
-    // Locate the signal object via any match referencing it.
+    // Locate the signal object via any match/pair referencing it. Search
+    // both state.inbox.bazaar_matches (own × bazaar) and state.bazaarPairs
+    // (global bxb) — Тимур-style brokers without own listings rely on the
+    // second source for the entire signals universe.
     var sig = null, kind = selSig.kind;
     (state.inbox.bazaar_matches || []).some(function(m){
         var s = m.bazaar_cargo_signal || m.bazaar_tonnage_signal;
@@ -4304,6 +4307,17 @@ function renderSelectedSignalDetail(){
         if(s && s.id === selSig.id && k === selSig.kind){ sig = s; return true; }
         return false;
     });
+    if(!sig){
+        (state.bazaarPairs || []).some(function(p){
+            if(selSig.kind === 'cargo' && p.cargo_signal && p.cargo_signal.id === selSig.id){
+                sig = p.cargo_signal; return true;
+            }
+            if(selSig.kind === 'tonnage' && p.tonnage_signal && p.tonnage_signal.id === selSig.id){
+                sig = p.tonnage_signal; return true;
+            }
+            return false;
+        });
+    }
     if(!sig){
         // Stale selection — the user had a signal selected that's no longer
         // referenced by any active match (e.g. after a cleanup or rebuild).
