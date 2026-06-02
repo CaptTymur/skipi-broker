@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.75';
+var APP_VERSION='0.1.76';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -150,6 +150,8 @@ document.addEventListener('DOMContentLoaded', function(){
         }
     } catch(_){}
     if(typeof _renderSoundBtn === 'function') _renderSoundBtn();
+    // Hydrate Лиды badge from localStorage so the count shows on app boot.
+    if(typeof _renderLeadsBadge === 'function') _renderLeadsBadge();
 });
 </script>
 <style>
@@ -305,6 +307,36 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .view-lead-stack { flex-direction:column; }
 .view-signals-stack { flex-direction:column; }
 .view-viz-stack { flex-direction:row; }
+/* 📋 Лиды module — grid of cards taken from Совпадения */
+.view-leads2-stack { flex-direction:column; }
+.leads2-toolbar { display:flex; align-items:center; gap:8px; padding:6px 12px; height:30px;
+    background:var(--surface); border-bottom:1px solid var(--border); flex-shrink:0; }
+.leads2-grid { flex:1; overflow-y:auto; padding:12px; display:grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap:12px; align-content:start; }
+.lead2-card { background:var(--surface); border:1px solid var(--border); border-radius:6px;
+    padding:10px 12px; display:flex; flex-direction:column; gap:7px; }
+.lead2-card .l2-route { font-size:13px; font-weight:600; color:var(--text); line-height:1.3; }
+.lead2-card .l2-cargo { font-size:11px; color:var(--text2); line-height:1.35; }
+.lead2-card .l2-vessel { font-size:11px; color:var(--text2); line-height:1.35; }
+.lead2-card .l2-vessel b { color:var(--text); font-weight:500; }
+.lead2-card .l2-meta { font-size:10px; color:var(--text3); display:flex; gap:8px; }
+.lead2-card .l2-meta .score { color:var(--accent); font-weight:600; }
+/* Mini SVG route preview: 240x90 px world strip with two dots and a dashed line. */
+.lead2-mini { height:90px; background:#0a1320; border-radius:4px; overflow:hidden; position:relative;
+    border:1px solid var(--border); }
+[data-theme="light"] .lead2-mini { background:#e6edf5; }
+.lead2-mini svg { width:100%; height:100%; display:block; }
+.lead2-actions { display:flex; gap:6px; margin-top:4px; }
+.lead2-actions button { padding:4px 9px; font-size:10px; background:var(--surface2); border:1px solid var(--border);
+    border-radius:3px; cursor:pointer; color:var(--text); }
+.lead2-actions button:hover { border-color:var(--accent); color:var(--accent); }
+.lead2-actions button.danger:hover { border-color:var(--red); color:var(--red); }
+/* "Взять в работу" button injected under col 4 detail */
+.take-lead-row { padding:8px 10px; border-top:1px solid var(--border); }
+.take-lead-btn { padding:6px 12px; font-size:11px; background:var(--accent); color:#fff; border:none;
+    border-radius:4px; cursor:pointer; font-weight:600; }
+.take-lead-btn:hover { opacity:.9; }
+.take-lead-btn:disabled { opacity:.5; cursor:default; }
 .view-team-stack { flex-direction:column; }
 .team-fullscreen-wrap { flex:1; display:flex; flex-direction:column; max-width:1100px; width:100%;
     margin:0 auto; padding:14px 20px; min-height:0; }
@@ -699,6 +731,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
 <div class="modules-bar">
     <div class="mod-tab active" id="nav-ex" onclick="showView('ex')"><span data-i18n="nav.exclusives">📋 Эксклюзивы</span></div>
     <div class="mod-tab" id="nav-match" onclick="showView('match')"><span data-i18n="nav.matches">🎯 Совпадения</span> <span id="match-badge" class="count" style="display:none;"></span></div>
+    <div class="mod-tab" id="nav-leads2" onclick="showView('leads2')"><span>📋 Лиды</span> <span id="leads2-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-signals" onclick="showView('signals')"><span data-i18n="nav.signals">🛒 Сигналы</span> <span id="signals-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-dedup" onclick="showView('dedup')"><span data-i18n="nav.duplicates">🔍 Дедупликатор</span> <span id="dedup-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-partners" onclick="showView('partners')"><span data-i18n="nav.counterparts">🤝 Контрагенты</span> <span id="partners-badge" class="count" style="display:none;"></span></div>
@@ -1146,6 +1179,18 @@ body.dragging-split.col-resize { cursor:col-resize; }
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- View 4b: Лиды — пары, которые Тимур «взял в работу». Локально хранятся
+         в localStorage (snapshot пары), backend изменения не требуют. -->
+    <div class="view-pane view-leads2-stack" id="view-leads2" style="display:none;">
+        <div class="leads2-toolbar">
+            <span style="font-size:11px; color:var(--text2);">📋 Активные лиды</span>
+            <span class="count" id="leads2-count-inline">0</span>
+            <span style="flex:1;"></span>
+            <span style="font-size:10px; color:var(--text3);">из модуля Совпадения — кнопка «▶ Взять в работу»</span>
+        </div>
+        <div class="leads2-grid" id="leads2-grid"></div>
     </div>
 
     <!-- View 5: Команда — full-screen group chat where team members + LLM
@@ -1967,6 +2012,190 @@ function _consumeReplyPrefix(){
     state.team.pendingReplyTo = null;
     _renderPendingReply();
     return line + '\n\n';
+}
+
+// ---------- 📋 Лиды (active leads taken from Совпадения) ----------
+//
+// Lead = snapshot of a bxb pair the broker chose to «take into work». Stored
+// locally in localStorage as a JSON array of {id, cargo_signal, tonnage_signal,
+// score, taken_at}. No server roundtrip — under Posidonia urgency Тимур needs
+// this NOW; backend persistence can be added later.
+
+var LEADS_KEY = 'skipi-broker-leads-v1';
+
+function _loadLeads(){
+    try {
+        var raw = localStorage.getItem(LEADS_KEY);
+        if(!raw) return [];
+        var parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch(_){ return []; }
+}
+
+function _saveLeads(arr){
+    try { localStorage.setItem(LEADS_KEY, JSON.stringify(arr)); } catch(_){}
+}
+
+function _getLeads(){
+    if(!state.takenLeads) state.takenLeads = _loadLeads();
+    return state.takenLeads;
+}
+
+function takeLeadFromPair(pairId){
+    var p = (state.bazaarPairs || []).filter(function(x){ return x.id === pairId; })[0];
+    if(!p) { showToast('Не нашёл пару', 'error'); return; }
+    var leads = _getLeads();
+    if(leads.some(function(l){ return l.id === pairId; })){
+        showToast('Этот лид уже в работе', 'ok');
+        return;
+    }
+    var snap = {
+        id: p.id,
+        score: p.score,
+        cargo_signal: p.cargo_signal,
+        tonnage_signal: p.tonnage_signal,
+        reasons: p.reasons,
+        taken_at: new Date().toISOString(),
+    };
+    leads.unshift(snap);
+    state.takenLeads = leads;
+    _saveLeads(leads);
+    showToast('✅ Лид взят в работу. Открой 📋 Лиды.', 'ok');
+    _renderLeadsBadge();
+    _updateTakeLeadButton();
+}
+
+function removeLead(leadId){
+    var leads = _getLeads().filter(function(l){ return l.id !== leadId; });
+    state.takenLeads = leads;
+    _saveLeads(leads);
+    _renderLeadsBadge();
+    renderLeads2View();
+    _updateTakeLeadButton();
+}
+
+function _renderLeadsBadge(){
+    var el = document.getElementById('leads2-badge');
+    var inline = document.getElementById('leads2-count-inline');
+    var n = _getLeads().length;
+    if(el){
+        if(n > 0){ el.textContent = n; el.style.display = ''; }
+        else el.style.display = 'none';
+    }
+    if(inline) inline.textContent = n;
+}
+
+function _updateTakeLeadButton(){
+    var btn = document.getElementById('take-lead-btn');
+    if(!btn) return;
+    var pid = state.selectedPair;
+    var already = pid && _getLeads().some(function(l){ return l.id === pid; });
+    btn.disabled = !pid || already;
+    btn.textContent = already ? '✓ В работе' : '▶ Взять в работу';
+}
+
+// SVG mini-map: shows a tiny rectangle with two dots (load / disch) and a
+// dashed line between them. World coordinates are clamped to a [-180..180,
+// 90..-90] frame; for routes that span the antimeridian we still project
+// linearly (good enough for preview, not for accuracy).
+function _miniRouteSvg(loadCoord, dischCoord){
+    if(!loadCoord && !dischCoord){
+        return '<div style="color:var(--text3); font-size:10px; text-align:center; padding:32px 0;">порты без координат</div>';
+    }
+    var w = 320, h = 90, pad = 10;
+    function proj(c){
+        if(!c) return null;
+        // lat = c[0], lon = c[1]; map to SVG: lon → x, -lat → y
+        var x = pad + ((c[1] + 180) / 360) * (w - 2*pad);
+        var y = pad + ((90 - c[0]) / 180) * (h - 2*pad);
+        return [x, y];
+    }
+    var p1 = proj(loadCoord), p2 = proj(dischCoord);
+    var parts = [];
+    parts.push('<rect x="0" y="0" width="'+w+'" height="'+h+'" fill="transparent"/>');
+    if(p1 && p2){
+        parts.push('<line x1="'+p1[0]+'" y1="'+p1[1]+'" x2="'+p2[0]+'" y2="'+p2[1]+'"'
+            + ' stroke="#7c6ff7" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.7"/>');
+    }
+    if(p1){
+        parts.push('<circle cx="'+p1[0]+'" cy="'+p1[1]+'" r="5" fill="#4ec970" stroke="#fff" stroke-width="1.2"/>');
+    }
+    if(p2){
+        parts.push('<circle cx="'+p2[0]+'" cy="'+p2[1]+'" r="4" fill="#e55561" stroke="#fff" stroke-width="1"/>');
+    }
+    return '<svg viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="xMidYMid meet">'+parts.join('')+'</svg>';
+}
+
+function renderLeads2View(){
+    var host = document.getElementById('leads2-grid');
+    if(!host) return;
+    var leads = _getLeads();
+    _renderLeadsBadge();
+    if(leads.length === 0){
+        host.innerHTML = '<div class="col-empty" style="grid-column: 1 / -1; padding:32px 16px;">'
+            + 'Пока нет активных лидов.<br>'
+            + '<span style="color:var(--text3); font-size:11px;">Открой 🎯 Совпадения, кликни по паре, нажми «▶ Взять в работу».</span>'
+            + '</div>';
+        return;
+    }
+    host.innerHTML = leads.map(function(l){
+        var c = l.cargo_signal || {};
+        var t = l.tonnage_signal || {};
+        var loadC = _portCoords(c.load_port);
+        var dischC = _portCoords(c.disch_port);
+        var routeText = (c.cargo_type || 'cargo') + ' ' + (c.quantity_mt || '?') + ' MT '
+            + 'from ' + (c.load_port || '?') + ' to ' + (c.disch_port || '?');
+        var vesselText = (t.vessel_name || t.vessel_type || '?')
+            + (t.dwt ? ' / '+t.dwt+' DWT' : '')
+            + (t.open_port ? ' @ '+t.open_port : '');
+        var posted = c.posted_by_email || t.posted_by_email || '—';
+        var cargoEmail = c.posted_by_email || '';
+        var tonnageEmail = t.posted_by_email || '';
+        var contactBtn = '';
+        if(cargoEmail){
+            contactBtn += '<button onclick="window.open(\'mailto:'+esc(cargoEmail)+'\')">✉ Cargo</button>';
+        }
+        if(tonnageEmail && tonnageEmail !== cargoEmail){
+            contactBtn += '<button onclick="window.open(\'mailto:'+esc(tonnageEmail)+'\')">✉ Vessel</button>';
+        }
+        return '<div class="lead2-card">'
+            + '<div class="l2-route">'+esc(routeText)+'</div>'
+            + '<div class="l2-cargo">📦 ' + esc(c.cargo_type || '?') + ', ' + esc((c.quantity_mt || '?')+' MT')
+                + (c.laycan_from ? ' · laycan ' + esc((c.laycan_from || '').slice(0,10)) : '') + '</div>'
+            + '<div class="l2-vessel">🚢 <b>m/v ' + esc(t.vessel_name || t.vessel_type || '?') + '</b>'
+                + (t.dwt ? ', ' + esc(t.dwt+' DWT') : '')
+                + (t.open_port ? ' @ ' + esc(t.open_port) : '')
+                + '</div>'
+            + '<div class="lead2-mini">'+_miniRouteSvg(loadC, dischC)+'</div>'
+            + '<div class="l2-meta">'
+                + '<span class="score">score '+esc(String(l.score || '?'))+'</span>'
+                + '<span>·</span><span>взят '+esc((l.taken_at || '').slice(0,16).replace('T',' '))+'</span>'
+                + '<span>·</span><span>'+esc(posted)+'</span>'
+            + '</div>'
+            + '<div class="lead2-actions">'
+                + '<button onclick="showLeadOnMap(\''+esc(l.id)+'\')">👁 На карте</button>'
+                + contactBtn
+                + '<button class="danger" onclick="if(confirm(\'Убрать лид?\'))removeLead(\''+esc(l.id)+'\')">🗑 Убрать</button>'
+            + '</div>'
+            + '</div>';
+    }).join('');
+}
+
+function showLeadOnMap(leadId){
+    var l = _getLeads().filter(function(x){ return x.id === leadId; })[0];
+    if(!l) return;
+    state._vizFocusLead = l;
+    showView('viz');
+    setTimeout(function(){
+        if(!state.viz || !state.viz.map) return;
+        var loadC = _portCoords((l.cargo_signal || {}).load_port);
+        var dischC = _portCoords((l.cargo_signal || {}).disch_port);
+        if(loadC && dischC){
+            state.viz.map.fitBounds([loadC, dischC], { padding:[60,60] });
+        } else if(loadC){
+            state.viz.map.setView(loadC, 5);
+        }
+    }, 200);
 }
 
 function openTeamImgLightbox(src){
@@ -4001,7 +4230,7 @@ function openSignalDetail(kind, id){
 
 // ---------- View switching (Эксклюзивы ↔ Совпадения ↔ Сигналы) ----------
 function showView(name){
-    if(name !== 'ex' && name !== 'match' && name !== 'signals' && name !== 'dedup' && name !== 'partners' && name !== 'viz' && name !== 'mail' && name !== 'team') return;
+    if(name !== 'ex' && name !== 'match' && name !== 'signals' && name !== 'dedup' && name !== 'partners' && name !== 'viz' && name !== 'mail' && name !== 'team' && name !== 'leads2') return;
     state.view = name;
     // Tear down the focused-lead view if it's open — user is leaving it.
     if(state.activeLeadId){
@@ -4024,6 +4253,8 @@ function showView(name){
     if(vmail) vmail.style.display = (name === 'mail') ? '' : 'none';
     var vteam = document.getElementById('view-team');
     if(vteam) vteam.style.display = (name === 'team') ? '' : 'none';
+    var vleads2 = document.getElementById('view-leads2');
+    if(vleads2) vleads2.style.display = (name === 'leads2') ? '' : 'none';
     var navEx = document.getElementById('nav-ex');
     var navMatch = document.getElementById('nav-match');
     var navSig = document.getElementById('nav-signals');
@@ -4032,6 +4263,8 @@ function showView(name){
     var navViz = document.getElementById('nav-viz');
     var navMail = document.getElementById('nav-mail');
     var navTeam = document.getElementById('nav-team');
+    var navLeads2 = document.getElementById('nav-leads2');
+    if(navLeads2) navLeads2.classList.toggle('active', name === 'leads2');
     if(navEx) navEx.classList.toggle('active', name === 'ex');
     if(navMatch) navMatch.classList.toggle('active', name === 'match');
     if(navSig) navSig.classList.toggle('active', name === 'signals');
@@ -4079,6 +4312,10 @@ function showView(name){
     // 📧 Почта — load inbox on tab open
     if(name === 'mail'){
         refreshMail(false);
+    }
+    // 📋 Лиды — render taken leads grid
+    if(name === 'leads2'){
+        renderLeads2View();
     }
     // Визуализатор: карта рендерится из state.bazaarPairs (bxb pairs из
     // /api/bazaar-pairs) — это глобальная картина базара. Дополняем
@@ -4573,7 +4810,16 @@ function renderOppositeSignalDetail(){
         html += '<div class="detail-block">'+reasonRows+'</div>';
     }
 
+    // ▶ Взять в работу — converts the chain into a Лид (localStorage)
+    // and surfaces it in the 📋 Лиды module. Disabled if the user has
+    // already taken this lead.
+    html += '<div class="take-lead-row" style="margin-top:18px; padding-top:14px; border-top:1px solid var(--border); display:flex; align-items:center; gap:10px;">'
+        + '<button id="take-lead-btn" class="take-lead-btn" onclick="takeLeadFromPair(state.selectedPair)">▶ Взять в работу</button>'
+        + '<span style="font-size:10px; color:var(--text3);">создаёт активный лид → 📋 Лиды</span>'
+        + '</div>';
+
     body.innerHTML = html;
+    _updateTakeLeadButton();
 }
 
 function renderMatchesForSelectedSignal(){
