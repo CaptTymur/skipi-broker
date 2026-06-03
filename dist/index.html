@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.80';
+var APP_VERSION='0.1.81';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -785,10 +785,19 @@ body.dragging-split.col-resize { cursor:col-resize; }
 .desk-member .dm-case .dmc-status { font-size:9px; color:var(--text3); }
 .desk-member .dm-empty { padding:14px; text-align:center; color:var(--text3); font-size:10px; }
 
-.case-detail-overlay { position:fixed; inset:0; background:rgba(0,0,0,.72); z-index:200;
-    display:flex; align-items:center; justify-content:center; padding:30px; }
-.case-detail-panel { background:var(--bg); border:1px solid var(--border); border-radius:6px;
-    max-width:880px; width:100%; max-height:90vh; display:flex; flex-direction:column; overflow:hidden; }
+/* Inline detail (Tymur 2026-06-03): occupies the whole 📂 Дела view, not a
+   modal overlay — so the broker stays «in the office», sees the main nav
+   and feels like they walked into one case, not into a separate window. */
+.case-detail-inline { flex:1; display:flex; flex-direction:column; overflow:hidden; background:var(--bg); }
+.cases-back-btn { font-size:11px; color:var(--accent); cursor:pointer; padding:4px 8px;
+    border:1px solid var(--border); border-radius:3px; user-select:none; }
+.cases-back-btn:hover { background:var(--surface2); border-color:var(--accent); }
+/* Re-aliased — keep old selectors so existing template strings still hit. */
+.case-detail-inline .cd-head,
+.case-detail-inline .cd-meta,
+.case-detail-inline .cd-body,
+.case-detail-inline .cd-add { display:flex; }
+.case-detail-inline .cd-body { display:block; flex:1; overflow-y:auto; }
 .case-detail-panel .cd-head { padding:14px 18px; border-bottom:1px solid var(--border);
     display:flex; align-items:center; gap:10px; }
 .case-detail-panel .cd-title { font-size:14px; font-weight:600; color:var(--text); flex:1; }
@@ -1373,7 +1382,8 @@ body.ctx-bar-visible .view-pane { padding-bottom:46px; }
          status changes, LLM-history with full context. Created from
          Совпадения, Лиды, Почта, Контрагенты — or empty from this view. -->
     <div class="view-pane view-leads2-stack" id="view-cases" style="display:none;">
-        <div class="cases-toolbar">
+        <!-- Toolbar — shows mode tabs in browse mode, back-button in detail mode. -->
+        <div class="cases-toolbar" id="cases-toolbar-browse">
             <span style="font-size:11px; color:var(--text2);">📂 Дела (cases)</span>
             <span class="count" id="cases-count-inline">0</span>
             <span class="cases-mode-tabs">
@@ -1383,13 +1393,14 @@ body.ctx-bar-visible .view-pane { padding-bottom:46px; }
             <span style="flex:1;"></span>
             <button class="btn btn-accent" onclick="createEmptyCase()" style="font-size:11px; padding:4px 10px;">＋ Новое дело</button>
         </div>
-        <!-- Either list (cards grid) or desk (team members with their cases overhead). -->
+        <div class="cases-toolbar" id="cases-toolbar-detail" style="display:none;">
+            <span class="cases-back-btn" onclick="closeCaseDetail()">← К списку</span>
+            <span id="cases-breadcrumb" style="font-size:11px; color:var(--text2);">📂 Дела / <span id="cases-bc-title" style="color:var(--text); font-weight:600;">…</span></span>
+        </div>
+        <!-- Either list (cards grid) or desk view, or — when a case is open — the inline detail pane. -->
         <div class="cases-list-view" id="cases-list-view"></div>
         <div class="cases-desk-view" id="cases-desk-view" style="display:none;"></div>
-        <!-- Case detail panel overlays when a case is selected. -->
-        <div id="case-detail-overlay" class="case-detail-overlay" style="display:none;" onclick="if(event.target===this)closeCaseDetail()">
-            <div class="case-detail-panel" id="case-detail-panel"></div>
-        </div>
+        <div class="case-detail-inline case-detail-panel" id="case-detail-panel" style="display:none;"></div>
     </div>
 
     <!-- View 5: Команда — full-screen group chat where team members + LLM
@@ -2811,16 +2822,39 @@ function _renderCasesDesk(){
 function openCaseDetail(id){
     CASES_UI.activeId = id;
     var c = _findCase(id);
-    var overlay = document.getElementById('case-detail-overlay');
-    if(!c || !overlay) return;
-    overlay.style.display = 'flex';
+    if(!c){ closeCaseDetail(); return; }
+    // Hide list/desk + browse toolbar, show detail + detail toolbar.
+    var list = document.getElementById('cases-list-view');
+    var desk = document.getElementById('cases-desk-view');
+    var panel = document.getElementById('case-detail-panel');
+    var tbb = document.getElementById('cases-toolbar-browse');
+    var tbd = document.getElementById('cases-toolbar-detail');
+    var bc = document.getElementById('cases-bc-title');
+    if(list) list.style.display = 'none';
+    if(desk) desk.style.display = 'none';
+    if(panel) panel.style.display = '';
+    if(tbb) tbb.style.display = 'none';
+    if(tbd) tbd.style.display = 'flex';
+    if(bc) bc.textContent = c.title || '(без названия)';
     _renderCaseDetail();
 }
 
 function closeCaseDetail(){
-    var overlay = document.getElementById('case-detail-overlay');
-    if(overlay) overlay.style.display = 'none';
+    var list = document.getElementById('cases-list-view');
+    var desk = document.getElementById('cases-desk-view');
+    var panel = document.getElementById('case-detail-panel');
+    var tbb = document.getElementById('cases-toolbar-browse');
+    var tbd = document.getElementById('cases-toolbar-detail');
+    if(panel) panel.style.display = 'none';
+    if(tbd) tbd.style.display = 'none';
+    if(tbb) tbb.style.display = 'flex';
+    if(CASES_UI.mode === 'desk'){
+        if(desk) desk.style.display = '';
+    } else {
+        if(list) list.style.display = '';
+    }
     CASES_UI.activeId = null;
+    renderCasesView();
 }
 
 function _renderCaseDetail(){
@@ -2852,8 +2886,7 @@ function _renderCaseDetail(){
     var linkLbl = c.link ? ('🔗 ' + c.link.kind) : '—';
     panel.innerHTML = ''
         + '<div class="cd-head">'
-        +   '<input class="cd-title-input cd-title" value="'+esc(c.title)+'" onchange="updateCaseField(\''+esc(c.id)+'\',\'title\',this.value)" />'
-        +   '<span class="cd-close" onclick="closeCaseDetail()">✕</span>'
+        +   '<input class="cd-title-input cd-title" value="'+esc(c.title)+'" onchange="updateCaseField(\''+esc(c.id)+'\',\'title\',this.value); document.getElementById(\'cases-bc-title\').textContent=this.value;" />'
         + '</div>'
         + '<div class="cd-meta">'
         +   '<div class="cd-meta-cell"><span class="k">Статус</span><select onchange="updateCaseField(\''+esc(c.id)+'\',\'status\',this.value)">'+statusOpts+'</select></div>'
