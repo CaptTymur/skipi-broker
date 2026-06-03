@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.86';
+var APP_VERSION='0.1.87';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -526,6 +526,16 @@ body.dragging-split.col-resize { cursor:col-resize; }
 .mc-meta { font-size:11px; color:var(--text2); margin-bottom:8px; }
 .mc-actions { display:flex; gap:6px; flex-wrap:wrap; }
 .mc-actions .btn { font-size:11px; padding:4px 9px; }
+/* Confidence indicators (safeguards #2): pill in detail meta, dot in list. */
+.conf-pill { display:inline-block; font-size:9px; font-weight:600; padding:1px 6px;
+    border-radius:8px; letter-spacing:.4px; margin-left:6px; }
+.conf-pill.conf-high   { background:rgba(78,201,112,.18); color:var(--green); }
+.conf-pill.conf-medium { background:rgba(226,185,61,.18); color:var(--yellow); }
+.conf-pill.conf-low    { background:rgba(229,85,97,.18); color:var(--red); }
+.conf-dot { display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:3px; vertical-align:middle; }
+.conf-dot.conf-high   { background:var(--green); }
+.conf-dot.conf-medium { background:var(--yellow); }
+.conf-dot.conf-low    { background:var(--red); }
 
 /* Update banner — slim bar above modules-bar */
 .update-banner { display:flex; align-items:center; gap:12px; padding:7px 14px;
@@ -5753,9 +5763,11 @@ function renderBxbMatchesForSelectedSignal(){
         var meta = sig.posted_by_email
             ? ('от: ' + truncate(sig.posted_by_email, 28))
             : ('источник: ' + (sig.source || '—'));
+        var conf = (m.reasons && m.reasons.confidence) || null;
+        var confDot = conf ? '<span class="conf-dot conf-'+esc(conf.toLowerCase())+'" title="Confidence: '+conf+'"></span>' : '';
         return '<div class="match-card '+(sel ? 'active' : '')+'" onclick="selectBxbMatch(\''+esc(m.id)+'\')">'
             + '<div class="mc-head">'
-            + '<span class="mc-title">'+icon+' '+esc(truncate(title, 46))+'</span>'
+            + '<span class="mc-title">'+confDot+' '+icon+' '+esc(truncate(title, 46))+'</span>'
             + '<span class="mc-score">'+Number(m.score || 0)+' · '+esc(ageLabel)+'</span>'
             + '</div>'
             + '<div class="mc-meta">'+esc(meta)+'</div>'
@@ -5776,7 +5788,14 @@ function renderOppositeSignalDetail(){
     var m = state.selectedBxbMatch;
     var sig = m.opposite_signal || {};
     var sigKind = sig.kind;
-    if(meta) meta.textContent = 'score ' + Number(m.score || 0);
+    var conf = (m.reasons && m.reasons.confidence) || null;
+    var fill = (m.reasons && m.reasons.data_fill) || null;
+    var missing = (m.reasons && m.reasons.null_missing) || [];
+    var confBadge = '';
+    if(conf){
+        confBadge = '<span class="conf-pill conf-'+esc(conf.toLowerCase())+'" title="Confidence — оценка качества данных в паре">'+conf+'</span>';
+    }
+    if(meta) meta.innerHTML = 'score ' + Number(m.score || 0) + ' ' + confBadge;
 
     var fields = [];
     if(sigKind === 'cargo'){
