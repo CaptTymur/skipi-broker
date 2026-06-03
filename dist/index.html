@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.79';
+var APP_VERSION='0.1.80';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -1304,6 +1304,7 @@ body.ctx-bar-visible .view-pane { padding-bottom:46px; }
             <div class="signals-col">
                 <div class="col-head">
                     <span id="mail-detail-title">Выбери письмо слева</span>
+                    <span class="p2-refresh" title="Завести дело по этому письму" id="mail-case-btn" style="display:none;" onclick="startCaseFromMail()">📂</span>
                     <span class="p2-refresh" title="Ответить" id="mail-reply-btn" style="display:none;" onclick="openMailReply()">↩</span>
                 </div>
                 <div class="signals-table-wrap" id="mail-detail-body" style="padding:14px 18px; overflow-y:auto;">
@@ -2372,6 +2373,7 @@ function renderLeads2View(){
             + '</div>'
             + '<div class="lead2-actions">'
                 + '<button onclick="showLeadOnMap(\''+esc(l.id)+'\')">👁 На карте</button>'
+                + '<button onclick="startCaseFromLead(\''+esc(l.id)+'\')">📂 В дела</button>'
                 + contactBtn
                 + '<button class="danger" onclick="if(confirm(\'Убрать лид?\'))removeLead(\''+esc(l.id)+'\')">🗑 Убрать</button>'
             + '</div>'
@@ -2553,6 +2555,59 @@ async function sendCtxMessage(){
         btn.disabled = false;
         inp.focus();
     }
+}
+
+// ===== 📂 Завести дело — helpers wired into other modules =====
+
+function startCaseFromPair(pairId){
+    var p = (state.bazaarPairs || []).filter(function(x){ return x.id === pairId; })[0];
+    if(!p){ showToast('Не нашёл пару', 'error'); return; }
+    var c = p.cargo_signal || {}; var t = p.tonnage_signal || {};
+    var title = (c.cargo_type || 'cargo') + ' '
+        + (c.quantity_mt ? c.quantity_mt + ' MT ' : '')
+        + (c.load_port || '?') + '→' + (c.disch_port || '?')
+        + ' / ' + (t.vessel_name || t.vessel_type || 'tonnage');
+    var cs = createCaseLinked('pair', {
+        pair_id: p.id, score: p.score, cargo: c, tonnage: t, reasons: p.reasons,
+    }, title, 'pair');
+    showView('cases');
+    openCaseDetail(cs.id);
+}
+
+function startCaseFromLead(leadId){
+    var l = _getLeads().filter(function(x){ return x.id === leadId; })[0];
+    if(!l){ showToast('Не нашёл лид', 'error'); return; }
+    var c = l.cargo_signal || {}; var t = l.tonnage_signal || {};
+    var title = (c.cargo_type || 'lead') + ' '
+        + (c.quantity_mt ? c.quantity_mt + ' MT ' : '')
+        + (c.load_port || '?') + '→' + (c.disch_port || '?')
+        + ' / ' + (t.vessel_name || t.vessel_type || 'tonnage');
+    var cs = createCaseLinked('lead', {
+        lead_id: l.id, score: l.score, cargo: c, tonnage: t, taken_at: l.taken_at,
+    }, title, 'pair');
+    showView('cases');
+    openCaseDetail(cs.id);
+}
+
+function startCaseFromMail(){
+    var m = state.mail && state.mail.currentMsg;
+    if(!m){ showToast('Письмо не выбрано', 'error'); return; }
+    var title = (m.subject || 'без темы').slice(0,80) + ' · ' + (m.from || '').slice(0,30);
+    var cs = createCaseLinked('mail', {
+        from: m.from, to: m.to, subject: m.subject,
+        body: (m.body_text || '').slice(0,4000),
+        date_received: m.date_received, message_id: m.id,
+    }, title, 'mail');
+    showView('cases');
+    openCaseDetail(cs.id);
+}
+
+function startCaseFromPartner(domain){
+    if(!domain){ showToast('Контрагент не выбран', 'error'); return; }
+    var title = 'Работа с ' + domain;
+    var cs = createCaseLinked('partner', { domain: domain }, title, 'general');
+    showView('cases');
+    openCaseDetail(cs.id);
 }
 
 // ===== 📂 Дела (Cases) — the central work unit =====
@@ -4385,6 +4440,8 @@ async function openMailMessage(id){
         state.mail.currentMsg = m;
         if(dtitle) dtitle.textContent = (m.subject || '(no subject)').slice(0, 100);
         if(replyBtn) replyBtn.style.display = '';
+        var caseBtn = document.getElementById('mail-case-btn');
+        if(caseBtn) caseBtn.style.display = '';
         var meta = '<div style="font-size:11px; color:var(--text2); margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid var(--border);">'
             + '<b>'+esc(m.from_name || m.from || '')+'</b> &lt;'+esc(m.from || '')+'&gt;'+renderFlagBadges(m.from, 'expanded')+'<br>'
             + '<span style="color:var(--text3);">→ '+esc(m.to || '')+'</span>'
@@ -5605,10 +5662,12 @@ function renderOppositeSignalDetail(){
 
     // ▶ Взять в работу — converts the chain into a Лид (localStorage)
     // and surfaces it in the 📋 Лиды module. Disabled if the user has
-    // already taken this lead.
-    html += '<div class="take-lead-row" style="margin-top:18px; padding-top:14px; border-top:1px solid var(--border); display:flex; align-items:center; gap:10px;">'
+    // already taken this lead. Right next to it: 📂 Завести дело —
+    // creates a new long-running Case linked to this pair.
+    html += '<div class="take-lead-row" style="margin-top:18px; padding-top:14px; border-top:1px solid var(--border); display:flex; align-items:center; gap:10px; flex-wrap:wrap;">'
         + '<button id="take-lead-btn" class="take-lead-btn" onclick="takeLeadFromPair(state.selectedPair)">▶ Взять в работу</button>'
-        + '<span style="font-size:10px; color:var(--text3);">создаёт активный лид → 📋 Лиды</span>'
+        + '<button class="start-case-btn" onclick="startCaseFromPair(state.selectedPair)">📂 Завести дело</button>'
+        + '<span style="font-size:10px; color:var(--text3);">→ 📋 Лиды или 📂 Дела</span>'
         + '</div>';
 
     body.innerHTML = html;
