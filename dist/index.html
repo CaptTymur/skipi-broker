@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.77';
+var APP_VERSION='0.1.78';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -152,6 +152,8 @@ document.addEventListener('DOMContentLoaded', function(){
     if(typeof _renderSoundBtn === 'function') _renderSoundBtn();
     // Hydrate Лиды badge from localStorage so the count shows on app boot.
     if(typeof _renderLeadsBadge === 'function') _renderLeadsBadge();
+    // Show the context chat-strip if we're not on the team module.
+    if(typeof updateCtxBarVisibility === 'function') updateCtxBarVisibility();
 });
 </script>
 <style>
@@ -730,6 +732,38 @@ body.dragging-split.col-resize { cursor:col-resize; }
     border-radius:6px; font-size:12px; box-shadow:0 4px 16px rgba(0,0,0,.4); }
 .toast.error { border-color:var(--red); }
 .toast.ok { border-color:var(--green); }
+
+/* Module chat-strip: fixed bottom bar in every module except 💬 Команда.
+   Один input, два режима — «в команду» (обычное team-сообщение) или «спросить LLM»
+   (тот же team chat, но с авто-приложенным контекстом того что брокер сейчас видит). */
+.ctx-chat-bar { position:fixed; left:0; right:0; bottom:0; z-index:90;
+    background:var(--surface); border-top:1px solid var(--border);
+    display:flex; align-items:center; gap:6px; padding:6px 10px; font-size:11px;
+    box-shadow:0 -3px 10px rgba(0,0,0,.18); }
+.ctx-chat-bar.hidden { display:none; }
+.ctx-chat-bar .ctx-mode { display:inline-flex; gap:2px; }
+.ctx-chat-bar .ctx-mode-tab { padding:3px 7px; border-radius:3px; cursor:pointer;
+    color:var(--text2); border:1px solid transparent; user-select:none; font-size:10px; }
+.ctx-chat-bar .ctx-mode-tab:hover { background:var(--surface2); color:var(--text); }
+.ctx-chat-bar .ctx-mode-tab.active { background:var(--surface2); color:var(--text); border-color:var(--accent); }
+.ctx-chat-bar input { flex:1; background:var(--bg); border:1px solid var(--border);
+    color:var(--text); padding:5px 9px; border-radius:3px; font-size:11px; outline:none; }
+.ctx-chat-bar input:focus { border-color:var(--accent); }
+.ctx-chat-bar .ctx-info { font-size:10px; color:var(--text3); min-width:140px; max-width:240px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ctx-chat-bar .ctx-send { padding:5px 11px; font-size:11px; background:var(--accent); color:#fff;
+    border:none; border-radius:3px; cursor:pointer; font-weight:600; }
+.ctx-chat-bar .ctx-send:disabled { opacity:.4; cursor:default; }
+.ctx-chat-bar .ctx-hide { font-size:13px; color:var(--text3); cursor:pointer; padding:0 4px; }
+.ctx-chat-bar .ctx-hide:hover { color:var(--text); }
+/* Restore-button when bar hidden — tiny pill bottom-right. */
+.ctx-chat-restore { position:fixed; right:14px; bottom:14px; z-index:91;
+    padding:4px 10px; font-size:10px; background:var(--surface); border:1px solid var(--border);
+    border-radius:14px; cursor:pointer; color:var(--text2); display:none; }
+.ctx-chat-restore.show { display:block; }
+.ctx-chat-restore:hover { color:var(--text); border-color:var(--accent); }
+/* Add bottom margin to main view container so the bar doesn't cover content. */
+body.ctx-bar-visible .view-pane { padding-bottom:46px; }
 </style>
 <link rel="stylesheet" href="leaflet/leaflet.css">
 <script src="leaflet/leaflet.js"></script>
@@ -737,6 +771,22 @@ body.dragging-split.col-resize { cursor:col-resize; }
 <body>
 
 <div id="update-banner-host"></div>
+
+<!-- Context-aware chat bar — fixed on bottom in every module except 💬 Команда.
+     User types question; toggle picks "Команде" (raw team msg) or "ЛЛМ" (the same
+     team channel but with the current view's state attached as context blob so
+     the LLM agent can answer about what the broker is looking at). -->
+<div id="ctx-chat-bar" class="ctx-chat-bar hidden">
+    <div class="ctx-mode">
+        <span class="ctx-mode-tab" id="ctx-mode-team" onclick="setCtxMode('team')" title="Сообщение в командный чат">💬 Команде</span>
+        <span class="ctx-mode-tab active" id="ctx-mode-llm" onclick="setCtxMode('llm')" title="Спросить LLM — контекст модуля прикрепится автоматически">🤖 ЛЛМ</span>
+    </div>
+    <span class="ctx-info" id="ctx-info">контекст готов</span>
+    <input type="text" id="ctx-input" placeholder="спроси LLM про то что видишь…" onkeydown="if(event.key==='Enter')sendCtxMessage()" autocomplete="off">
+    <button class="ctx-send" id="ctx-send-btn" onclick="sendCtxMessage()">▶</button>
+    <span class="ctx-hide" title="Свернуть" onclick="hideCtxBar()">✕</span>
+</div>
+<div id="ctx-chat-restore" class="ctx-chat-restore" onclick="showCtxBar()">💬 спросить LLM</div>
 
 <div class="modules-bar">
     <div class="mod-tab active" id="nav-ex" onclick="showView('ex')"><span data-i18n="nav.exclusives">📋 Эксклюзивы</span></div>
@@ -2212,6 +2262,165 @@ function showLeadOnMap(leadId){
             state.viz.map.setView(loadC, 5);
         }
     }, 200);
+}
+
+// ===== Module chat-strip — context-aware question bar at the bottom =====
+//
+// Goal: in every module (not Команда) the broker can type a question and
+// either send it to the team or ask the LLM. When asking the LLM, the
+// current module's state is auto-attached as context so the agent can
+// reason about what the broker is actually looking at right now.
+var ctxState = { mode: 'llm', hidden: false };
+
+function setCtxMode(mode){
+    ctxState.mode = mode;
+    var t = document.getElementById('ctx-mode-team');
+    var l = document.getElementById('ctx-mode-llm');
+    if(t) t.classList.toggle('active', mode === 'team');
+    if(l) l.classList.toggle('active', mode === 'llm');
+    var inp = document.getElementById('ctx-input');
+    if(inp){
+        inp.placeholder = (mode === 'team')
+            ? 'сообщение команде…'
+            : 'спроси LLM про то что видишь…';
+    }
+    _refreshCtxInfo();
+}
+
+function hideCtxBar(){
+    ctxState.hidden = true;
+    var bar = document.getElementById('ctx-chat-bar');
+    var rest = document.getElementById('ctx-chat-restore');
+    if(bar) bar.classList.add('hidden');
+    if(rest) rest.classList.add('show');
+    document.body.classList.remove('ctx-bar-visible');
+}
+
+function showCtxBar(){
+    ctxState.hidden = false;
+    var rest = document.getElementById('ctx-chat-restore');
+    if(rest) rest.classList.remove('show');
+    updateCtxBarVisibility();
+}
+
+function updateCtxBarVisibility(){
+    var bar = document.getElementById('ctx-chat-bar');
+    if(!bar) return;
+    var view = state.view;
+    // Hide in 💬 Команда (already a chat) and when user manually collapsed.
+    var shouldShow = view && view !== 'team' && !ctxState.hidden;
+    bar.classList.toggle('hidden', !shouldShow);
+    document.body.classList.toggle('ctx-bar-visible', shouldShow);
+    _refreshCtxInfo();
+}
+
+function _refreshCtxInfo(){
+    var el = document.getElementById('ctx-info');
+    if(!el) return;
+    if(ctxState.mode === 'team'){
+        el.textContent = '(в командный чат)';
+        return;
+    }
+    var ctx = getModuleContext();
+    el.textContent = ctx.summary || 'контекст пуст';
+    el.title = ctx.summary || '';
+}
+
+// Returns {module, summary, blob} for the current view.
+// `blob` is what's appended to the message body for the LLM agent.
+// `summary` is a one-liner shown in the bar so the broker sees what's attached.
+function getModuleContext(){
+    var view = state.view || '';
+    var ctx = { module: view, summary: '', blob: '' };
+    try {
+        if(view === 'match'){
+            var p = (state.bazaarPairs || []).filter(function(x){ return x.id === state.selectedPair; })[0];
+            if(p){
+                var c = p.cargo_signal || {}; var t = p.tonnage_signal || {};
+                ctx.summary = '🎯 пара #' + (p.id||'').slice(0,8) + ': ' + (c.cargo_type || '?') + ' '
+                    + (c.load_port || '?') + '→' + (c.disch_port || '?') + ' / '
+                    + (t.vessel_name || t.vessel_type || '?');
+                ctx.blob = JSON.stringify({ pair_id: p.id, score: p.score, cargo: c, tonnage: t }, null, 2);
+            } else {
+                var n = (state.bazaarPairs || []).length;
+                ctx.summary = '🎯 ' + n + ' пар, ничего не выбрано';
+                ctx.blob = JSON.stringify({ pairs_visible: n, top_3: (state.bazaarPairs || []).slice(0,3) }, null, 2);
+            }
+        } else if(view === 'signals'){
+            var c = (state.signalsBrowse && state.signalsBrowse.cargo) || [];
+            var t = (state.signalsBrowse && state.signalsBrowse.tonnage) || [];
+            ctx.summary = '🛒 ' + c.length + ' cargo, ' + t.length + ' tonnage';
+            ctx.blob = JSON.stringify({ cargo_count: c.length, tonnage_count: t.length,
+                top_cargo: c.slice(0,5), top_tonnage: t.slice(0,5) }, null, 2);
+        } else if(view === 'leads2'){
+            var leads = (typeof _getLeads === 'function') ? _getLeads() : [];
+            ctx.summary = '📋 активных лидов: ' + leads.length;
+            ctx.blob = JSON.stringify({ leads_count: leads.length, leads: leads }, null, 2);
+        } else if(view === 'mail'){
+            var ch = (state.mail && state.mail.channel) || 'all';
+            var m = state.mail && state.mail.currentMsg;
+            if(m){
+                ctx.summary = '📧 ' + ch + ' / ' + (m.from || '').slice(0,30) + ': ' + (m.subject || '').slice(0,40);
+                ctx.blob = JSON.stringify({ channel: ch, opened: { from: m.from, to: m.to, subject: m.subject,
+                    body: (m.body_text || '').slice(0,3000) } }, null, 2);
+            } else {
+                var msgs = (state.mail && state.mail.messages) || [];
+                ctx.summary = '📧 канал ' + ch + ', ' + msgs.length + ' писем (ничего не открыто)';
+                ctx.blob = JSON.stringify({ channel: ch, count: msgs.length,
+                    recent: msgs.slice(0,5).map(function(m){ return { from: m.from, subject: m.subject, date: m.date_received }; }) }, null, 2);
+            }
+        } else if(view === 'ex'){
+            var sl = state.selectedListing;
+            ctx.summary = sl ? ('📋 эксклюзив выбран') : ('📋 свои листинги');
+            ctx.blob = JSON.stringify({ selected: sl, my_cargo: (state.myCargo || []).length,
+                my_tonnage: (state.myTonnage || []).length }, null, 2);
+        } else if(view === 'dedup'){
+            var clusters = (state.dedup && state.dedup.clusters) || [];
+            ctx.summary = '🔍 кластеров: ' + clusters.length;
+            ctx.blob = JSON.stringify({ clusters_count: clusters.length, sample: clusters.slice(0,3) }, null, 2);
+        } else if(view === 'partners'){
+            var sp = state.selectedPartner;
+            ctx.summary = sp ? ('🤝 ' + sp) : '🤝 список контрагентов';
+            ctx.blob = JSON.stringify({ selected_partner: sp }, null, 2);
+        } else if(view === 'viz'){
+            var pairs = state.bazaarPairs || [];
+            ctx.summary = '🗺 карта: ' + pairs.length + ' пар';
+            ctx.blob = JSON.stringify({ pairs_count: pairs.length, sample: pairs.slice(0,3) }, null, 2);
+        }
+    } catch(e) {
+        ctx.summary = 'контекст: ошибка';
+        ctx.blob = String(e);
+    }
+    return ctx;
+}
+
+async function sendCtxMessage(){
+    var inp = document.getElementById('ctx-input');
+    var btn = document.getElementById('ctx-send-btn');
+    if(!inp || !btn) return;
+    var text = (inp.value || '').trim();
+    if(!text) return;
+    btn.disabled = true;
+    try {
+        if(ctxState.mode === 'llm'){
+            var ctx = getModuleContext();
+            var body = '[модуль: ' + ctx.module + '] ' + text;
+            if(ctx.blob && ctx.blob.length < 6000){
+                body += '\n\n--- КОНТЕКСТ (' + ctx.summary + ') ---\n' + ctx.blob;
+            }
+            await invoke('send_team_message_with_llm', { body: body });
+        } else {
+            await invoke('send_team_message', { body: text });
+        }
+        inp.value = '';
+        showToast(ctxState.mode === 'llm' ? 'Спросил ЛЛМ' : 'Отправлено команде', 'ok');
+        if(typeof refreshTeamChat === 'function') refreshTeamChat();
+    } catch(e){
+        showToast('Не отправилось: ' + e, 'error');
+    } finally {
+        btn.disabled = false;
+        inp.focus();
+    }
 }
 
 function openTeamImgLightbox(src){
@@ -4283,6 +4492,8 @@ function openSignalDetail(kind, id){
 function showView(name){
     if(name !== 'ex' && name !== 'match' && name !== 'signals' && name !== 'dedup' && name !== 'partners' && name !== 'viz' && name !== 'mail' && name !== 'team' && name !== 'leads2') return;
     state.view = name;
+    // Hide the context chat bar in 💬 Команда — that's the canonical chat already.
+    setTimeout(updateCtxBarVisibility, 0);
     // Tear down the focused-lead view if it's open — user is leaving it.
     if(state.activeLeadId){
         state.activeLeadId = null;
