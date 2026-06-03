@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.82';
+var APP_VERSION='0.1.83';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -989,7 +989,7 @@ body.ctx-bar-visible .view-pane { padding-bottom:46px; }
                                 <span class="tt-pill active" id="tt-ai" onclick="setTeamTarget('ai')">🤖 AI Assistant</span>
                                 <span class="tt-pill" id="tt-tm0" onclick="setTeamTarget('tm0')">👤 <span class="tt-name">Тимур</span></span>
                                 <span class="tt-pill" id="tt-tm1" onclick="setTeamTarget('tm1')">👤 <span class="tt-name">Виктория</span></span>
-                                <span class="tt-pill" id="tt-tm2" onclick="setTeamTarget('tm2')">👤 <span class="tt-name">Саша</span></span>
+                                <span class="tt-pill" id="tt-tm2" onclick="setTeamTarget('tm2')">👤 <span class="tt-name">Alex</span></span>
                                 <span class="tt-hint" id="tt-hint">по умолчанию AI Assistant — я подгружаю контекст из открытого модуля</span>
                             </div>
                             <div class="team-pending-reply" id="team-pending-reply">
@@ -1520,7 +1520,7 @@ var state = {
         polling: false,
         unread: 0,           // unread badge in P1 team header
         lastSeenTs: null,    // newest ts at last "scrolled to bottom"
-        sendTarget: 'ai',    // 'ai' = AI Assistant (LLM, default); 'tm0' = team member 0 (Тимур); 'tm1' = team member 1 (Виктория); 'tm2' = team member 2 (Саша). All messages still land in the shared room.
+        sendTarget: 'ai',    // 'ai' = AI Assistant (LLM, default); 'tm0' = team member 0 (Тимур); 'tm1' = team member 1 (Виктория); 'tm2' = team member 2 (Alex). All messages still land in the shared room.
         pendingAttach: [],   // image dataURLs queued by 📎 / Ctrl+V, flushed into the body on next teamSend
         pendingReplyTo: null, // {id, sender, snippet} — set by right-click "Ответить", consumed on next teamSend
     },
@@ -1969,7 +1969,7 @@ function teamKeyDown(ev){
 
 // ---------- Image attachments in team chat ----------
 //
-// Posidonia-friendly: lets Саша/Виктория/Тимур paste a screenshot or pick
+// Posidonia-friendly: lets Alex/Виктория/Тимур paste a screenshot or pick
 // an image file straight into the room. Encoding: each attached image is
 // downscaled to ≤1200px on the long side, JPEG-compressed (or PNG for
 // transparency), then carried in the message body as a token of the form
@@ -3216,7 +3216,7 @@ function emitTeamEvent(eventType, summary){
 // Recipient targeting in the team chat. Three capsules:
 //   'ai'   — AI Assistant (LLM) — default. Triggers server-side LLM.
 //   'tm1'  — Team member 1 (Виктория by default; configurable).
-//   'tm2'  — Team member 2 (Саша by default).
+//   'tm2'  — Team member 2 (Alex by default).
 // All messages still land in the shared room — everyone sees them — but
 // the addressee chip steers the LLM and gives Тимур a single-click choice
 // of who he's talking to without retyping the addressee every time.
@@ -3224,7 +3224,7 @@ function _teamMemberLabel(slot){
     var s = (state.settings || {});
     if(slot === 'tm0') return s.team_member_0_name || 'Тимур';
     if(slot === 'tm1') return s.team_member_1_name || 'Виктория';
-    if(slot === 'tm2') return s.team_member_2_name || 'Саша';
+    if(slot === 'tm2') return s.team_member_2_name || 'Alex';
     return '';
 }
 function setTeamTarget(tgt){
