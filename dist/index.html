@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.83';
+var APP_VERSION='0.1.84';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -3743,8 +3743,13 @@ function _vizInitMap(){
         }).addTo(state.viz.countries);
         try { map.invalidateSize(); } catch(_){}
     }).catch(function(e){ console.warn('world.geojson load failed', e); });
-    // Tauri WebView occasionally stalls layout on first map render.
-    setTimeout(function(){ try { map.invalidateSize(); } catch(_){} }, 50);
+    // Tauri WebView occasionally stalls layout on first map render —
+    // fire invalidateSize multiple times so contoured layout settles
+    // even if the initial paint happened before the container had
+    // its final width/height (Тимур 03.06: «сперва грузится коряво»).
+    [50, 150, 350, 800].forEach(function(d){
+        setTimeout(function(){ try { map.invalidateSize(); } catch(_){} }, d);
+    });
     return map;
 }
 
@@ -5282,6 +5287,14 @@ function showView(name){
             Promise.all(promises).then(function(){ setTimeout(renderVizMap, 50); });
         } else {
             setTimeout(renderVizMap, 50);
+        }
+        // If the map was already built on a previous visit, it may have
+        // been hidden when the container had 0×0 — force a resize cascade
+        // so it picks up real dimensions now that view-viz is visible.
+        if(state.viz && state.viz.map){
+            [50, 200, 500].forEach(function(d){
+                setTimeout(function(){ try { state.viz.map.invalidateSize(); } catch(_){} }, d);
+            });
         }
     }
 
