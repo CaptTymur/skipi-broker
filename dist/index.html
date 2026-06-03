@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.81';
+var APP_VERSION='0.1.82';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -828,6 +828,11 @@ body.dragging-split.col-resize { cursor:col-resize; }
 .case-detail-panel .cd-event .cde-meta { font-size:9px; color:var(--text3); margin-bottom:2px; display:flex; gap:6px; }
 .case-detail-panel .cd-event .cde-body { white-space:pre-wrap; word-break:break-word; }
 .case-detail-panel .cd-event .cde-file-link { color:var(--accent); cursor:pointer; text-decoration:underline; }
+.case-detail-panel .cd-event .cde-action { color:var(--text3); cursor:pointer; font-size:11px;
+    padding:0 4px; margin-left:1px; opacity:.6; user-select:none; }
+.case-detail-panel .cd-event:hover .cde-action { opacity:1; }
+.case-detail-panel .cd-event .cde-action:hover { color:var(--accent); }
+.case-detail-panel .cd-event .cde-action.danger:hover { color:var(--red); }
 .case-detail-panel .cd-add { display:flex; gap:6px; padding:10px 18px; border-top:1px solid var(--border);
     background:var(--surface); align-items:flex-start; }
 .case-detail-panel .cd-add textarea { flex:1; background:var(--bg); border:1px solid var(--border);
@@ -2867,9 +2872,12 @@ function _renderCaseDetail(){
         .map(function(s){ return '<option value="'+s+'"'+(c.status===s?' selected':'')+'>'+esc(_statusLabel(s))+'</option>'; }).join('');
     var typeOpts = ['general','cargo','tonnage','fixture','postfix','indication','claim','accounts','pair','mail']
         .map(function(t){ return '<option value="'+t+'"'+(c.type===t?' selected':'')+'>'+esc(_typeLabel(t))+'</option>'; }).join('');
-    var events = (c.events || []).slice().reverse().map(function(ev){
+    var eventsArr = c.events || [];
+    var events = eventsArr.slice().reverse().map(function(ev, idxFromEnd){
+        var realIdx = eventsArr.length - 1 - idxFromEnd;
         var ts = (ev.ts || '').slice(0,16).replace('T',' ');
         var by = ev.by || '—';
+        var editedTag = ev.edited_at ? ' · ✎ '+ev.edited_at.slice(0,16).replace('T',' ') : '';
         var bodyHtml;
         if(ev.kind === 'file' && ev.file){
             bodyHtml = '<span class="cde-file-link" onclick="_downloadCaseFile(\''+esc(c.id)+'\',\''+esc(ev.id||'')+'\')">📎 '+esc(ev.file.name||'файл')+'</span> '
@@ -2878,9 +2886,16 @@ function _renderCaseDetail(){
         } else {
             bodyHtml = esc(ev.body || '');
         }
-        return '<div class="cd-event kind-'+esc(ev.kind || 'note')+'">'
-            + '<div class="cde-meta"><span>'+esc(ts)+'</span><span>· '+esc(by)+'</span><span>· '+esc(ev.kind || 'note')+'</span></div>'
-            + '<div class="cde-body">'+bodyHtml+'</div>'
+        // Editable kinds: note, file (caption), llm. Status events are
+        // historical record — not edited, not deleted.
+        var canEdit = (ev.kind === 'note' || ev.kind === 'file' || ev.kind === 'llm');
+        var canDelete = (ev.kind === 'note' || ev.kind === 'file');
+        var actions = '';
+        if(canEdit) actions += '<span class="cde-action" title="Редактировать" onclick="event.stopPropagation();editCaseEvent(\''+esc(c.id)+'\','+realIdx+')">✎</span>';
+        if(canDelete) actions += '<span class="cde-action danger" title="Удалить событие" onclick="event.stopPropagation();deleteCaseEvent(\''+esc(c.id)+'\','+realIdx+')">🗑</span>';
+        return '<div class="cd-event kind-'+esc(ev.kind || 'note')+'" id="cd-ev-'+realIdx+'">'
+            + '<div class="cde-meta"><span>'+esc(ts)+'</span><span>· '+esc(by)+'</span><span>· '+esc(ev.kind || 'note')+'</span><span style="color:var(--text3);">'+editedTag+'</span><span style="flex:1;"></span>'+actions+'</div>'
+            + '<div class="cde-body" id="cd-ev-body-'+realIdx+'">'+bodyHtml+'</div>'
             + '</div>';
     }).join('');
     var linkLbl = c.link ? ('🔗 ' + c.link.kind) : '—';
@@ -2926,6 +2941,58 @@ function updateCaseField(id, field, value){
     _persistCases();
     _renderCaseDetail();
     renderCasesView();
+}
+
+// Inline edit: replace the body div with a textarea + Save/Cancel.
+function editCaseEvent(caseId, idx){
+    var c = _findCase(caseId);
+    if(!c) return;
+    var ev = (c.events || [])[idx];
+    if(!ev) return;
+    var bodyEl = document.getElementById('cd-ev-body-' + idx);
+    if(!bodyEl) return;
+    var original = ev.body || '';
+    var safeOriginal = String(original).replace(/"/g, '&quot;');
+    bodyEl.innerHTML = ''
+        + (ev.kind === 'file' && ev.file ? '<div style="font-size:10px; color:var(--text3); margin-bottom:4px;">📎 '+esc(ev.file.name||'')+' (caption ниже)</div>' : '')
+        + '<textarea id="cd-ev-edit-'+idx+'" style="width:100%; min-height:60px; background:var(--bg); color:var(--text); border:1px solid var(--accent); border-radius:3px; padding:5px 7px; font-size:11px; font-family:var(--font-ui); outline:none; resize:vertical;">'+esc(original)+'</textarea>'
+        + '<div style="margin-top:5px; display:flex; gap:5px;">'
+        +   '<button class="cd-add-btn primary" style="padding:3px 9px;" onclick="saveCaseEvent(\''+esc(caseId)+'\','+idx+')">Сохранить</button>'
+        +   '<button class="cd-add-btn" style="padding:3px 9px;" onclick="_renderCaseDetail()">Отмена</button>'
+        + '</div>';
+    var ta = document.getElementById('cd-ev-edit-' + idx);
+    if(ta){ ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+}
+
+function saveCaseEvent(caseId, idx){
+    var c = _findCase(caseId);
+    if(!c) return;
+    var ev = (c.events || [])[idx];
+    if(!ev) return;
+    var ta = document.getElementById('cd-ev-edit-' + idx);
+    if(!ta) return;
+    var newBody = (ta.value || '').trim();
+    if(newBody === (ev.body || '')){
+        _renderCaseDetail();
+        return;
+    }
+    ev.body = newBody;
+    ev.edited_at = new Date().toISOString();
+    ev.edited_by = (state.session && state.session.nickname) || 'Брокер';
+    _persistCases();
+    _renderCaseDetail();
+    showToast('✎ заметка обновлена', 'ok');
+}
+
+function deleteCaseEvent(caseId, idx){
+    if(!confirm('Удалить это событие из ленты? Действие необратимо.')) return;
+    var c = _findCase(caseId);
+    if(!c) return;
+    if(!Array.isArray(c.events)) return;
+    c.events.splice(idx, 1);
+    _persistCases();
+    _renderCaseDetail();
+    showToast('🗑 событие удалено', 'ok');
 }
 
 function addCaseNote(id){
