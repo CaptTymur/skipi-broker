@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.78';
+var APP_VERSION='0.1.79';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -152,6 +152,7 @@ document.addEventListener('DOMContentLoaded', function(){
     if(typeof _renderSoundBtn === 'function') _renderSoundBtn();
     // Hydrate Лиды badge from localStorage so the count shows on app boot.
     if(typeof _renderLeadsBadge === 'function') _renderLeadsBadge();
+    if(typeof _renderCasesBadge === 'function') _renderCasesBadge();
     // Show the context chat-strip if we're not on the team module.
     if(typeof updateCtxBarVisibility === 'function') updateCtxBarVisibility();
 });
@@ -733,6 +734,112 @@ body.dragging-split.col-resize { cursor:col-resize; }
 .toast.error { border-color:var(--red); }
 .toast.ok { border-color:var(--green); }
 
+/* 📂 Дела (Cases) — central work-unit module. List view = card grid,
+   Desk view = team-member columns with their active cases overhead.
+   Case detail = modal overlay with timeline, files, notes, LLM. */
+.cases-toolbar { display:flex; align-items:center; gap:10px; padding:7px 12px;
+    background:var(--surface); border-bottom:1px solid var(--border); height:34px; flex-shrink:0; }
+.cases-mode-tabs { display:inline-flex; gap:2px; }
+.cases-mode-tab { padding:3px 8px; border-radius:3px; cursor:pointer; font-size:10px;
+    color:var(--text2); border:1px solid transparent; user-select:none; }
+.cases-mode-tab:hover { background:var(--surface2); color:var(--text); }
+.cases-mode-tab.active { background:var(--surface2); color:var(--text); border-color:var(--accent); }
+.cases-list-view { flex:1; overflow-y:auto; padding:12px; display:grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:12px; align-content:start; }
+.case-card { background:var(--surface); border:1px solid var(--border); border-radius:5px;
+    padding:10px 12px; display:flex; flex-direction:column; gap:6px; cursor:pointer;
+    transition:border-color .15s, transform .1s; }
+.case-card:hover { border-color:var(--accent); }
+.case-card .cc-head { display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--text); }
+.case-card .cc-status { font-size:9px; padding:1px 5px; border-radius:3px;
+    background:var(--surface2); color:var(--text3); font-weight:500; text-transform:uppercase; }
+.case-card .cc-status.status-lead { background:rgba(91,155,224,.15); color:var(--blue); }
+.case-card .cc-status.status-negotiating { background:rgba(226,185,61,.15); color:var(--yellow); }
+.case-card .cc-status.status-fixed { background:rgba(78,201,112,.15); color:var(--green); }
+.case-card .cc-status.status-postfix { background:rgba(124,111,247,.15); color:var(--accent); }
+.case-card .cc-status.status-closed { background:rgba(102,102,102,.2); color:var(--text3); }
+.case-card .cc-status.status-dropped { background:rgba(229,85,97,.15); color:var(--red); }
+.case-card .cc-type { font-size:10px; color:var(--text3); }
+.case-card .cc-meta { font-size:10px; color:var(--text3); display:flex; gap:8px; }
+.case-card .cc-owners { font-size:10px; color:var(--text2); }
+.case-card .cc-timeline { font-size:10px; color:var(--text3); padding:3px 0; border-top:1px solid var(--border); margin-top:3px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+.cases-desk-view { flex:1; overflow:auto; padding:14px; display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap; }
+.desk-member { background:var(--surface); border:1px solid var(--border); border-radius:6px;
+    width:240px; padding:0; display:flex; flex-direction:column; }
+.desk-member .dm-head { padding:8px 10px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; gap:8px; }
+.desk-member .dm-avatar { width:28px; height:28px; border-radius:50%; background:var(--accent-bg);
+    color:var(--accent); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; }
+.desk-member .dm-name { font-size:12px; font-weight:600; color:var(--text); flex:1; }
+.desk-member .dm-load { font-size:9px; padding:1px 5px; border-radius:3px; background:var(--surface2);
+    color:var(--text3); }
+.desk-member .dm-load.busy { background:rgba(229,85,97,.15); color:var(--red); }
+.desk-member .dm-load.normal { background:rgba(226,185,61,.15); color:var(--yellow); }
+.desk-member .dm-load.idle { background:rgba(78,201,112,.15); color:var(--green); }
+.desk-member .dm-cases { padding:6px 8px; display:flex; flex-direction:column; gap:4px; }
+.desk-member .dm-case { padding:5px 7px; background:var(--surface2); border-radius:3px;
+    font-size:11px; color:var(--text); cursor:pointer; border:1px solid transparent; }
+.desk-member .dm-case:hover { border-color:var(--accent); }
+.desk-member .dm-case .dmc-status { font-size:9px; color:var(--text3); }
+.desk-member .dm-empty { padding:14px; text-align:center; color:var(--text3); font-size:10px; }
+
+.case-detail-overlay { position:fixed; inset:0; background:rgba(0,0,0,.72); z-index:200;
+    display:flex; align-items:center; justify-content:center; padding:30px; }
+.case-detail-panel { background:var(--bg); border:1px solid var(--border); border-radius:6px;
+    max-width:880px; width:100%; max-height:90vh; display:flex; flex-direction:column; overflow:hidden; }
+.case-detail-panel .cd-head { padding:14px 18px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; gap:10px; }
+.case-detail-panel .cd-title { font-size:14px; font-weight:600; color:var(--text); flex:1; }
+.case-detail-panel .cd-title-input { background:var(--surface); border:1px solid var(--border);
+    color:var(--text); padding:5px 8px; border-radius:3px; font-size:13px; font-weight:600; width:100%; outline:none; }
+.case-detail-panel .cd-title-input:focus { border-color:var(--accent); }
+.case-detail-panel .cd-close { font-size:16px; color:var(--text2); cursor:pointer; padding:0 4px; }
+.case-detail-panel .cd-close:hover { color:var(--text); }
+.case-detail-panel .cd-meta { padding:10px 18px; display:grid; grid-template-columns: repeat(4, 1fr);
+    gap:8px; font-size:11px; border-bottom:1px solid var(--border); background:var(--surface); }
+.case-detail-panel .cd-meta-cell { display:flex; flex-direction:column; gap:2px; }
+.case-detail-panel .cd-meta-cell .k { font-size:9px; color:var(--text3); text-transform:uppercase; }
+.case-detail-panel .cd-meta-cell .v { color:var(--text); }
+.case-detail-panel .cd-meta-cell select, .case-detail-panel .cd-meta-cell input {
+    background:var(--bg); border:1px solid var(--border); color:var(--text); padding:3px 5px; border-radius:3px;
+    font-size:11px; outline:none; width:100%; }
+.case-detail-panel .cd-body { flex:1; overflow-y:auto; padding:14px 18px; }
+.case-detail-panel .cd-section { margin-bottom:14px; }
+.case-detail-panel .cd-section-h { font-size:10px; color:var(--text3); text-transform:uppercase;
+    margin-bottom:6px; letter-spacing:.5px; }
+.case-detail-panel .cd-timeline { display:flex; flex-direction:column; gap:8px; }
+.case-detail-panel .cd-event { padding:8px 10px; background:var(--surface); border-radius:4px;
+    border-left:3px solid var(--accent); font-size:11px; color:var(--text); }
+.case-detail-panel .cd-event.kind-status  { border-left-color:var(--yellow); }
+.case-detail-panel .cd-event.kind-file    { border-left-color:var(--green); }
+.case-detail-panel .cd-event.kind-llm     { border-left-color:var(--blue); }
+.case-detail-panel .cd-event.kind-note    { border-left-color:var(--accent); }
+.case-detail-panel .cd-event .cde-meta { font-size:9px; color:var(--text3); margin-bottom:2px; display:flex; gap:6px; }
+.case-detail-panel .cd-event .cde-body { white-space:pre-wrap; word-break:break-word; }
+.case-detail-panel .cd-event .cde-file-link { color:var(--accent); cursor:pointer; text-decoration:underline; }
+.case-detail-panel .cd-add { display:flex; gap:6px; padding:10px 18px; border-top:1px solid var(--border);
+    background:var(--surface); align-items:flex-start; }
+.case-detail-panel .cd-add textarea { flex:1; background:var(--bg); border:1px solid var(--border);
+    color:var(--text); padding:6px 8px; border-radius:3px; font-size:11px; outline:none;
+    font-family:var(--font-ui); min-height:36px; max-height:120px; resize:vertical; }
+.case-detail-panel .cd-add textarea:focus { border-color:var(--accent); }
+.case-detail-panel .cd-add-btns { display:flex; flex-direction:column; gap:4px; }
+.case-detail-panel .cd-add-btn { padding:4px 10px; font-size:10px; background:var(--surface2);
+    border:1px solid var(--border); color:var(--text); border-radius:3px; cursor:pointer; white-space:nowrap; }
+.case-detail-panel .cd-add-btn:hover { border-color:var(--accent); color:var(--accent); }
+.case-detail-panel .cd-add-btn.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+.case-detail-panel .cd-add-btn.primary:hover { opacity:.9; }
+.case-detail-panel .cd-add-btn.danger:hover { border-color:var(--red); color:var(--red); }
+
+/* "Завести дело" buttons on other modules' detail panes. */
+.start-case-row { padding:8px 10px; border-top:1px solid var(--border); display:flex; gap:8px; align-items:center; }
+.start-case-btn { padding:5px 12px; font-size:11px; background:var(--accent); color:#fff; border:none;
+    border-radius:3px; cursor:pointer; font-weight:600; }
+.start-case-btn:hover { opacity:.9; }
+.start-case-btn:disabled { opacity:.5; cursor:default; }
+
 /* Module chat-strip: fixed bottom bar in every module except 💬 Команда.
    Один input, два режима — «в команду» (обычное team-сообщение) или «спросить LLM»
    (тот же team chat, но с авто-приложенным контекстом того что брокер сейчас видит). */
@@ -797,6 +904,7 @@ body.ctx-bar-visible .view-pane { padding-bottom:46px; }
     <div class="mod-tab" id="nav-partners" onclick="showView('partners')"><span data-i18n="nav.counterparts">🤝 Контрагенты</span> <span id="partners-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-viz" onclick="showView('viz')"><span data-i18n="nav.map">🗺 Визуализатор</span></div>
     <div class="mod-tab" id="nav-mail" onclick="showView('mail')"><span data-i18n="nav.mail">📧 Почта</span> <span id="mail-badge" class="count" style="display:none;"></span></div>
+    <div class="mod-tab" id="nav-cases" onclick="showView('cases')"><span>📂 Дела</span> <span id="cases-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-team" onclick="showView('team')"><span data-i18n="nav.team">💬 Команда</span></div>
     <div id="lead-tabs-host" style="display:flex; align-items:center; gap:4px;"></div>
     <div class="mb-spacer"></div>
@@ -1257,6 +1365,30 @@ body.ctx-bar-visible .view-pane { padding-bottom:46px; }
             <span style="font-size:10px; color:var(--text3);">из модуля Совпадения — кнопка «▶ Взять в работу»</span>
         </div>
         <div class="leads2-grid" id="leads2-grid"></div>
+    </div>
+
+    <!-- View 4c: 📂 Дела — long-running brokerage cases, the central work
+         unit of the broker office. Each case accumulates notes, files,
+         status changes, LLM-history with full context. Created from
+         Совпадения, Лиды, Почта, Контрагенты — or empty from this view. -->
+    <div class="view-pane view-leads2-stack" id="view-cases" style="display:none;">
+        <div class="cases-toolbar">
+            <span style="font-size:11px; color:var(--text2);">📂 Дела (cases)</span>
+            <span class="count" id="cases-count-inline">0</span>
+            <span class="cases-mode-tabs">
+                <span class="cases-mode-tab active" id="cases-mode-list" onclick="setCasesMode('list')">📋 Список</span>
+                <span class="cases-mode-tab" id="cases-mode-desk" onclick="setCasesMode('desk')">🪑 Деск</span>
+            </span>
+            <span style="flex:1;"></span>
+            <button class="btn btn-accent" onclick="createEmptyCase()" style="font-size:11px; padding:4px 10px;">＋ Новое дело</button>
+        </div>
+        <!-- Either list (cards grid) or desk (team members with their cases overhead). -->
+        <div class="cases-list-view" id="cases-list-view"></div>
+        <div class="cases-desk-view" id="cases-desk-view" style="display:none;"></div>
+        <!-- Case detail panel overlays when a case is selected. -->
+        <div id="case-detail-overlay" class="case-detail-overlay" style="display:none;" onclick="if(event.target===this)closeCaseDetail()">
+            <div class="case-detail-panel" id="case-detail-panel"></div>
+        </div>
     </div>
 
     <!-- View 5: Команда — full-screen group chat where team members + LLM
@@ -2420,6 +2552,397 @@ async function sendCtxMessage(){
     } finally {
         btn.disabled = false;
         inp.focus();
+    }
+}
+
+// ===== 📂 Дела (Cases) — the central work unit =====
+//
+// Each case is a long-running brokerage workstream. It accumulates a
+// timeline of events (notes / status changes / files / LLM exchanges)
+// and lists owners (team members assigned). Phase 0 = local-only via
+// localStorage; Phase 1 will lift to server-side sync for multi-user.
+//
+// State shape per case:
+//   { id, title, status, type, owners:[], watchers:[], created_at,
+//     created_by, link:{kind, payload}, events:[{ts,kind,by,body,...}] }
+
+var CASES_KEY = 'skipi-broker-cases-v1';
+var CASES_UI = { mode: 'list', activeId: null };
+
+function _loadCases(){
+    try {
+        var raw = localStorage.getItem(CASES_KEY);
+        if(!raw) return [];
+        var parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch(_){ return []; }
+}
+function _saveCases(arr){ try { localStorage.setItem(CASES_KEY, JSON.stringify(arr)); } catch(_){} }
+function _getCases(){ if(!state.cases) state.cases = _loadCases(); return state.cases; }
+function _newCaseId(){ return 'case-' + Math.random().toString(36).slice(2,10) + '-' + Date.now().toString(36); }
+
+function _findCase(id){ return _getCases().filter(function(c){ return c.id === id; })[0] || null; }
+
+function _persistCases(){
+    _saveCases(_getCases());
+    _renderCasesBadge();
+}
+
+function _renderCasesBadge(){
+    var el = document.getElementById('cases-badge');
+    var inline = document.getElementById('cases-count-inline');
+    // Count only OPEN cases (everything except closed/dropped) in the badge.
+    var open = _getCases().filter(function(c){ return c.status !== 'closed' && c.status !== 'dropped'; }).length;
+    if(el){ if(open > 0){ el.textContent = open; el.style.display = ''; } else el.style.display = 'none'; }
+    if(inline) inline.textContent = _getCases().length;
+}
+
+function createEmptyCase(){
+    var nick = (state.session && state.session.nickname) || 'Брокер';
+    var c = {
+        id: _newCaseId(),
+        title: 'Новое дело — ' + new Date().toISOString().slice(0,10),
+        status: 'lead',
+        type: 'general',
+        owners: [nick],
+        watchers: [],
+        link: null,
+        created_by: nick,
+        created_at: new Date().toISOString(),
+        events: [],
+    };
+    var arr = _getCases();
+    arr.unshift(c);
+    _persistCases();
+    openCaseDetail(c.id);
+    renderCasesView();
+}
+
+// Creates a case "linked" to something the broker is currently looking at.
+//   kind = 'pair' | 'lead' | 'signal' | 'mail' | 'partner'
+//   payload = arbitrary JSON-serialisable description
+//   title  = human-readable headline
+function createCaseLinked(kind, payload, title, type){
+    var nick = (state.session && state.session.nickname) || 'Брокер';
+    var c = {
+        id: _newCaseId(),
+        title: title || ('Дело — ' + kind),
+        status: 'lead',
+        type: type || kind,
+        owners: [nick],
+        watchers: [],
+        link: { kind: kind, payload: payload || null },
+        created_by: nick,
+        created_at: new Date().toISOString(),
+        events: [{
+            ts: new Date().toISOString(),
+            kind: 'note',
+            by: 'system',
+            body: 'Дело создано из модуля ' + kind + '.',
+        }],
+    };
+    var arr = _getCases();
+    arr.unshift(c);
+    _persistCases();
+    showToast('📂 Дело создано', 'ok');
+    return c;
+}
+
+function setCasesMode(mode){
+    CASES_UI.mode = mode;
+    var list = document.getElementById('cases-list-view');
+    var desk = document.getElementById('cases-desk-view');
+    var tabL = document.getElementById('cases-mode-list');
+    var tabD = document.getElementById('cases-mode-desk');
+    if(list) list.style.display = (mode === 'list') ? '' : 'none';
+    if(desk) desk.style.display = (mode === 'desk') ? '' : 'none';
+    if(tabL) tabL.classList.toggle('active', mode === 'list');
+    if(tabD) tabD.classList.toggle('active', mode === 'desk');
+    renderCasesView();
+}
+
+function renderCasesView(){
+    _renderCasesBadge();
+    if(CASES_UI.mode === 'desk') _renderCasesDesk();
+    else _renderCasesList();
+}
+
+function _statusLabel(s){
+    return { lead:'lead', negotiating:'торг', fixed:'fixed', postfix:'postfix', closed:'closed', dropped:'dropped' }[s] || s;
+}
+
+function _typeLabel(t){
+    return { general:'общее', cargo:'cargo', tonnage:'tonnage', fixture:'fixture', postfix:'postfix',
+             indication:'indication', claim:'claim', accounts:'accounts', pair:'pair', mail:'mail' }[t] || t;
+}
+
+function _caseLastEvent(c){
+    if(!c.events || !c.events.length) return 'нет событий';
+    var ev = c.events[c.events.length - 1];
+    var ts = (ev.ts || '').slice(0, 16).replace('T',' ');
+    var body = (ev.body || '').slice(0, 80).replace(/\s+/g, ' ');
+    return ts + ' · ' + body;
+}
+
+function _renderCasesList(){
+    var host = document.getElementById('cases-list-view');
+    if(!host) return;
+    var cases = _getCases();
+    if(cases.length === 0){
+        host.innerHTML = '<div class="col-empty" style="grid-column: 1 / -1; padding:40px 16px; text-align:center;">'
+            + 'Пока нет дел.<br>'
+            + '<span style="color:var(--text3); font-size:11px;">Создай через «＋ Новое дело» или из других модулей (Совпадения → «📂 Завести дело», Лиды и т.д.)</span>'
+            + '</div>';
+        return;
+    }
+    host.innerHTML = cases.map(function(c){
+        var owners = (c.owners || []).join(' · ') || '—';
+        return '<div class="case-card" onclick="openCaseDetail(\''+esc(c.id)+'\')">'
+            + '<div class="cc-head">'
+            +   '<span style="flex:1;">'+esc(c.title)+'</span>'
+            +   '<span class="cc-status status-'+esc(c.status)+'">'+esc(_statusLabel(c.status))+'</span>'
+            + '</div>'
+            + '<div class="cc-type">'+esc(_typeLabel(c.type))+(c.link ? ' · из '+esc(c.link.kind) : '')+'</div>'
+            + '<div class="cc-owners">👤 '+esc(owners)+'</div>'
+            + '<div class="cc-meta"><span>📅 '+esc((c.created_at||'').slice(0,16).replace('T',' '))+'</span>'
+            +   '<span>· '+(c.events||[]).length+' событ.</span></div>'
+            + '<div class="cc-timeline">⏱ '+esc(_caseLastEvent(c))+'</div>'
+            + '</div>';
+    }).join('');
+}
+
+function _renderCasesDesk(){
+    var host = document.getElementById('cases-desk-view');
+    if(!host) return;
+    // Group cases by owner. A case with multiple owners shows up under
+    // each one — that's intentional so everyone sees their workload.
+    var cases = _getCases().filter(function(c){ return c.status !== 'closed' && c.status !== 'dropped'; });
+    var byOwner = {};
+    cases.forEach(function(c){
+        (c.owners || ['Брокер']).forEach(function(o){
+            if(!byOwner[o]) byOwner[o] = [];
+            byOwner[o].push(c);
+        });
+    });
+    // Ensure current user always appears even if no cases.
+    var me = (state.session && state.session.nickname) || 'Брокер';
+    if(!byOwner[me]) byOwner[me] = [];
+    var names = Object.keys(byOwner).sort();
+    host.innerHTML = names.map(function(name){
+        var arr = byOwner[name];
+        var load = arr.length;
+        var loadCls = load >= 5 ? 'busy' : (load >= 2 ? 'normal' : 'idle');
+        var loadLbl = load >= 5 ? 'busy '+load : (load >= 2 ? load+' дел' : (load === 1 ? '1 дело' : 'idle'));
+        var initials = name.slice(0,1).toUpperCase();
+        var inner = arr.length
+            ? arr.map(function(c){
+                return '<div class="dm-case" onclick="event.stopPropagation(); openCaseDetail(\''+esc(c.id)+'\')">'
+                    + esc(c.title)
+                    + '<div class="dmc-status">'+esc(_statusLabel(c.status))+'</div>'
+                    + '</div>';
+              }).join('')
+            : '<div class="dm-empty">нет активных дел</div>';
+        return '<div class="desk-member">'
+            + '<div class="dm-head">'
+            +   '<div class="dm-avatar">'+esc(initials)+'</div>'
+            +   '<div class="dm-name">'+esc(name)+'</div>'
+            +   '<div class="dm-load '+loadCls+'">'+esc(loadLbl)+'</div>'
+            + '</div>'
+            + '<div class="dm-cases">'+inner+'</div>'
+            + '</div>';
+    }).join('');
+}
+
+function openCaseDetail(id){
+    CASES_UI.activeId = id;
+    var c = _findCase(id);
+    var overlay = document.getElementById('case-detail-overlay');
+    if(!c || !overlay) return;
+    overlay.style.display = 'flex';
+    _renderCaseDetail();
+}
+
+function closeCaseDetail(){
+    var overlay = document.getElementById('case-detail-overlay');
+    if(overlay) overlay.style.display = 'none';
+    CASES_UI.activeId = null;
+}
+
+function _renderCaseDetail(){
+    var c = _findCase(CASES_UI.activeId);
+    var panel = document.getElementById('case-detail-panel');
+    if(!c || !panel){ closeCaseDetail(); return; }
+    var owners = (c.owners || []).join(', ');
+    var watchers = (c.watchers || []).join(', ');
+    var statusOpts = ['lead','negotiating','fixed','postfix','closed','dropped']
+        .map(function(s){ return '<option value="'+s+'"'+(c.status===s?' selected':'')+'>'+esc(_statusLabel(s))+'</option>'; }).join('');
+    var typeOpts = ['general','cargo','tonnage','fixture','postfix','indication','claim','accounts','pair','mail']
+        .map(function(t){ return '<option value="'+t+'"'+(c.type===t?' selected':'')+'>'+esc(_typeLabel(t))+'</option>'; }).join('');
+    var events = (c.events || []).slice().reverse().map(function(ev){
+        var ts = (ev.ts || '').slice(0,16).replace('T',' ');
+        var by = ev.by || '—';
+        var bodyHtml;
+        if(ev.kind === 'file' && ev.file){
+            bodyHtml = '<span class="cde-file-link" onclick="_downloadCaseFile(\''+esc(c.id)+'\',\''+esc(ev.id||'')+'\')">📎 '+esc(ev.file.name||'файл')+'</span> '
+                + '<span style="color:var(--text3);">('+esc(_formatBytes(ev.file.size||0))+')</span>'
+                + (ev.body ? '<br>'+esc(ev.body) : '');
+        } else {
+            bodyHtml = esc(ev.body || '');
+        }
+        return '<div class="cd-event kind-'+esc(ev.kind || 'note')+'">'
+            + '<div class="cde-meta"><span>'+esc(ts)+'</span><span>· '+esc(by)+'</span><span>· '+esc(ev.kind || 'note')+'</span></div>'
+            + '<div class="cde-body">'+bodyHtml+'</div>'
+            + '</div>';
+    }).join('');
+    var linkLbl = c.link ? ('🔗 ' + c.link.kind) : '—';
+    panel.innerHTML = ''
+        + '<div class="cd-head">'
+        +   '<input class="cd-title-input cd-title" value="'+esc(c.title)+'" onchange="updateCaseField(\''+esc(c.id)+'\',\'title\',this.value)" />'
+        +   '<span class="cd-close" onclick="closeCaseDetail()">✕</span>'
+        + '</div>'
+        + '<div class="cd-meta">'
+        +   '<div class="cd-meta-cell"><span class="k">Статус</span><select onchange="updateCaseField(\''+esc(c.id)+'\',\'status\',this.value)">'+statusOpts+'</select></div>'
+        +   '<div class="cd-meta-cell"><span class="k">Тип</span><select onchange="updateCaseField(\''+esc(c.id)+'\',\'type\',this.value)">'+typeOpts+'</select></div>'
+        +   '<div class="cd-meta-cell"><span class="k">Owners</span><input value="'+esc(owners)+'" onchange="updateCaseField(\''+esc(c.id)+'\',\'owners\',this.value.split(/\\s*,\\s*/).filter(Boolean))" /></div>'
+        +   '<div class="cd-meta-cell"><span class="k">Watchers</span><input value="'+esc(watchers)+'" onchange="updateCaseField(\''+esc(c.id)+'\',\'watchers\',this.value.split(/\\s*,\\s*/).filter(Boolean))" /></div>'
+        + '</div>'
+        + '<div class="cd-body">'
+        +   (c.link ? '<div class="cd-section"><div class="cd-section-h">'+linkLbl+'</div><pre style="font-size:10px; color:var(--text2); background:var(--surface); padding:8px; border-radius:3px; overflow:auto; max-height:180px;">'+esc(JSON.stringify(c.link.payload, null, 2))+'</pre></div>' : '')
+        +   '<div class="cd-section"><div class="cd-section-h">Лента событий ('+(c.events||[]).length+')</div><div class="cd-timeline">'+events+'</div></div>'
+        + '</div>'
+        + '<div class="cd-add">'
+        +   '<textarea id="case-note-input" placeholder="Добавь заметку или прикрепи файл…"></textarea>'
+        +   '<div class="cd-add-btns">'
+        +     '<button class="cd-add-btn primary" onclick="addCaseNote(\''+esc(c.id)+'\')">＋ Заметка</button>'
+        +     '<button class="cd-add-btn" onclick="document.getElementById(\'case-file-input-\'+\''+esc(c.id)+'\').click()">📎 Файл</button>'
+        +     '<input id="case-file-input-'+esc(c.id)+'" type="file" style="display:none;" onchange="attachCaseFile(\''+esc(c.id)+'\',this.files[0]);this.value=\'\'" />'
+        +     '<button class="cd-add-btn" onclick="askLLMAboutCase(\''+esc(c.id)+'\')">🤖 Спросить LLM</button>'
+        +     '<button class="cd-add-btn danger" onclick="if(confirm(\'Удалить дело?\'))deleteCase(\''+esc(c.id)+'\')">🗑 Удалить</button>'
+        +   '</div>'
+        + '</div>';
+}
+
+function updateCaseField(id, field, value){
+    var c = _findCase(id);
+    if(!c) return;
+    if(field === 'status' && c.status !== value){
+        c.events = c.events || [];
+        c.events.push({
+            ts: new Date().toISOString(),
+            kind: 'status',
+            by: (state.session && state.session.nickname) || 'Брокер',
+            body: 'Статус: ' + c.status + ' → ' + value,
+        });
+    }
+    c[field] = value;
+    _persistCases();
+    _renderCaseDetail();
+    renderCasesView();
+}
+
+function addCaseNote(id){
+    var ta = document.getElementById('case-note-input');
+    if(!ta) return;
+    var text = (ta.value || '').trim();
+    if(!text) return;
+    var c = _findCase(id);
+    if(!c) return;
+    c.events = c.events || [];
+    c.events.push({
+        ts: new Date().toISOString(),
+        kind: 'note',
+        by: (state.session && state.session.nickname) || 'Брокер',
+        body: text,
+    });
+    ta.value = '';
+    _persistCases();
+    _renderCaseDetail();
+    renderCasesView();
+}
+
+function _formatBytes(n){
+    if(n < 1024) return n + 'B';
+    if(n < 1024*1024) return (n/1024).toFixed(1) + 'KB';
+    return (n/1024/1024).toFixed(2) + 'MB';
+}
+
+function attachCaseFile(id, file){
+    if(!file) return;
+    if(file.size > 4 * 1024 * 1024){
+        showToast('Файл больше 4MB — пока не поддерживается', 'error');
+        return;
+    }
+    var reader = new FileReader();
+    reader.onload = function(){
+        var c = _findCase(id);
+        if(!c) return;
+        c.events = c.events || [];
+        var evid = 'ev-' + Math.random().toString(36).slice(2,8);
+        c.events.push({
+            id: evid,
+            ts: new Date().toISOString(),
+            kind: 'file',
+            by: (state.session && state.session.nickname) || 'Брокер',
+            body: '',
+            file: { name: file.name, type: file.type, size: file.size, data: reader.result },
+        });
+        _persistCases();
+        _renderCaseDetail();
+        showToast('📎 файл прикреплён', 'ok');
+    };
+    reader.readAsDataURL(file);
+}
+
+function _downloadCaseFile(caseId, evId){
+    var c = _findCase(caseId);
+    if(!c) return;
+    var ev = (c.events || []).filter(function(e){ return e.id === evId; })[0];
+    if(!ev || !ev.file) return;
+    var a = document.createElement('a');
+    a.href = ev.file.data;
+    a.download = ev.file.name || 'file';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+}
+
+function deleteCase(id){
+    state.cases = _getCases().filter(function(c){ return c.id !== id; });
+    _persistCases();
+    closeCaseDetail();
+    renderCasesView();
+    showToast('🗑 дело удалено', 'ok');
+}
+
+async function askLLMAboutCase(id){
+    var c = _findCase(id);
+    if(!c) return;
+    // Build a context-rich question with case description, recent events
+    // and the link payload (if any). Send via existing team-message LLM
+    // route — bridge picks it up and Claude answers in the team chat.
+    var notes = (c.events || []).slice(-15).map(function(ev){
+        var ts = (ev.ts || '').slice(0,16).replace('T',' ');
+        return '[' + ts + ' · ' + (ev.by || '?') + ' · ' + (ev.kind || 'note') + '] ' + (ev.body || '');
+    }).join('\n');
+    var body = '[Дело: ' + c.title + '] Оцени положение, предложи следующий шаг.\n\n'
+        + 'Статус: ' + c.status + ' · тип: ' + c.type + '\n'
+        + 'Owners: ' + (c.owners || []).join(', ') + '\n'
+        + (c.link ? 'Связано: ' + c.link.kind + '\n--- payload ---\n' + JSON.stringify(c.link.payload, null, 2).slice(0,3000) + '\n' : '')
+        + '--- последние события ---\n' + notes;
+    try {
+        await invoke('send_team_message_with_llm', { body: body });
+        c.events = c.events || [];
+        c.events.push({
+            ts: new Date().toISOString(),
+            kind: 'llm',
+            by: (state.session && state.session.nickname) || 'Брокер',
+            body: 'Спросил LLM с полным контекстом дела. Ответ придёт в 💬 Команду.',
+        });
+        _persistCases();
+        _renderCaseDetail();
+        showToast('🤖 спросил LLM', 'ok');
+    } catch(e){
+        showToast('Не отправилось: ' + e, 'error');
     }
 }
 
@@ -4490,7 +5013,7 @@ function openSignalDetail(kind, id){
 
 // ---------- View switching (Эксклюзивы ↔ Совпадения ↔ Сигналы) ----------
 function showView(name){
-    if(name !== 'ex' && name !== 'match' && name !== 'signals' && name !== 'dedup' && name !== 'partners' && name !== 'viz' && name !== 'mail' && name !== 'team' && name !== 'leads2') return;
+    if(name !== 'ex' && name !== 'match' && name !== 'signals' && name !== 'dedup' && name !== 'partners' && name !== 'viz' && name !== 'mail' && name !== 'team' && name !== 'leads2' && name !== 'cases') return;
     state.view = name;
     // Hide the context chat bar in 💬 Команда — that's the canonical chat already.
     setTimeout(updateCtxBarVisibility, 0);
@@ -4517,6 +5040,8 @@ function showView(name){
     if(vteam) vteam.style.display = (name === 'team') ? '' : 'none';
     var vleads2 = document.getElementById('view-leads2');
     if(vleads2) vleads2.style.display = (name === 'leads2') ? '' : 'none';
+    var vcases = document.getElementById('view-cases');
+    if(vcases) vcases.style.display = (name === 'cases') ? '' : 'none';
     var navEx = document.getElementById('nav-ex');
     var navMatch = document.getElementById('nav-match');
     var navSig = document.getElementById('nav-signals');
@@ -4527,6 +5052,8 @@ function showView(name){
     var navTeam = document.getElementById('nav-team');
     var navLeads2 = document.getElementById('nav-leads2');
     if(navLeads2) navLeads2.classList.toggle('active', name === 'leads2');
+    var navCases = document.getElementById('nav-cases');
+    if(navCases) navCases.classList.toggle('active', name === 'cases');
     if(navEx) navEx.classList.toggle('active', name === 'ex');
     if(navMatch) navMatch.classList.toggle('active', name === 'match');
     if(navSig) navSig.classList.toggle('active', name === 'signals');
@@ -4578,6 +5105,10 @@ function showView(name){
     // 📋 Лиды — render taken leads grid
     if(name === 'leads2'){
         renderLeads2View();
+    }
+    // 📂 Дела — render cases
+    if(name === 'cases'){
+        renderCasesView();
     }
     // Визуализатор: карта рендерится из state.bazaarPairs (bxb pairs из
     // /api/bazaar-pairs) — это глобальная картина базара. Дополняем
