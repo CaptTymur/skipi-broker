@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.85';
+var APP_VERSION='0.1.86';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -150,9 +150,11 @@ document.addEventListener('DOMContentLoaded', function(){
         }
     } catch(_){}
     if(typeof _renderSoundBtn === 'function') _renderSoundBtn();
-    // Hydrate Лиды badge from localStorage so the count shows on app boot.
-    if(typeof _renderLeadsBadge === 'function') _renderLeadsBadge();
     if(typeof _renderCasesBadge === 'function') _renderCasesBadge();
+    // One-time migration: existing 📋 Лиды (localStorage) → 📂 Дела со
+    // статусом lead. After migration the leads array is left as-is for
+    // safety, but the user only sees them in Дела from now on.
+    if(typeof migrateLeadsToCases === 'function') migrateLeadsToCases();
     // Show the context chat-strip if we're not on the team module.
     if(typeof updateCtxBarVisibility === 'function') updateCtxBarVisibility();
 });
@@ -912,7 +914,7 @@ body.ctx-bar-visible .view-pane { padding-bottom:46px; }
 <div class="modules-bar">
     <div class="mod-tab active" id="nav-ex" onclick="showView('ex')"><span data-i18n="nav.exclusives">📋 Эксклюзивы</span></div>
     <div class="mod-tab" id="nav-match" onclick="showView('match')"><span data-i18n="nav.matches">🎯 Совпадения</span> <span id="match-badge" class="count" style="display:none;"></span></div>
-    <div class="mod-tab" id="nav-leads2" onclick="showView('leads2')"><span>📋 Лиды</span> <span id="leads2-badge" class="count" style="display:none;"></span></div>
+    <!-- 📋 Лиды убран 03.06 — merged into 📂 Дела (lead = case со статусом lead). -->
     <div class="mod-tab" id="nav-signals" onclick="showView('signals')"><span data-i18n="nav.signals">🛒 Сигналы</span> <span id="signals-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-dedup" onclick="showView('dedup')"><span data-i18n="nav.duplicates">🔍 Дедупликатор</span> <span id="dedup-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-partners" onclick="showView('partners')"><span data-i18n="nav.counterparts">🤝 Контрагенты</span> <span id="partners-badge" class="count" style="display:none;"></span></div>
@@ -2571,6 +2573,55 @@ async function sendCtxMessage(){
         btn.disabled = false;
         inp.focus();
     }
+}
+
+// One-time migration of stored 📋 Лиды → 📂 Дела (03.06: модули слиты).
+function migrateLeadsToCases(){
+    try {
+        var done = localStorage.getItem('skipi-broker-leads-migrated-v1');
+        if(done === '1') return;
+        var raw = localStorage.getItem('skipi-broker-leads-v1');
+        if(!raw){ localStorage.setItem('skipi-broker-leads-migrated-v1', '1'); return; }
+        var leads = JSON.parse(raw);
+        if(!Array.isArray(leads) || leads.length === 0){
+            localStorage.setItem('skipi-broker-leads-migrated-v1', '1');
+            return;
+        }
+        var cases = _getCases();
+        var existingIds = {};
+        cases.forEach(function(c){ if(c.link && c.link.payload && c.link.payload.lead_id) existingIds[c.link.payload.lead_id] = true; });
+        var nick = (state.session && state.session.nickname) || 'Брокер';
+        var added = 0;
+        leads.forEach(function(l){
+            if(existingIds[l.id]) return; // already migrated previously
+            var c = l.cargo_signal || {}; var t = l.tonnage_signal || {};
+            var title = (c.cargo_type || 'lead') + ' '
+                + (c.quantity_mt ? c.quantity_mt + ' MT ' : '')
+                + (c.load_port || '?') + '→' + (c.disch_port || '?')
+                + ' / ' + (t.vessel_name || t.vessel_type || 'tonnage');
+            cases.push({
+                id: 'case-' + Math.random().toString(36).slice(2,10) + '-' + Date.now().toString(36),
+                title: title,
+                status: 'lead',
+                type: 'pair',
+                owners: [nick],
+                watchers: [],
+                link: { kind: 'lead', payload: { lead_id: l.id, score: l.score, cargo: c, tonnage: t, taken_at: l.taken_at } },
+                created_by: nick,
+                created_at: l.taken_at || new Date().toISOString(),
+                events: [{ ts: new Date().toISOString(), kind: 'note', by: 'system',
+                    body: 'Импортировано из 📋 Лидов (03.06 модули слиты в 📂 Дела).' }],
+            });
+            added++;
+        });
+        state.cases = cases;
+        _saveCases(cases);
+        localStorage.setItem('skipi-broker-leads-migrated-v1', '1');
+        if(added > 0){
+            showToast('📂 ' + added + ' лид(ов) перенесены в Дела', 'ok');
+            _renderCasesBadge();
+        }
+    } catch(e){ console.warn('migrateLeadsToCases failed', e); }
 }
 
 // ===== 📂 Завести дело — helpers wired into other modules =====
@@ -5776,14 +5827,11 @@ function renderOppositeSignalDetail(){
         html += '<div class="detail-block">'+reasonRows+'</div>';
     }
 
-    // ▶ Взять в работу — converts the chain into a Лид (localStorage)
-    // and surfaces it in the 📋 Лиды module. Disabled if the user has
-    // already taken this lead. Right next to it: 📂 Завести дело —
-    // creates a new long-running Case linked to this pair.
+    // 📂 Завести дело — лиды и дела слиты в одну сущность 03.06 (per Тимур),
+    // отдельной кнопки «Взять в работу» больше нет — всё через 📂 Дела.
     html += '<div class="take-lead-row" style="margin-top:18px; padding-top:14px; border-top:1px solid var(--border); display:flex; align-items:center; gap:10px; flex-wrap:wrap;">'
-        + '<button id="take-lead-btn" class="take-lead-btn" onclick="takeLeadFromPair(state.selectedPair)">▶ Взять в работу</button>'
         + '<button class="start-case-btn" onclick="startCaseFromPair(state.selectedPair)">📂 Завести дело</button>'
-        + '<span style="font-size:10px; color:var(--text3);">→ 📋 Лиды или 📂 Дела</span>'
+        + '<span style="font-size:10px; color:var(--text3);">→ создаётся в 📂 Дела со статусом lead</span>'
         + '</div>';
 
     body.innerHTML = html;
