@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.84';
+var APP_VERSION='0.1.85';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -3872,10 +3872,13 @@ function renderVizMap(){
 // (highest-score) match where this cargo signal participates.
 function vizOpenSignalMatches(signalId){
     var matches = (_vizCargoSignalMatchIndex()[signalId] || []).slice();
-    if(matches.length === 0){ showView('matches'); return; }
+    // Right view name is 'match' (single) — showView('matches') was a typo
+    // that hit the guard and returned silently, so clicking pulse dots
+    // looked dead. Тимур 03.06: «при нажатии ничего не происходит».
+    if(matches.length === 0){ showView('match'); return; }
     matches.sort(function(a, b){ return (b.score || 0) - (a.score || 0); });
     var pick = matches[0];
-    showView('matches');
+    showView('match');
     setTimeout(function(){
         try { selectMatch('bazaar', pick.id); } catch(e){ console.warn('selectMatch failed', e); }
     }, 40);
