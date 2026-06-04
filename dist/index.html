@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.92';
+var APP_VERSION='0.1.93';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -2703,9 +2703,23 @@ function getModuleContext(){
             ctx.summary = sp ? ('🤝 ' + sp) : '🤝 список контрагентов';
             ctx.blob = JSON.stringify({ selected_partner: sp }, null, 2);
         } else if(view === 'viz'){
+            // Avoid serializing the full pair objects — they may carry
+            // Leaflet marker refs etc. which create cyclic graphs and
+            // blow up JSON.stringify. Project to scalar fields only.
             var pairs = state.bazaarPairs || [];
-            ctx.summary = '🗺 карта: ' + pairs.length + ' пар';
-            ctx.blob = JSON.stringify({ pairs_count: pairs.length, sample: pairs.slice(0,3) }, null, 2);
+            var safeSample = pairs.slice(0,3).map(function(p){
+                var c = p && p.cargo_signal ? p.cargo_signal : {};
+                var t = p && p.tonnage_signal ? p.tonnage_signal : {};
+                return {
+                    id: p && p.id,
+                    score: p && p.score,
+                    cargo: { type: c.cargo_type, load: c.load_port, disch: c.disch_port, qty: c.quantity_mt },
+                    tonnage: { name: t.vessel_name, type: t.vessel_type, dwt: t.dwt, open: t.open_port },
+                };
+            });
+            var mode = (state.viz && state.viz.mode) || 'signals';
+            ctx.summary = '🗺 карта ['+mode+']: ' + pairs.length + ' пар';
+            ctx.blob = JSON.stringify({ viz_mode: mode, pairs_count: pairs.length, sample: safeSample }, null, 2);
         } else if(view === 'cases'){
             // If a specific case is open (drill-down), surface its full
             // record + last 15 events so the LLM can reason about it.
