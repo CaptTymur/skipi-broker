@@ -2531,23 +2531,57 @@ function renderCtxHistory(){
     var host = document.getElementById('ctx-history');
     if(!host) return;
     var msgs = (state.team && state.team.messages) || [];
-    if(!msgs.length){
-        host.innerHTML = '<div class="cm-empty">пока пусто — спроси ЛЛМ или напиши команде</div>';
+
+    // When user is drilled into a specific case, scope chat history to
+    // exchanges that reference that case_id (Q from broker + next LLM reply).
+    // Outside of cases drill-down, show full team chat.
+    var activeCaseId = (state.view === 'cases'
+        && typeof CASES_UI !== 'undefined' && CASES_UI.activeId)
+        ? CASES_UI.activeId : null;
+    var llmRe = /llm|агент|assistant|🤖|al\b/i;
+    var filtered = msgs;
+    if(activeCaseId){
+        var keep = {};
+        for(var i = 0; i < msgs.length; i++){
+            var body = msgs[i].body || '';
+            if(body.indexOf(activeCaseId) === -1) continue;
+            keep[i] = true;
+            for(var j = i + 1; j < msgs.length && j <= i + 5; j++){
+                if(llmRe.test(msgs[j].sender_nickname || '')){
+                    keep[j] = true;
+                    break;
+                }
+            }
+        }
+        filtered = msgs.filter(function(_, i){ return keep[i]; });
+    }
+
+    if(!filtered.length){
+        host.innerHTML = '<div class="cm-empty">'
+            + (activeCaseId
+                ? 'по этому делу ещё нет переписки — спроси ЛЛМ'
+                : 'пока пусто — спроси ЛЛМ или напиши команде')
+            + '</div>';
         return;
     }
     // Tail of conversation, oldest at top so the input row sits below the
     // newest message and the broker reads naturally.
-    var tail = msgs.slice(-30);
+    var tail = filtered.slice(-30);
     var nick = (state.session && state.session.nickname) || 'Брокер';
     host.innerHTML = tail.map(function(m){
         var by = m.sender_nickname || '?';
-        var isLlm = /llm|агент|assistant|🤖/i.test(by);
+        var isLlm = llmRe.test(by);
         var isMe = (by === nick);
         var cls = isLlm ? 'llm' : (isMe ? 'me' : '');
         var ts = (m.created_at || '').slice(0,16).replace('T',' ');
+        // Strip the КОНТЕКСТ blob and [модуль: ...] prefix for clean reading.
+        var body = m.body || '';
+        var ctxIdx = body.indexOf('\n\n--- КОНТЕКСТ');
+        if(ctxIdx > -1) body = body.substring(0, ctxIdx);
+        body = body.replace(/^\[модуль:[^\]]+\]\s*/, '');
         return '<div class="cm '+cls+'">'
             + '<div class="cm-meta"><span class="cm-from">'+esc(by)+'</span><span>'+esc(ts)+'</span></div>'
-            + '<div class="cm-body">'+esc(m.body || '')+'</div>'
+            + '<div class="cm-body">'+esc(body)+'</div>'
             + '</div>';
     }).join('');
     host.scrollTop = host.scrollHeight;
@@ -3048,6 +3082,8 @@ function openCaseDetail(id){
     if(tbd) tbd.style.display = 'flex';
     if(bc) bc.textContent = c.title || '(без названия)';
     _renderCaseDetail();
+    if(typeof renderCtxHistory === 'function') renderCtxHistory();
+    if(typeof _refreshCtxInfo === 'function') _refreshCtxInfo();
 }
 
 function closeCaseDetail(){
@@ -3066,6 +3102,8 @@ function closeCaseDetail(){
     }
     CASES_UI.activeId = null;
     renderCasesView();
+    if(typeof renderCtxHistory === 'function') renderCtxHistory();
+    if(typeof _refreshCtxInfo === 'function') _refreshCtxInfo();
 }
 
 function _renderCaseDetail(){
