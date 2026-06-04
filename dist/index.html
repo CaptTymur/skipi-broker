@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.96';
+var APP_VERSION='0.1.97';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -2864,10 +2864,26 @@ async function sendCtxMessage(){
 // Try to attach a newly-arrived LLM message to the oldest pending
 // case-scoped question. FIFO: first asked, first paired. Discards
 // pending entries older than 30 minutes (LLM clearly never answered).
+//
+// IMPORTANT: filter out bridge service messages (ACK, "still thinking",
+// fallback). These are posted by the bridge daemon with sender_nickname
+// "🤖 Брокер-LLM" so they pass the LLM-sender test, but they aren't the
+// actual reply. v0.1.92 used to "spend" the pending binding on the ACK
+// — Тимур just hit it on the Douglas case.
+const _BRIDGE_SERVICE_PREFIXES = [
+    /^💬?\s*🤔\s*Принял/,
+    /^💬?\s*⏳/,
+    /^💬?\s*⚠\s*AI-агент/,
+];
+function _isBridgeServiceMsg(body){
+    var b = String(body || '').trim();
+    return _BRIDGE_SERVICE_PREFIXES.some(function(re){ return re.test(b); });
+}
 function _dispatchPendingLLMReply(msg){
     if(!state.pendingCaseLLM || !state.pendingCaseLLM.length) return;
     var llmRe = /llm|агент|assistant|🤖|al\b/i;
     if(!llmRe.test(msg.sender_nickname || '')) return;
+    if(_isBridgeServiceMsg(msg.body)) return;
     // Drop stale entries (>30 min, no reply yet).
     var now = Date.now();
     state.pendingCaseLLM = state.pendingCaseLLM.filter(function(p){
