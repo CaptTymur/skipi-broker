@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.97';
+var APP_VERSION='0.1.98';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -4305,15 +4305,36 @@ function _tlRedraw(){
     if(countsEl) countsEl.textContent = nCargo + ' cargo · ' + nTonn + ' tonnage';
 }
 
+// Convert a "#rrggbb" hex string to "rgba(r,g,b,a)".
+function _rgba(hex, alpha){
+    var m = String(hex || '').match(/^#?([0-9a-f]{6})$/i);
+    if(!m) return hex;
+    var i = parseInt(m[1], 16);
+    return 'rgba(' + ((i>>16)&255) + ',' + ((i>>8)&255) + ',' + (i&255) + ',' + alpha + ')';
+}
+
 // Color palette per cargo type (rough — best-effort grouping).
+// Тимур (2026-06-04): grains = yellow, minerals/ores = black,
+// остальные группы — разные.
 function _flowColor(cargo){
     var c = (cargo || '').toLowerCase();
-    if(/grain|wheat|corn|barley|rice|soy|rapeseed|sun/.test(c)) return '#e2b93d';
-    if(/steel|hrc|rebar|billet|wire|pig/.test(c))               return '#d89b65';
-    if(/coal|iron|bauxite|manganese|chrome/.test(c))            return '#666';
-    if(/urea|npk|dap|map|potash|sulph|fertil/.test(c))          return '#7c6ff7';
-    if(/cement|clinker|gypsum/.test(c))                          return '#888';
-    if(/bag|big bag|project|container/.test(c))                 return '#5b9be0';
+    // grains, oilseeds, sugar — желтые
+    if(/grain|wheat|corn|barley|rice|soy|rapeseed|sun|oats|rye|sorghum|maize|sugar|millet|pea\b|bean|seed/.test(c)) return '#e2b93d';
+    // minerals & ores — чёрные (per Тимур)
+    if(/coal|iron|ore|bauxite|manganese|chrome|alumina|nickel|zinc|copper|lead|magnetite|hematite|pellet|sinter|slag|petcoke/.test(c)) return '#1a1a1a';
+    // steel products — orange
+    if(/steel|hrc|crc|rebar|billet|wire|pig\s?iron|coil|plate|slab|beam|pipe|tube|girder/.test(c)) return '#d89b65';
+    // fertilizers — purple
+    if(/urea|npk|dap|map|potash|sulph|sulf|fertil|ammonium|nitrate|phosphate|kcl|nitrogen|amms/.test(c)) return '#7c6ff7';
+    // cement / clinker — light grey
+    if(/cement|clinker|gypsum|lime|chalk/.test(c)) return '#9aa0a6';
+    // bagged / project / container — blue
+    if(/big[\s-]?bag|bag\b|project|container|crate|pallet|woodpulp|paper/.test(c)) return '#5b9be0';
+    // wood / logs / lumber — brown
+    if(/wood|log|lumber|timber|pulp/.test(c)) return '#8b5a3c';
+    // scrap / metal scrap — dark red
+    if(/scrap|hms\b/.test(c)) return '#8b3a47';
+    // default — green
     return '#4ec970';
 }
 
@@ -4502,10 +4523,19 @@ function renderVizMap(){
             s._vizMatches = matches;       // cache for list + click navigation
             visible.push(s);
             var hot = matches.some(function(m){ return (m.score || 0) >= 80; });
-            // Pulsing origin dot — divIcon so we can keyframe via CSS.
+            // Cargo-type color: жёлтый зерно, чёрный минералы, ...
+            var cargoColor = _flowColor(s.cargo_type);
+            var glow = hot
+                ? '0 0 10px '+cargoColor+', 0 0 20px '+_rgba(cargoColor, 0.7)
+                : '0 0 6px '+_rgba(cargoColor, 0.55);
+            // Pulsing origin dot — divIcon с inline color чтобы каждая точка
+            // светилась цветом своего груза.
             var icon = L.divIcon({
                 className:'',
-                html:'<div class="viz-pulse'+(hot?' hot':'')+'"><div class="ring"></div><div class="core"></div></div>',
+                html:'<div class="viz-pulse'+(hot?' hot':'')+'">'
+                   + '<div class="ring" style="border-color:'+cargoColor+';"></div>'
+                   + '<div class="core" style="background:'+cargoColor+'; box-shadow:'+glow+';"></div>'
+                   + '</div>',
                 iconSize:[14,14], iconAnchor:[7,7],
             });
             var marker = L.marker(loadC, { icon:icon, riseOnHover:true });
@@ -4515,15 +4545,15 @@ function renderVizMap(){
             marker.bindTooltip(label, { className:'viz-cargo-label', direction:'top', offset:[0,-10] });
             marker.on('click', function(){ vizOpenSignalMatches(s.id); });
             state.viz.layer.addLayer(marker);
-            // Route line to destination (if known) — accent-coloured glow.
+            // Route line to destination — cargo-colored.
             if(dischC){
                 var line = L.polyline([loadC, dischC], {
-                    color:'#7c6ff7', weight:1.6, opacity:0.55, dashArray:'4 6',
+                    color:cargoColor, weight:1.6, opacity:0.55, dashArray:'4 6',
                 });
                 state.viz.layer.addLayer(line);
                 var dischDot = L.circleMarker(dischC, {
-                    radius: 3.5, color:'#7c6ff7', weight:1.2,
-                    fillColor:'#7c6ff7', fillOpacity:0.45,
+                    radius: 3.5, color:cargoColor, weight:1.2,
+                    fillColor:cargoColor, fillOpacity:0.45,
                 });
                 dischDot.bindTooltip('↓ ' + (s.disch_port || '?'), { className:'viz-cargo-label', direction:'top', offset:[0,-4] });
                 dischDot.on('click', function(){ vizOpenSignalMatches(s.id); });
