@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.91';
+var APP_VERSION='0.1.92';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -1914,6 +1914,10 @@ async function teamPollOnce(initial){
                     if(m.sender_nickname !== mineCheck){
                         notifyForUser = true;
                     }
+                    // Auto-attach LLM reply to its pending case (if any).
+                    if(typeof _dispatchPendingLLMReply === 'function'){
+                        try { _dispatchPendingLLMReply(m); } catch(_){}
+                    }
                 }
             });
         }
@@ -2735,6 +2739,11 @@ function getModuleContext(){
     return ctx;
 }
 
+// Pending Q→A bindings: when the user asks the LLM in cases mode,
+// we remember (case_id, question_text) so the next LLM team-message
+// is auto-saved to that case timeline as an `llm` event.
+state.pendingCaseLLM = state.pendingCaseLLM || [];
+
 async function sendCtxMessage(){
     var inp = document.getElementById('ctx-input');
     var btn = document.getElementById('ctx-send-btn');
@@ -2749,6 +2758,30 @@ async function sendCtxMessage(){
             if(ctx.blob && ctx.blob.length < 6000){
                 body += '\n\n--- КОНТЕКСТ (' + ctx.summary + ') ---\n' + ctx.blob;
             }
+            // Cases-scoped Q: log question to timeline + arm pending binding
+            // so the LLM reply gets attached to the case automatically.
+            var caseScopedId = (state.view === 'cases'
+                && typeof CASES_UI !== 'undefined' && CASES_UI.activeId)
+                ? CASES_UI.activeId : null;
+            if(caseScopedId){
+                var c = _findCase(caseScopedId);
+                if(c){
+                    c.events = c.events || [];
+                    c.events.push({
+                        ts: new Date().toISOString(),
+                        kind: 'llm',
+                        by: (state.session && state.session.nickname) || 'Брокер',
+                        body: '❓ ' + text,
+                    });
+                    _persistCases();
+                    state.pendingCaseLLM.push({
+                        case_id: caseScopedId,
+                        sent_at: Date.now(),
+                        q: text,
+                    });
+                    if(CASES_UI.activeId === caseScopedId) _renderCaseDetail();
+                }
+            }
             await invoke('send_team_message_with_llm', { body: body });
         } else {
             await invoke('send_team_message', { body: text });
@@ -2761,6 +2794,35 @@ async function sendCtxMessage(){
     } finally {
         btn.disabled = false;
         inp.focus();
+    }
+}
+
+// Try to attach a newly-arrived LLM message to the oldest pending
+// case-scoped question. FIFO: first asked, first paired. Discards
+// pending entries older than 30 minutes (LLM clearly never answered).
+function _dispatchPendingLLMReply(msg){
+    if(!state.pendingCaseLLM || !state.pendingCaseLLM.length) return;
+    var llmRe = /llm|агент|assistant|🤖|al\b/i;
+    if(!llmRe.test(msg.sender_nickname || '')) return;
+    // Drop stale entries (>30 min, no reply yet).
+    var now = Date.now();
+    state.pendingCaseLLM = state.pendingCaseLLM.filter(function(p){
+        return (now - p.sent_at) < 30 * 60 * 1000;
+    });
+    if(!state.pendingCaseLLM.length) return;
+    var pending = state.pendingCaseLLM.shift();
+    var c = _findCase(pending.case_id);
+    if(!c) return;
+    c.events = c.events || [];
+    c.events.push({
+        ts: msg.created_at || new Date().toISOString(),
+        kind: 'llm',
+        by: msg.sender_nickname || 'AI Assistant',
+        body: '💬 ' + (msg.body || ''),
+    });
+    _persistCases();
+    if(typeof CASES_UI !== 'undefined' && CASES_UI.activeId === pending.case_id){
+        _renderCaseDetail();
     }
 }
 
@@ -3335,11 +3397,13 @@ async function askLLMAboutCase(id){
             ts: new Date().toISOString(),
             kind: 'llm',
             by: (state.session && state.session.nickname) || 'Брокер',
-            body: 'Спросил LLM с полным контекстом дела. Ответ придёт в 💬 Команду.',
+            body: '❓ Спросил LLM: оцени положение, предложи следующий шаг.',
         });
         _persistCases();
+        state.pendingCaseLLM = state.pendingCaseLLM || [];
+        state.pendingCaseLLM.push({ case_id: id, sent_at: Date.now(), q: 'Оцени положение' });
         _renderCaseDetail();
-        showToast('🤖 спросил LLM', 'ok');
+        showToast('🤖 спросил LLM — ответ придёт сюда', 'ok');
     } catch(e){
         showToast('Не отправилось: ' + e, 'error');
     }
