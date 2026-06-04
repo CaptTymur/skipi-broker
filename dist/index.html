@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.89';
+var APP_VERSION='0.1.90';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -157,6 +157,7 @@ document.addEventListener('DOMContentLoaded', function(){
     if(typeof migrateLeadsToCases === 'function') migrateLeadsToCases();
     // Show the context chat-strip if we're not on the team module.
     if(typeof updateCtxBarVisibility === 'function') updateCtxBarVisibility();
+    if(typeof _ctxInitResize === 'function') _ctxInitResize();
 });
 </script>
 <style>
@@ -876,9 +877,24 @@ body.dragging-split.col-resize { cursor:col-resize; }
    (тот же team chat, но с авто-приложенным контекстом того что брокер сейчас видит). */
 .ctx-chat-bar { position:fixed; left:0; right:0; bottom:0; z-index:90;
     background:var(--surface); border-top:1px solid var(--border);
-    display:flex; align-items:center; gap:6px; padding:6px 10px; font-size:11px;
-    box-shadow:0 -3px 10px rgba(0,0,0,.18); }
+    display:flex; flex-direction:column; font-size:11px;
+    box-shadow:0 -3px 10px rgba(0,0,0,.18);
+    height: 46px; max-height: 90vh; min-height: 40px; }
 .ctx-chat-bar.hidden { display:none; }
+.ctx-resize-handle { height:6px; cursor:row-resize; background:transparent;
+    border-bottom:1px solid var(--border); transition: background .15s; flex-shrink:0; }
+.ctx-resize-handle:hover, .ctx-resize-handle.dragging { background:var(--accent); }
+.ctx-history { flex:1; overflow-y:auto; padding:8px 10px; display:flex; flex-direction:column; gap:5px;
+    background:var(--bg); font-size:11px; }
+.ctx-history .cm { padding:6px 10px; border-radius:4px; background:var(--surface); border:1px solid var(--border);
+    word-break:break-word; }
+.ctx-history .cm.llm   { background:rgba(124,111,247,.07); border-color:rgba(124,111,247,.25); }
+.ctx-history .cm.me    { background:rgba(78,201,112,.08);  border-color:rgba(78,201,112,.25); }
+.ctx-history .cm-meta  { font-size:9px; color:var(--text3); margin-bottom:2px; display:flex; gap:6px; }
+.ctx-history .cm-from  { font-weight:600; color:var(--text2); }
+.ctx-history .cm-body  { white-space:pre-wrap; color:var(--text); }
+.ctx-history .cm-empty { color:var(--text3); text-align:center; padding:20px 10px; font-size:10px; }
+.ctx-input-row { display:flex; align-items:center; gap:6px; padding:6px 10px; flex-shrink:0; }
 .ctx-chat-bar .ctx-mode { display:inline-flex; gap:2px; }
 .ctx-chat-bar .ctx-mode-tab { padding:3px 7px; border-radius:3px; cursor:pointer;
     color:var(--text2); border:1px solid transparent; user-select:none; font-size:10px; }
@@ -900,8 +916,10 @@ body.dragging-split.col-resize { cursor:col-resize; }
     border-radius:14px; cursor:pointer; color:var(--text2); display:none; }
 .ctx-chat-restore.show { display:block; }
 .ctx-chat-restore:hover { color:var(--text); border-color:var(--accent); }
-/* Add bottom margin to main view container so the bar doesn't cover content. */
-body.ctx-bar-visible .view-pane { padding-bottom:46px; }
+/* Add bottom margin to main view container so the bar doesn't cover content.
+   The padding tracks the bar's actual height via a CSS var set by the resize
+   handler (ctx-bar-h, default 46px). */
+body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
 </style>
 <link rel="stylesheet" href="leaflet/leaflet.css">
 <script src="leaflet/leaflet.js"></script>
@@ -915,14 +933,20 @@ body.ctx-bar-visible .view-pane { padding-bottom:46px; }
      team channel but with the current view's state attached as context blob so
      the LLM agent can answer about what the broker is looking at). -->
 <div id="ctx-chat-bar" class="ctx-chat-bar hidden">
-    <div class="ctx-mode">
-        <span class="ctx-mode-tab" id="ctx-mode-team" onclick="setCtxMode('team')" title="Сообщение в командный чат">💬 Команде</span>
-        <span class="ctx-mode-tab active" id="ctx-mode-llm" onclick="setCtxMode('llm')" title="Спросить LLM — контекст модуля прикрепится автоматически">🤖 ЛЛМ</span>
+    <!-- Drag handle at the top — resize the panel vertically (Тимур 04.06). -->
+    <div id="ctx-resize-handle" class="ctx-resize-handle" title="Тяни вверх/вниз — меняет высоту панели"></div>
+    <!-- Recent chat history (visible when panel is tall enough). -->
+    <div id="ctx-history" class="ctx-history" style="display:none;"></div>
+    <div class="ctx-input-row">
+        <div class="ctx-mode">
+            <span class="ctx-mode-tab" id="ctx-mode-team" onclick="setCtxMode('team')" title="Сообщение в командный чат">💬 Команде</span>
+            <span class="ctx-mode-tab active" id="ctx-mode-llm" onclick="setCtxMode('llm')" title="Спросить LLM — контекст модуля прикрепится автоматически">🤖 ЛЛМ</span>
+        </div>
+        <span class="ctx-info" id="ctx-info">контекст готов</span>
+        <input type="text" id="ctx-input" placeholder="спроси LLM про то что видишь…" onkeydown="if(event.key==='Enter')sendCtxMessage()" autocomplete="off">
+        <button class="ctx-send" id="ctx-send-btn" onclick="sendCtxMessage()">▶</button>
+        <span class="ctx-hide" title="Свернуть" onclick="hideCtxBar()">✕</span>
     </div>
-    <span class="ctx-info" id="ctx-info">контекст готов</span>
-    <input type="text" id="ctx-input" placeholder="спроси LLM про то что видишь…" onkeydown="if(event.key==='Enter')sendCtxMessage()" autocomplete="off">
-    <button class="ctx-send" id="ctx-send-btn" onclick="sendCtxMessage()">▶</button>
-    <span class="ctx-hide" title="Свернуть" onclick="hideCtxBar()">✕</span>
 </div>
 <div id="ctx-chat-restore" class="ctx-chat-restore" onclick="showCtxBar()">💬 спросить LLM</div>
 
@@ -1875,6 +1899,7 @@ async function teamPollOnce(initial){
         if(initial){
             state.team.messages = rows;
             hadNew = rows.length > 0;
+            if(typeof renderCtxHistory === 'function') renderCtxHistory();
             // No beep on first load — that's just the back-scroll, not "new".
         } else if(rows.length > 0){
             var existing = {};
@@ -1896,6 +1921,7 @@ async function teamPollOnce(initial){
         if(state.team.messages.length > 0){
             state.team.lastTs = state.team.messages[state.team.messages.length - 1].created_at;
         }
+        if(hadNew && typeof renderCtxHistory === 'function') renderCtxHistory();
         // Unread badge: messages from someone else newer than the last
         // time the user's chat scroll was at the bottom. The simplest
         // proxy is "received while not at bottom" — accept the
@@ -2454,7 +2480,78 @@ function showLeadOnMap(leadId){
 // either send it to the team or ask the LLM. When asking the LLM, the
 // current module's state is auto-attached as context so the agent can
 // reason about what the broker is actually looking at right now.
-var ctxState = { mode: 'llm', hidden: false };
+var ctxState = { mode: 'llm', hidden: false, height: 46 };
+
+// Resize logic: drag the handle on top of the chat-bar to grow/shrink.
+function _ctxApplyHeight(h){
+    var bar = document.getElementById('ctx-chat-bar');
+    if(!bar) return;
+    var min = 46, max = Math.round(window.innerHeight * 0.9);
+    h = Math.max(min, Math.min(max, h));
+    bar.style.height = h + 'px';
+    document.body.style.setProperty('--ctx-bar-h', h + 'px');
+    var hist = document.getElementById('ctx-history');
+    // Show history only when the panel is tall enough for it to make sense.
+    if(hist) hist.style.display = (h > 90) ? '' : 'none';
+    ctxState.height = h;
+    try { localStorage.setItem('skipi-broker-ctx-h', String(h)); } catch(_){}
+}
+function _ctxInitResize(){
+    try {
+        var saved = parseInt(localStorage.getItem('skipi-broker-ctx-h') || '0', 10);
+        if(saved > 46) _ctxApplyHeight(saved);
+        else _ctxApplyHeight(46);
+    } catch(_){ _ctxApplyHeight(46); }
+    var handle = document.getElementById('ctx-resize-handle');
+    if(!handle) return;
+    handle.addEventListener('mousedown', function(e){
+        e.preventDefault();
+        handle.classList.add('dragging');
+        var startY = e.clientY;
+        var startH = ctxState.height;
+        function move(ev){
+            // Dragging UP grows the panel; subtract dy from start.
+            var dy = startY - ev.clientY;
+            _ctxApplyHeight(startH + dy);
+            if(typeof renderCtxHistory === 'function') renderCtxHistory();
+        }
+        function stop(){
+            handle.classList.remove('dragging');
+            document.removeEventListener('mousemove', move);
+            document.removeEventListener('mouseup', stop);
+        }
+        document.addEventListener('mousemove', move);
+        document.addEventListener('mouseup', stop);
+    });
+}
+
+// Render the last N team chat messages inside the chat-strip history pane
+// so the broker can read replies without leaving the current module.
+function renderCtxHistory(){
+    var host = document.getElementById('ctx-history');
+    if(!host) return;
+    var msgs = (state.team && state.team.messages) || [];
+    if(!msgs.length){
+        host.innerHTML = '<div class="cm-empty">пока пусто — спроси ЛЛМ или напиши команде</div>';
+        return;
+    }
+    // Tail of conversation, oldest at top so the input row sits below the
+    // newest message and the broker reads naturally.
+    var tail = msgs.slice(-30);
+    var nick = (state.session && state.session.nickname) || 'Брокер';
+    host.innerHTML = tail.map(function(m){
+        var by = m.sender_nickname || '?';
+        var isLlm = /llm|агент|assistant|🤖/i.test(by);
+        var isMe = (by === nick);
+        var cls = isLlm ? 'llm' : (isMe ? 'me' : '');
+        var ts = (m.created_at || '').slice(0,16).replace('T',' ');
+        return '<div class="cm '+cls+'">'
+            + '<div class="cm-meta"><span class="cm-from">'+esc(by)+'</span><span>'+esc(ts)+'</span></div>'
+            + '<div class="cm-body">'+esc(m.body || '')+'</div>'
+            + '</div>';
+    }).join('');
+    host.scrollTop = host.scrollHeight;
+}
 
 function setCtxMode(mode){
     ctxState.mode = mode;
@@ -2496,6 +2593,7 @@ function updateCtxBarVisibility(){
     bar.classList.toggle('hidden', !shouldShow);
     document.body.classList.toggle('ctx-bar-visible', shouldShow);
     _refreshCtxInfo();
+    if(shouldShow) renderCtxHistory();
 }
 
 function _refreshCtxInfo(){
