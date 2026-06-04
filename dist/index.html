@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.88';
+var APP_VERSION='0.1.89';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -2570,6 +2570,31 @@ function getModuleContext(){
             var pairs = state.bazaarPairs || [];
             ctx.summary = '🗺 карта: ' + pairs.length + ' пар';
             ctx.blob = JSON.stringify({ pairs_count: pairs.length, sample: pairs.slice(0,3) }, null, 2);
+        } else if(view === 'cases'){
+            // If a specific case is open (drill-down), surface its full
+            // record + last 15 events so the LLM can reason about it.
+            var activeCase = (typeof CASES_UI !== 'undefined' && CASES_UI.activeId)
+                ? _findCase(CASES_UI.activeId) : null;
+            if(activeCase){
+                ctx.summary = '📂 ' + activeCase.title + ' [' + activeCase.status + ']';
+                ctx.blob = JSON.stringify({
+                    case_id: activeCase.id,
+                    title: activeCase.title,
+                    status: activeCase.status,
+                    type: activeCase.type,
+                    owners: activeCase.owners,
+                    link: activeCase.link,
+                    recent_events: (activeCase.events || []).slice(-15),
+                }, null, 2);
+            } else {
+                var all = (typeof _getCases === 'function') ? _getCases() : [];
+                ctx.summary = '📂 ' + all.length + ' дел';
+                ctx.blob = JSON.stringify({
+                    cases_count: all.length,
+                    by_status: all.reduce(function(acc, c){ acc[c.status] = (acc[c.status]||0)+1; return acc; }, {}),
+                    recent: all.slice(0, 5).map(function(c){ return { id: c.id, title: c.title, status: c.status }; }),
+                }, null, 2);
+            }
         }
     } catch(e) {
         ctx.summary = 'контекст: ошибка';
