@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.87';
+var APP_VERSION='0.1.88';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -377,6 +377,11 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .leaflet-container.viz-mapbg { background:#0a1320 !important; }
 [data-theme="light"] .leaflet-container.viz-mapbg { background:#e6edf5 !important; }
 /* Pulsing origin dot — drawn as a div icon so we can keyframe it */
+.viz-mode-tabs { display:inline-flex; gap:3px; }
+.viz-mode-tab { padding:3px 8px; border-radius:3px; cursor:pointer; font-size:11px;
+    color:var(--text2); border:1px solid transparent; user-select:none; }
+.viz-mode-tab:hover { background:var(--surface2); color:var(--text); }
+.viz-mode-tab.active { background:var(--surface2); color:var(--text); border-color:var(--accent); }
 .viz-pulse { position:relative; width:14px; height:14px; }
 .viz-pulse .core { position:absolute; top:50%; left:50%; width:8px; height:8px; margin:-4px 0 0 -4px;
     border-radius:50%; background:#7c6ff7; box-shadow:0 0 8px #7c6ff7, 0 0 16px rgba(124,111,247,.6); }
@@ -1245,11 +1250,28 @@ body.ctx-bar-visible .view-pane { padding-bottom:46px; }
             <div class="col-head"><span>🗺 Фильтры</span><span class="count" id="viz-visible-count">0</span></div>
             <div class="viz-filter-body">
                 <div class="viz-section">
+                    <label>Режим</label>
+                    <div class="viz-mode-tabs">
+                        <span class="viz-mode-tab active" id="viz-mode-signals" onclick="setVizMode('signals')">📍 Сигналы</span>
+                        <span class="viz-mode-tab" id="viz-mode-flows" onclick="setVizMode('flows')">🌊 Грузопотоки</span>
+                    </div>
+                </div>
+                <div class="viz-section viz-section-signals" id="viz-section-signals">
                     <label>Слой</label>
                     <div class="viz-layer-toggle">
                         <label><input type="checkbox" id="viz-show-cargo" checked onchange="renderVizMap()"> 📦 Грузы</label>
                         <label><input type="checkbox" id="viz-show-tonnage" onchange="renderVizMap()"> 🚢 Тоннаж <span style="color:var(--text3); font-size:10px;">(скоро)</span></label>
                     </div>
+                </div>
+                <div class="viz-section viz-section-flows" id="viz-section-flows" style="display:none;">
+                    <label>Период (дней)</label>
+                    <select id="viz-flow-days" onchange="renderVizFlows()">
+                        <option value="7">7</option>
+                        <option value="14">14</option>
+                        <option value="30" selected>30</option>
+                        <option value="60">60</option>
+                        <option value="90">90</option>
+                    </select>
                 </div>
                 <div class="viz-section">
                     <label>Регион (load)</label>
@@ -3747,6 +3769,92 @@ function _renderLeadMap(m, ports){
     }
     // Tauri's WebView may stall layout on first map render — force refresh.
     setTimeout(function(){ if(state.leadMap) state.leadMap.invalidateSize(); }, 50);
+}
+
+// 🌊 Грузопотоки: aggregated cargo flows view (Тимур 04.06).
+// state.viz.mode = 'signals' (default) | 'flows'
+function setVizMode(mode){
+    if(!state.viz) state.viz = {};
+    state.viz.mode = mode;
+    var s = document.getElementById('viz-mode-signals');
+    var f = document.getElementById('viz-mode-flows');
+    var sectS = document.getElementById('viz-section-signals');
+    var sectF = document.getElementById('viz-section-flows');
+    if(s) s.classList.toggle('active', mode === 'signals');
+    if(f) f.classList.toggle('active', mode === 'flows');
+    if(sectS) sectS.style.display = (mode === 'signals') ? '' : 'none';
+    if(sectF) sectF.style.display = (mode === 'flows') ? '' : 'none';
+    if(state.viz && state.viz.layer){
+        try { state.viz.layer.clearLayers(); } catch(_){}
+    }
+    if(mode === 'flows') renderVizFlows();
+    else renderVizMap();
+}
+
+// Color palette per cargo type (rough — best-effort grouping).
+function _flowColor(cargo){
+    var c = (cargo || '').toLowerCase();
+    if(/grain|wheat|corn|barley|rice|soy|rapeseed|sun/.test(c)) return '#e2b93d';
+    if(/steel|hrc|rebar|billet|wire|pig/.test(c))               return '#d89b65';
+    if(/coal|iron|bauxite|manganese|chrome/.test(c))            return '#666';
+    if(/urea|npk|dap|map|potash|sulph|fertil/.test(c))          return '#7c6ff7';
+    if(/cement|clinker|gypsum/.test(c))                          return '#888';
+    if(/bag|big bag|project|container/.test(c))                 return '#5b9be0';
+    return '#4ec970';
+}
+
+async function renderVizFlows(){
+    if(!state.viz || !state.viz.map) return;
+    try { state.viz.layer.clearLayers(); } catch(_){}
+    var days = (document.getElementById('viz-flow-days') || {}).value || 30;
+    var url = 'https://api.skipi.app/api/analytics/flows?days=' + days;
+    var rows = [];
+    try {
+        var res = await fetch(url);
+        rows = await res.json();
+    } catch(e){ console.warn('flows fetch failed', e); return; }
+    if(!Array.isArray(rows)) rows = [];
+    var maxSig = rows.reduce(function(m, r){ return Math.max(m, r.signals || 0); }, 1);
+    var drawn = 0;
+    rows.forEach(function(flow){
+        var loadC = _portCoords(flow.top_load_port);
+        var dischC = _portCoords(flow.top_disch_port);
+        if(!loadC || !dischC) return;
+        drawn++;
+        // Weight: log-scale so dominant flows don't drown out the rest.
+        var weight = 1 + Math.log(1 + flow.signals) * 1.6;
+        var color = _flowColor(flow.top_cargo);
+        var line = L.polyline([loadC, dischC], {
+            color: color, weight: weight, opacity: 0.78,
+        });
+        var tip = '<b>'+esc(flow.from_country)+' → '+esc(flow.to_country)+'</b>'
+            + '<br>сигналов: '+flow.signals
+            + '<br>объём: '+(flow.total_mt ? (flow.total_mt > 1e6 ? (flow.total_mt/1e6).toFixed(1)+'M MT' : (flow.total_mt/1000).toFixed(0)+'k MT') : '—')
+            + '<br>топ-груз: '+esc(flow.top_cargo || '?')
+            + '<br>'+esc(flow.top_load_port || '?')+' → '+esc(flow.top_disch_port || '?');
+        var br = flow.cargo_breakdown || {};
+        var brKeys = Object.keys(br).slice(0, 5);
+        if(brKeys.length){
+            tip += '<br><span style="color:#888; font-size:10px;">распределение: ' + brKeys.map(function(k){ return esc(k)+' '+br[k]; }).join(', ') + '</span>';
+        }
+        line.bindTooltip(tip, { className:'viz-cargo-label', direction:'top', sticky:true });
+        state.viz.layer.addLayer(line);
+        // Origin dot — small green; destination — small red.
+        state.viz.layer.addLayer(L.circleMarker(loadC, {
+            radius: 4, color: color, weight: 1.2, fillColor: color, fillOpacity: 0.85,
+        }).bindTooltip('load: '+esc(flow.top_load_port || '?'), { className:'viz-cargo-label' }));
+        state.viz.layer.addLayer(L.circleMarker(dischC, {
+            radius: 3.5, color: '#e55561', weight: 1.2, fillColor: '#e55561', fillOpacity: 0.7,
+        }).bindTooltip('disch: '+esc(flow.top_disch_port || '?'), { className:'viz-cargo-label' }));
+    });
+    var cnt = document.getElementById('viz-visible-count');
+    if(cnt) cnt.textContent = drawn;
+    var hint = document.getElementById('viz-empty-hint');
+    if(hint){
+        hint.innerHTML = drawn === 0
+            ? 'Нет грузопотоков с известными портами в выборке. Расширь период.'
+            : '🌊 ' + drawn + ' пар порт↔порт за '+days+' дн. Толщина линии — лог. от объёма сигналов; цвет — топ-груз.';
+    }
 }
 
 // ---------- 🗺 Визуализатор: global signals map ----------
