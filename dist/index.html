@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.94';
+var APP_VERSION='0.1.95';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -5789,7 +5789,7 @@ async function refreshBazaarPairs(){
     if(!state.settings.broker_id){ state.bazaarPairs = []; return; }
     try {
         var rows = await invoke('fetch_bazaar_pairs');
-        state.bazaarPairs = Array.isArray(rows) ? rows : [];
+        state.bazaarPairs = _dedupePairs(Array.isArray(rows) ? rows : []);
     } catch(e){
         state.bazaarPairs = [];
         console.warn('bazaar-pairs fetch failed', e);
@@ -5799,6 +5799,50 @@ async function refreshBazaarPairs(){
     if(state.view === 'viz' && state.viz && state.viz.map){
         try { renderVizMap(); } catch(_){}
     }
+}
+
+// Collapse duplicate pairs that come from the matcher when the same
+// real-world cargo or tonnage was ingested multiple times (different
+// brokers re-circulating, different ingest channels). The dedup key is
+// (cargo fingerprint × tonnage fingerprint). For each group we keep
+// only the pair with the highest score (and stash the count + ids of
+// the collapsed siblings on the survivor for the UI to display).
+function _pairFingerprint(p){
+    var c = p && p.cargo_signal || {};
+    var t = p && p.tonnage_signal || {};
+    function norm(s){ return String(s || '').trim().toLowerCase(); }
+    var cargoFp = [
+        norm(c.cargo_type), norm(c.load_port), norm(c.disch_port),
+        c.quantity_mt ? Math.round(c.quantity_mt / 100) * 100 : '?',
+    ].join('|');
+    var tonnFp = [
+        norm(t.vessel_name) || norm(t.vessel_type),
+        t.dwt ? Math.round(t.dwt / 200) * 200 : '?',
+        norm(t.open_port),
+    ].join('|');
+    return cargoFp + '##' + tonnFp;
+}
+
+function _dedupePairs(pairs){
+    if(!Array.isArray(pairs) || !pairs.length) return pairs || [];
+    var groups = Object.create(null);
+    pairs.forEach(function(p){
+        var fp = _pairFingerprint(p);
+        if(!groups[fp]) groups[fp] = [];
+        groups[fp].push(p);
+    });
+    var result = [];
+    Object.keys(groups).forEach(function(fp){
+        var bucket = groups[fp];
+        bucket.sort(function(a, b){ return (b.score || 0) - (a.score || 0); });
+        var winner = bucket[0];
+        if(bucket.length > 1){
+            winner._dup_count = bucket.length;
+            winner._dup_ids = bucket.slice(1).map(function(p){ return p.id; });
+        }
+        result.push(winner);
+    });
+    return result;
 }
 
 function _signalLabel(sig, kind){
