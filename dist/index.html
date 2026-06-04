@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.95';
+var APP_VERSION='0.1.96';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -379,6 +379,26 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 [data-theme="light"] .leaflet-container.viz-mapbg { background:#e6edf5 !important; }
 /* Pulsing origin dot — drawn as a div icon so we can keyframe it */
 .viz-mode-tabs { display:inline-flex; gap:3px; }
+.viz-tl-strip {
+    position:absolute; left:12px; right:12px; bottom:12px; z-index:600;
+    display:flex; align-items:center; gap:8px;
+    background:rgba(20,28,40,.94); border:1px solid rgba(124,111,247,.55);
+    border-radius:6px; padding:8px 12px;
+    box-shadow:0 4px 14px rgba(0,0,0,.5);
+}
+[data-theme="light"] .viz-tl-strip { background:rgba(255,255,255,.96); border-color:rgba(124,111,247,.4); }
+.viz-tl-btn {
+    background:transparent; border:1px solid rgba(124,111,247,.5);
+    color:var(--text); padding:4px 10px; border-radius:4px;
+    cursor:pointer; font-size:13px; font-weight:600; min-width:32px;
+}
+.viz-tl-btn:hover { background:rgba(124,111,247,.15); }
+.viz-tl-play { background:rgba(124,111,247,.25); }
+.viz-tl-play.playing { background:#e55561; border-color:#e55561; color:#fff; }
+.viz-tl-meta { min-width:130px; line-height:1.1; }
+.viz-tl-date { font-size:13px; font-weight:700; color:var(--text); }
+.viz-tl-counts { font-size:10px; color:var(--text3); }
+.viz-tl-slider { flex:1; min-width:120px; cursor:pointer; accent-color:#7c6ff7; }
 .viz-mode-tab { padding:3px 8px; border-radius:3px; cursor:pointer; font-size:11px;
     color:var(--text2); border:1px solid transparent; user-select:none; }
 .viz-mode-tab:hover { background:var(--surface2); color:var(--text); }
@@ -1278,6 +1298,7 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
                     <div class="viz-mode-tabs">
                         <span class="viz-mode-tab active" id="viz-mode-signals" onclick="setVizMode('signals')">📍 Сигналы</span>
                         <span class="viz-mode-tab" id="viz-mode-flows" onclick="setVizMode('flows')">🌊 Грузопотоки</span>
+                        <span class="viz-mode-tab" id="viz-mode-timeline" onclick="setVizMode('timeline')">⏱ Хроника</span>
                     </div>
                 </div>
                 <div class="viz-section viz-section-signals" id="viz-section-signals">
@@ -1296,6 +1317,23 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
                         <option value="60">60</option>
                         <option value="90">90</option>
                     </select>
+                </div>
+                <div class="viz-section viz-section-timeline" id="viz-section-timeline" style="display:none;">
+                    <label>Окно (дней назад)</label>
+                    <select id="viz-tl-days" onchange="renderVizTimeline(true)">
+                        <option value="7">7</option>
+                        <option value="14">14</option>
+                        <option value="30" selected>30</option>
+                        <option value="60">60</option>
+                    </select>
+                    <label style="margin-top:8px;">Слои на этот день</label>
+                    <div class="viz-layer-toggle">
+                        <label><input type="checkbox" id="viz-tl-cargo" checked onchange="_tlRedraw()"> 📦 Грузы</label>
+                        <label><input type="checkbox" id="viz-tl-tonn" checked onchange="_tlRedraw()"> 🚢 Тоннаж</label>
+                    </div>
+                    <div style="margin-top:8px; font-size:10px; color:var(--text3); line-height:1.4;">
+                        Прокликай ползунок ниже — увидишь как сигналы появлялись и снимались. ▶ Play даёт анимацию.
+                    </div>
                 </div>
                 <div class="viz-section">
                     <label>Регион (load)</label>
@@ -1347,6 +1385,18 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
                 background:rgba(20,28,40,.92); color:#dcddde; border:1px solid rgba(124,111,247,.5);
                 border-radius:4px; padding:8px 12px; font-size:11px; line-height:1.4; z-index:500;
                 box-shadow:0 4px 12px rgba(0,0,0,.5); max-width:240px;"></div>
+            <div id="viz-timeline-strip" class="viz-tl-strip" style="display:none;">
+                <button class="viz-tl-btn" id="viz-tl-back" title="−1 день" onclick="_tlStep(-1)">◀</button>
+                <button class="viz-tl-btn viz-tl-play" id="viz-tl-play" title="Play" onclick="_tlTogglePlay()">▶</button>
+                <button class="viz-tl-btn" id="viz-tl-fwd" title="+1 день" onclick="_tlStep(1)">▶</button>
+                <div class="viz-tl-meta">
+                    <div class="viz-tl-date" id="viz-tl-date">—</div>
+                    <div class="viz-tl-counts" id="viz-tl-counts">0 cargo · 0 tonnage</div>
+                </div>
+                <input type="range" id="viz-tl-slider" class="viz-tl-slider"
+                       min="0" max="30" value="30" step="1" oninput="_tlSliderInput(this.value)">
+                <button class="viz-tl-btn" id="viz-tl-now" title="Сейчас" onclick="_tlJumpToNow()">⏭</button>
+            </div>
         </div>
     </div>
 
@@ -4020,23 +4070,223 @@ function _renderLeadMap(m, ports){
 }
 
 // 🌊 Грузопотоки: aggregated cargo flows view (Тимур 04.06).
-// state.viz.mode = 'signals' (default) | 'flows'
+// state.viz.mode = 'signals' (default) | 'flows' | 'timeline'
 function setVizMode(mode){
     if(!state.viz) state.viz = {};
     state.viz.mode = mode;
     var s = document.getElementById('viz-mode-signals');
     var f = document.getElementById('viz-mode-flows');
+    var t = document.getElementById('viz-mode-timeline');
     var sectS = document.getElementById('viz-section-signals');
     var sectF = document.getElementById('viz-section-flows');
+    var sectT = document.getElementById('viz-section-timeline');
+    var strip = document.getElementById('viz-timeline-strip');
     if(s) s.classList.toggle('active', mode === 'signals');
     if(f) f.classList.toggle('active', mode === 'flows');
+    if(t) t.classList.toggle('active', mode === 'timeline');
     if(sectS) sectS.style.display = (mode === 'signals') ? '' : 'none';
     if(sectF) sectF.style.display = (mode === 'flows') ? '' : 'none';
+    if(sectT) sectT.style.display = (mode === 'timeline') ? '' : 'none';
+    if(strip) strip.style.display = (mode === 'timeline') ? '' : 'none';
     if(state.viz && state.viz.layer){
         try { state.viz.layer.clearLayers(); } catch(_){}
     }
+    // Stop any running playback when leaving timeline mode.
+    if(mode !== 'timeline') _tlStopPlay();
     if(mode === 'flows') renderVizFlows();
+    else if(mode === 'timeline') renderVizTimeline(true);
     else renderVizMap();
+}
+
+// ── Timeline mode ──────────────────────────────────────────────
+// state.viz.tl holds the timeline state machine:
+//   { days, cargo[], tonnage[], t, playing, raf }
+//   - cargo/tonnage arrays cached from API (full window)
+//   - t = current Date being rendered (T)
+//   - sliderMax = number of day steps from "days ago" to "now"
+//
+// A cargo/tonnage signal is visible at moment T when:
+//   first_seen_at <= T  AND  (status === 'active' OR resolved_at > T)
+const _TL_DAY_MS = 86400000;
+
+function _tlState(){
+    if(!state.viz) state.viz = {};
+    if(!state.viz.tl) state.viz.tl = { days: 30, cargo: [], tonnage: [], t: new Date(), playing: false, raf: null };
+    return state.viz.tl;
+}
+
+async function renderVizTimeline(reload){
+    if(!state.viz || !state.viz.map) return;
+    var tl = _tlState();
+    var daysSel = document.getElementById('viz-tl-days');
+    tl.days = parseInt((daysSel && daysSel.value) || 30, 10);
+    if(reload){
+        await _tlFetchSignals(tl.days);
+    }
+    var slider = document.getElementById('viz-tl-slider');
+    if(slider){
+        slider.min = 0;
+        slider.max = tl.days;
+        slider.step = 1;
+        if(slider.value === undefined || slider.value === '' || +slider.value > +slider.max) slider.value = tl.days;
+    }
+    var stepFromNow = slider ? (tl.days - parseInt(slider.value, 10)) : 0;
+    tl.t = new Date(Date.now() - stepFromNow * _TL_DAY_MS);
+    _tlRedraw();
+}
+
+async function _tlFetchSignals(days){
+    var tl = _tlState();
+    // Reuse the existing signal-list command (no server change needed).
+    // Pull a large window and filter client-side by first_seen_at.
+    var cutoff = new Date(Date.now() - days * _TL_DAY_MS);
+    function inWindow(s){
+        if(!s.first_seen_at) return false;
+        return new Date(s.first_seen_at) >= cutoff;
+    }
+    try {
+        var cargo = await invoke('fetch_bazaar_signal_list', { kind: 'cargo', limit: 2000 });
+        tl.cargo = (Array.isArray(cargo) ? cargo : []).filter(inWindow);
+    } catch(e){
+        console.warn('tl cargo fetch failed', e);
+        tl.cargo = [];
+    }
+    try {
+        var tonn = await invoke('fetch_bazaar_signal_list', { kind: 'tonnage', limit: 2000 });
+        tl.tonnage = (Array.isArray(tonn) ? tonn : []).filter(inWindow);
+    } catch(e){
+        console.warn('tl tonnage fetch failed', e);
+        tl.tonnage = [];
+    }
+}
+
+function _tlSliderInput(val){
+    var tl = _tlState();
+    var step = tl.days - parseInt(val, 10);
+    tl.t = new Date(Date.now() - step * _TL_DAY_MS);
+    _tlRedraw();
+}
+
+function _tlStep(delta){
+    var slider = document.getElementById('viz-tl-slider');
+    if(!slider) return;
+    var v = parseInt(slider.value, 10) + delta;
+    if(v < +slider.min) v = +slider.min;
+    if(v > +slider.max) v = +slider.max;
+    slider.value = v;
+    _tlSliderInput(v);
+}
+
+function _tlJumpToNow(){
+    var slider = document.getElementById('viz-tl-slider');
+    if(!slider) return;
+    slider.value = slider.max;
+    _tlSliderInput(slider.value);
+}
+
+function _tlTogglePlay(){
+    var tl = _tlState();
+    if(tl.playing) _tlStopPlay();
+    else _tlStartPlay();
+}
+
+function _tlStartPlay(){
+    var tl = _tlState();
+    var btn = document.getElementById('viz-tl-play');
+    if(btn){ btn.classList.add('playing'); btn.textContent = '⏸'; btn.title = 'Pause'; }
+    tl.playing = true;
+    var lastTick = 0;
+    var DAY_DURATION_MS = 700; // 700ms per day
+    function frame(ts){
+        if(!tl.playing) return;
+        if(!lastTick) lastTick = ts;
+        if(ts - lastTick >= DAY_DURATION_MS){
+            lastTick = ts;
+            var slider = document.getElementById('viz-tl-slider');
+            if(!slider){ _tlStopPlay(); return; }
+            var v = parseInt(slider.value, 10) + 1;
+            if(v > +slider.max){
+                _tlStopPlay();
+                return;
+            }
+            slider.value = v;
+            _tlSliderInput(v);
+        }
+        tl.raf = requestAnimationFrame(frame);
+    }
+    tl.raf = requestAnimationFrame(frame);
+}
+
+function _tlStopPlay(){
+    var tl = _tlState();
+    tl.playing = false;
+    if(tl.raf){ try { cancelAnimationFrame(tl.raf); } catch(_){} tl.raf = null; }
+    var btn = document.getElementById('viz-tl-play');
+    if(btn){ btn.classList.remove('playing'); btn.textContent = '▶'; btn.title = 'Play'; }
+}
+
+function _tlActiveAt(sig, t){
+    var first = sig.first_seen_at ? new Date(sig.first_seen_at) : null;
+    if(!first || first > t) return false;
+    if(sig.status === 'active') return true;
+    // resolved/dismissed: only show if it was still active at T
+    var resolved = sig.resolved_at ? new Date(sig.resolved_at) : null;
+    if(resolved && resolved > t) return true;
+    var dismissed = sig.dismissed_at ? new Date(sig.dismissed_at) : null;
+    if(dismissed && dismissed > t) return true;
+    return false;
+}
+
+function _tlRedraw(){
+    if(!state.viz || !state.viz.map || !state.viz.layer) return;
+    var tl = _tlState();
+    var t = tl.t || new Date();
+    try { state.viz.layer.clearLayers(); } catch(_){}
+    var showCargo = (document.getElementById('viz-tl-cargo') || {}).checked !== false;
+    var showTonn = (document.getElementById('viz-tl-tonn') || {}).checked !== false;
+    var nCargo = 0, nTonn = 0;
+    if(showCargo){
+        (tl.cargo || []).forEach(function(c){
+            if(!_tlActiveAt(c, t)) return;
+            var loadC = _portCoords(c.load_port);
+            if(!loadC) return;
+            nCargo++;
+            var color = _flowColor(c.cargo_type);
+            var marker = L.circleMarker(loadC, {
+                radius: 6, color: color, weight: 2, fillColor: color, fillOpacity: 0.55,
+            });
+            var tip = (c.cargo_type || 'cargo') + ' · ' + (c.quantity_mt || '?') + 'mt'
+                    + ' · ' + (c.load_port || '?') + '→' + (c.disch_port || '?');
+            marker.bindTooltip(tip, { className: 'viz-cargo-label' });
+            state.viz.layer.addLayer(marker);
+            var dischC = _portCoords(c.disch_port);
+            if(dischC){
+                state.viz.layer.addLayer(L.polyline([loadC, dischC], {
+                    color: color, weight: 1.2, opacity: 0.55, dashArray: '4,3',
+                }));
+            }
+        });
+    }
+    if(showTonn){
+        (tl.tonnage || []).forEach(function(v){
+            if(!_tlActiveAt(v, t)) return;
+            var openC = _portCoords(v.open_port);
+            if(!openC) return;
+            nTonn++;
+            var marker = L.circleMarker(openC, {
+                radius: 5, color: '#5b9be0', weight: 2, fillColor: '#5b9be0', fillOpacity: 0.55,
+            });
+            var tip = (v.vessel_name || v.vessel_type || 'tonnage')
+                    + (v.dwt ? ' · ' + v.dwt + 'DWT' : '')
+                    + ' @ ' + (v.open_port || '?');
+            marker.bindTooltip(tip, { className: 'viz-cargo-label' });
+            state.viz.layer.addLayer(marker);
+        });
+    }
+    var dateEl = document.getElementById('viz-tl-date');
+    var countsEl = document.getElementById('viz-tl-counts');
+    if(dateEl) dateEl.textContent = t.toISOString().slice(0,10);
+    if(countsEl) countsEl.textContent = nCargo + ' cargo · ' + nTonn + ' tonnage';
 }
 
 // Color palette per cargo type (rough — best-effort grouping).
