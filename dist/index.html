@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.101';
+var APP_VERSION='0.1.102';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -3064,12 +3064,106 @@ function createEmptyCase(){
         created_by: nick,
         created_at: new Date().toISOString(),
         events: [],
+        watched_emails: [],
+        unread_replies: [],
+        last_seen_reply_at: null,
     };
     var arr = _getCases();
     arr.unshift(c);
     _persistCases();
     openCaseDetail(c.id);
     renderCasesView();
+}
+
+// ─── Inbox watcher for cases ───────────────────────────────────
+// Each case can carry a list of watched emails. When a new message
+// from one of them arrives in state.mail.messages, we mark the case
+// has_unread and push the message id into unread_replies. The
+// pulse-dot in the cases list and the nav-cases badge surface this
+// at a glance, so Тимур не пропустит ответ.
+function _normEmail(s){
+    var m = String(s || '').toLowerCase().match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
+    return m ? m[0] : '';
+}
+function _checkCaseReplies(){
+    if(!state.mail || !Array.isArray(state.mail.messages)) return;
+    var cases = _getCases();
+    var changed = false;
+    cases.forEach(function(c){
+        var watch = (c.watched_emails || []).map(_normEmail).filter(Boolean);
+        if(!watch.length) return;
+        var since = c.last_seen_reply_at ? Date.parse(c.last_seen_reply_at) : 0;
+        var hits = state.mail.messages.filter(function(m){
+            var from = _normEmail(m.from || m.from_addr || '');
+            if(!from || watch.indexOf(from) === -1) return false;
+            var t = m.date_received ? Date.parse(m.date_received) : 0;
+            return t > since;
+        });
+        if(hits.length){
+            c.unread_replies = c.unread_replies || [];
+            hits.forEach(function(h){
+                if(c.unread_replies.indexOf(h.id) === -1) c.unread_replies.push(h.id);
+            });
+            changed = true;
+        }
+    });
+    if(changed){
+        _persistCases();
+        if(state.view === 'cases') renderCasesView();
+        _updateCasesNavBadge();
+    }
+}
+function _updateCasesNavBadge(){
+    var navBtn = document.getElementById('nav-cases');
+    if(!navBtn) return;
+    var any = _getCases().some(function(c){ return (c.unread_replies||[]).length > 0; });
+    var existing = navBtn.querySelector('.case-nav-pulse');
+    if(any && !existing){
+        var dot = document.createElement('span');
+        dot.className = 'case-nav-pulse viz-pulse hot';
+        dot.style.cssText = 'display:inline-block; margin-left:6px; vertical-align:middle;';
+        dot.innerHTML = '<div class="ring"></div><div class="core"></div>';
+        navBtn.appendChild(dot);
+    } else if(!any && existing){
+        existing.remove();
+    }
+}
+function addCaseWatchEmail(caseId){
+    var c = _findCase(caseId);
+    if(!c) return;
+    var v = prompt('Email который отслеживать (например douglas.vila@indorama.com):', '');
+    if(!v) return;
+    var e = _normEmail(v);
+    if(!e){ showToast('Не похоже на email', 'error'); return; }
+    c.watched_emails = c.watched_emails || [];
+    if(c.watched_emails.indexOf(e) !== -1){ showToast('Уже отслеживается', 'warn'); return; }
+    c.watched_emails.push(e);
+    _persistCases();
+    showToast('👁 Слежу за '+e, 'ok');
+    _checkCaseReplies();
+    _renderCaseDetail();
+}
+function removeCaseWatchEmail(caseId, email){
+    var c = _findCase(caseId);
+    if(!c) return;
+    c.watched_emails = (c.watched_emails || []).filter(function(e){ return e !== email; });
+    _persistCases();
+    _renderCaseDetail();
+}
+function _renderWatchedEmails(c){
+    var watched = c.watched_emails || [];
+    var chips = watched.map(function(e){
+        return '<span style="display:inline-flex; align-items:center; gap:4px; background:rgba(124,111,247,.12); border:1px solid rgba(124,111,247,.35); padding:2px 8px; border-radius:10px; font-size:10px; color:var(--text); margin-right:5px; margin-bottom:4px;">'
+            + '👁 ' + esc(e)
+            + ' <span style="cursor:pointer; color:var(--text3); font-weight:700;" title="Перестать следить" onclick="event.stopPropagation(); removeCaseWatchEmail(\''+esc(c.id)+'\',\''+esc(e)+'\')">×</span>'
+            + '</span>';
+    }).join('');
+    var addBtn = '<button class="cd-add-btn" style="padding:2px 8px; font-size:10px;" onclick="addCaseWatchEmail(\''+esc(c.id)+'\')">＋ email</button>';
+    var hint = watched.length === 0
+        ? '<span style="color:var(--text3); font-size:10px;">Никто не отслеживается. Добавь email — при новом письме появится пульсирующая точка.</span>'
+        : '';
+    return '<div class="cd-section"><div class="cd-section-h">👁 Watch — отслеживаемые адреса</div>'
+        + '<div style="padding:6px 0;">' + chips + hint + ' ' + addBtn + '</div></div>';
 }
 
 // Creates a case "linked" to something the broker is currently looking at.
@@ -3117,6 +3211,7 @@ function setCasesMode(mode){
 
 function renderCasesView(){
     _renderCasesBadge();
+    if(typeof _updateCasesNavBadge === 'function') _updateCasesNavBadge();
     if(CASES_UI.mode === 'desk') _renderCasesDesk();
     else _renderCasesList();
 }
@@ -3151,9 +3246,13 @@ function _renderCasesList(){
     }
     host.innerHTML = cases.map(function(c){
         var owners = (c.owners || []).join(' · ') || '—';
+        var nReplies = (c.unread_replies || []).length;
+        var pulse = nReplies > 0
+            ? '<span class="viz-pulse hot" style="display:inline-block; margin-right:6px; vertical-align:middle;" title="'+nReplies+' новых ответов от отслеживаемых адресов"><div class="ring"></div><div class="core"></div></span>'
+            : '';
         return '<div class="case-card" onclick="openCaseDetail(\''+esc(c.id)+'\')">'
             + '<div class="cc-head">'
-            +   '<span style="flex:1;">'+esc(c.title)+'</span>'
+            +   '<span style="flex:1;">'+pulse+esc(c.title)+'</span>'
             +   '<span class="cc-status status-'+esc(c.status)+'">'+esc(_statusLabel(c.status))+'</span>'
             + '</div>'
             + '<div class="cc-type">'+esc(_typeLabel(c.type))+(c.link ? ' · из '+esc(c.link.kind) : '')+'</div>'
@@ -3224,6 +3323,14 @@ function openCaseDetail(id){
     if(tbb) tbb.style.display = 'none';
     if(tbd) tbd.style.display = 'flex';
     if(bc) bc.textContent = c.title || '(без названия)';
+    // Acknowledge any pending replies — clears the pulse-dot in list
+    // and removes the nav-cases pulse if no other case has hits.
+    if((c.unread_replies || []).length){
+        c.last_seen_reply_at = new Date().toISOString();
+        c.unread_replies = [];
+        _persistCases();
+        if(typeof _updateCasesNavBadge === 'function') _updateCasesNavBadge();
+    }
     _renderCaseDetail();
     if(typeof renderCtxHistory === 'function') renderCtxHistory();
     if(typeof _refreshCtxInfo === 'function') _refreshCtxInfo();
@@ -3298,6 +3405,7 @@ function _renderCaseDetail(){
         + '</div>'
         + '<div class="cd-body">'
         +   (c.link ? '<div class="cd-section"><div class="cd-section-h">'+linkLbl+'</div><pre style="font-size:10px; color:var(--text2); background:var(--surface); padding:8px; border-radius:3px; overflow:auto; max-height:180px;">'+esc(JSON.stringify(c.link.payload, null, 2))+'</pre></div>' : '')
+        +   _renderWatchedEmails(c)
         +   '<div class="cd-section"><div class="cd-section-h">Лента событий ('+(c.events||[]).length+')</div><div class="cd-timeline">'+events+'</div></div>'
         + '</div>'
         + '<div class="cd-add">'
@@ -5181,6 +5289,10 @@ async function refreshMail(forcePoll){
                     state.mail.signalCounts = await sigRes.json() || {};
                 }
             } catch(_){}
+            // Watcher: check all cases for new replies from watched emails.
+            if(typeof _checkCaseReplies === 'function'){
+                try { _checkCaseReplies(); } catch(_){}
+            }
             renderMailList();
             _updateMailRefreshLabel();
         }
