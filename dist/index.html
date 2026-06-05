@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.100';
+var APP_VERSION='0.1.101';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -1412,6 +1412,7 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
                     </span>
                     <span class="count" id="mail-count">0</span>
                     <span class="p2-refresh" id="mail-refresh" title="Обновить (poll IMAP)" onclick="refreshMail(true)">🔄</span>
+                    <span id="mail-last-refresh" style="font-size:10px; color:var(--text3); margin-left:6px;"></span>
                     <span class="p2-refresh" title="Написать новое" onclick="openMailCompose()">✏</span>
                 </div>
                 <div id="mail-channel-tabs" style="display:flex; gap:2px; padding:6px 10px; background:var(--surface); border-bottom:1px solid var(--border); font-size:11px; flex-wrap:wrap;">
@@ -5171,11 +5172,40 @@ async function refreshMail(forcePoll){
         if(data && Array.isArray(data.messages)){
             state.mail.messages = data.messages;
             state.mail.loaded = true;
+            state.mail.lastRefreshAt = Date.now();
+            // Best-effort: pull signal conversion counts so list can show
+            // ⚓/🚢 badges when an email was extracted into bazaar signal.
+            try {
+                var sigRes = await fetch('https://api.skipi.app/api/mail/signal-counts?days=14');
+                if(sigRes.ok){
+                    state.mail.signalCounts = await sigRes.json() || {};
+                }
+            } catch(_){}
             renderMailList();
+            _updateMailRefreshLabel();
         }
     } catch(e){ showToast('Почта: '+e, 'error'); }
     finally { if(btn) btn.classList.remove('spinning'); }
 }
+
+// "Обновлено N сек назад" label above the mail list — ticks every second
+// while view is mail, so the broker сразу видит насколько свежее данные.
+function _updateMailRefreshLabel(){
+    var el = document.getElementById('mail-last-refresh');
+    if(!el) return;
+    var ts = state.mail && state.mail.lastRefreshAt;
+    if(!ts){ el.textContent = ''; return; }
+    var ago = Math.max(0, Math.round((Date.now() - ts) / 1000));
+    var txt;
+    if(ago < 60)        txt = ago + 'с назад';
+    else if(ago < 3600) txt = Math.round(ago/60) + 'м назад';
+    else                txt = Math.round(ago/3600) + 'ч назад';
+    var nextPoll = state.mail._autoTimer ? ' · след. опрос ≤3м' : '';
+    el.textContent = '⟳ ' + txt + nextPoll;
+}
+setInterval(function(){
+    if(state.view === 'mail') _updateMailRefreshLabel();
+}, 1000);
 
 // Background auto-refresh: every 3 min while 📩 Почта is the active
 // view, ping IMAP via poll_mail and re-render. Stops when user leaves.
@@ -5269,8 +5299,20 @@ function renderMailList(){
         var ringWrap = ring
             ? '<span class="mail-age" style="vertical-align:middle; margin-right:5px;" title="получено: '+dt+'">'+ring+'</span>'
             : '';
+        // Signal-conversion badge: ⚓ when bazaar extracted N cargo
+        // signals, 🚢 for tonnage. Hover показывает счётчики.
+        var sc = (state.mail.signalCounts && state.mail.signalCounts[m.id]) || null;
+        var sigBadge = '';
+        if(sc && (sc.cargo > 0 || sc.tonnage > 0)){
+            var bits = [];
+            if(sc.cargo)   bits.push('⚓ '+sc.cargo);
+            if(sc.tonnage) bits.push('🚢 '+sc.tonnage);
+            sigBadge = ' <span class="mail-sig-badge" title="конвертировано в сигналы: cargo='+(sc.cargo||0)+', tonnage='+(sc.tonnage||0)+'" '
+                     + 'style="font-size:9px; padding:1px 5px; border-radius:3px; background:rgba(94,184,135,.18); color:#4ec970; font-weight:600; vertical-align:middle;">'
+                     + bits.join(' ') + '</span>';
+        }
         return '<div onclick="openMailMessage(\''+esc(m.id)+'\')" style="padding:7px 10px; cursor:pointer; border-bottom:1px solid var(--border); '+unr+' '+sel+'">'
-            +   '<div style="font-size:11px; font-weight:'+weight+'; color:var(--text);">'+ringWrap+chTag+' '+header+'</div>'
+            +   '<div style="font-size:11px; font-weight:'+weight+'; color:var(--text);">'+ringWrap+chTag+' '+header+sigBadge+'</div>'
             +   '<div style="font-size:11px; color:var(--text2); margin-top:2px;">'+subj+renderFlagBadges(flagSource, 'compact')+'</div>'
             +   '<div style="font-size:10px; color:var(--text3); margin-top:2px;">'+dt+'</div>'
             + '</div>';
