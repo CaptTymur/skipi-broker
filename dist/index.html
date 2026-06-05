@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.98';
+var APP_VERSION='0.1.99';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -5241,8 +5241,12 @@ function renderMailList(){
         var chTag = (state.mail.channel === 'all')
             ? '<span class="mch-pill mch-pill-'+ch+'" title="канал: '+ch+'">'+chIcon+'</span>'
             : '';
+        var ring = ageRingSvg(m.date_received, 12);
+        var ringWrap = ring
+            ? '<span class="mail-age" style="vertical-align:middle; margin-right:5px;" title="получено: '+dt+'">'+ring+'</span>'
+            : '';
         return '<div onclick="openMailMessage(\''+esc(m.id)+'\')" style="padding:7px 10px; cursor:pointer; border-bottom:1px solid var(--border); '+unr+' '+sel+'">'
-            +   '<div style="font-size:11px; font-weight:'+weight+'; color:var(--text);">'+chTag+' '+header+'</div>'
+            +   '<div style="font-size:11px; font-weight:'+weight+'; color:var(--text);">'+ringWrap+chTag+' '+header+'</div>'
             +   '<div style="font-size:11px; color:var(--text2); margin-top:2px;">'+subj+renderFlagBadges(flagSource, 'compact')+'</div>'
             +   '<div style="font-size:10px; color:var(--text3); margin-top:2px;">'+dt+'</div>'
             + '</div>';
