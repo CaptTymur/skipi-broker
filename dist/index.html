@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.99';
+var APP_VERSION='0.1.100';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -5177,6 +5177,23 @@ async function refreshMail(forcePoll){
     finally { if(btn) btn.classList.remove('spinning'); }
 }
 
+// Background auto-refresh: every 3 min while 📩 Почта is the active
+// view, ping IMAP via poll_mail and re-render. Stops when user leaves.
+var _MAIL_AUTO_INTERVAL_MS = 3 * 60 * 1000;
+function _armMailAutoRefresh(){
+    if(state.mail._autoTimer) return;
+    state.mail._autoTimer = setInterval(function(){
+        if(state.view !== 'mail'){ _disarmMailAutoRefresh(); return; }
+        refreshMail(true);
+    }, _MAIL_AUTO_INTERVAL_MS);
+}
+function _disarmMailAutoRefresh(){
+    if(state.mail && state.mail._autoTimer){
+        clearInterval(state.mail._autoTimer);
+        state.mail._autoTimer = null;
+    }
+}
+
 function switchMailChannel(ch){
     state.mail.channel = ch;
     state.mail.selectedId = null;
@@ -5209,7 +5226,14 @@ function renderMailList(){
         if(el) el.textContent = byCh[k] || 0;
     });
     var ch = state.mail.channel || 'all';
-    var msgs = ch === 'all' ? allMsgs : allMsgs.filter(function(m){ return (m.channel || 'broker') === ch; });
+    var msgs = ch === 'all' ? allMsgs.slice() : allMsgs.filter(function(m){ return (m.channel || 'broker') === ch; });
+    // Sort newest-first so свежие письма всегда сверху, независимо от
+    // того в каком порядке API их вернул.
+    msgs.sort(function(a, b){
+        var ta = a.date_received ? Date.parse(a.date_received) : 0;
+        var tb = b.date_received ? Date.parse(b.date_received) : 0;
+        return tb - ta;
+    });
     if(count) count.textContent = msgs.length;
     var unread = msgs.filter(function(m){ return !m.is_read; }).length;
     if(badge){
@@ -5980,9 +6004,13 @@ function showView(name){
             renderPartners();
         }
     }
-    // 📧 Почта — load inbox on tab open
+    // 📧 Почта — open with IMAP poll so свежие письма подтягиваются сразу.
+    // Также arming background refresh every 3 min пока модуль открыт.
     if(name === 'mail'){
-        refreshMail(false);
+        refreshMail(true);
+        _armMailAutoRefresh();
+    } else {
+        _disarmMailAutoRefresh();
     }
     // 📋 Лиды — render taken leads grid
     if(name === 'leads2'){
