@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.102';
+var APP_VERSION='0.1.103';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -1429,6 +1429,7 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
                     <span id="mail-detail-title">Выбери письмо слева</span>
                     <span class="p2-refresh" title="Завести дело по этому письму" id="mail-case-btn" style="display:none;" onclick="startCaseFromMail()">📂</span>
                     <span class="p2-refresh" title="Ответить" id="mail-reply-btn" style="display:none;" onclick="openMailReply()">↩</span>
+                    <span class="p2-refresh" title="Удалить письмо из локального кэша" id="mail-delete-btn" style="display:none;" onclick="deleteCurrentMail()">🗑</span>
                 </div>
                 <div class="signals-table-wrap" id="mail-detail-body" style="padding:14px 18px; overflow-y:auto;">
                     <div style="color:var(--text3); font-size:12px; padding:40px; text-align:center;">
@@ -5431,6 +5432,36 @@ function renderMailList(){
     }).join('');
 }
 
+async function deleteCurrentMail(){
+    var m = state.mail && state.mail.currentMsg;
+    if(!m || !m.id){ showToast('Нет открытого письма', 'error'); return; }
+    var preview = (m.subject || '(no subject)').slice(0, 60);
+    if(!confirm('Удалить письмо из локального кэша?\n\n' + preview
+        + '\n\nIMAP на Gmail не трогаем — там письмо останется.')) return;
+    try {
+        var res = await fetch('https://api.skipi.app/api/mail/messages/' + encodeURIComponent(m.id), {
+            method: 'DELETE',
+            headers: { 'Authorization': 'Bearer ' + (state.settings.bearer_token || '') },
+        });
+        if(!res.ok) throw new Error('HTTP '+res.status);
+        showToast('🗑 Удалено', 'ok');
+        // Drop from local cache + clear detail pane
+        state.mail.messages = (state.mail.messages || []).filter(function(x){ return x.id !== m.id; });
+        state.mail.currentMsg = null;
+        state.mail.selectedId = null;
+        var dbody = document.getElementById('mail-detail-body');
+        var dtitle = document.getElementById('mail-detail-title');
+        if(dtitle) dtitle.textContent = 'Выбери письмо слева';
+        if(dbody) dbody.innerHTML = '<div style="padding:30px; text-align:center; color:var(--text3);">Письмо удалено.</div>';
+        ['mail-reply-btn','mail-case-btn','mail-delete-btn'].forEach(function(bid){
+            var b = document.getElementById(bid); if(b) b.style.display = 'none';
+        });
+        renderMailList();
+    } catch(e){
+        showToast('Не удалось удалить: '+e, 'error');
+    }
+}
+
 async function openMailMessage(id){
     state.mail.selectedId = id;
     renderMailList();
@@ -5445,6 +5476,8 @@ async function openMailMessage(id){
         if(replyBtn) replyBtn.style.display = '';
         var caseBtn = document.getElementById('mail-case-btn');
         if(caseBtn) caseBtn.style.display = '';
+        var delBtn = document.getElementById('mail-delete-btn');
+        if(delBtn) delBtn.style.display = '';
         var meta = '<div style="font-size:11px; color:var(--text2); margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid var(--border);">'
             + '<b>'+esc(m.from_name || m.from || '')+'</b> &lt;'+esc(m.from || '')+'&gt;'+renderFlagBadges(m.from, 'expanded')+'<br>'
             + '<span style="color:var(--text3);">→ '+esc(m.to || '')+'</span>'
