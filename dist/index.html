@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.103';
+var APP_VERSION='0.1.104';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -945,6 +945,42 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
 <script src="leaflet/leaflet.js"></script>
 </head>
 <body>
+
+<!-- Auth gate (hard) — blocks the whole UI until a valid broker_id is entered.
+     Shown by boot() when no broker_id is stored or when the stored one was
+     revoked on the server. Cannot be dismissed without a valid token. -->
+<div id="auth-gate-overlay" style="display:none; position:fixed; inset:0; z-index:99999;
+    background:rgba(10,15,25,0.85); backdrop-filter:blur(8px);
+    align-items:center; justify-content:center; padding:20px;">
+    <div style="background:var(--bg, #1a1f28); border:1px solid var(--border, #2a3240);
+        border-radius:12px; max-width:480px; width:100%; padding:32px;
+        box-shadow:0 20px 60px rgba(0,0,0,0.5);">
+        <div style="font-size:18px; font-weight:700; color:var(--text, #fff); margin-bottom:8px;">🔐 Авторизация Skipi Broker</div>
+        <div style="font-size:12px; color:var(--text2, #aab); margin-bottom:20px; line-height:1.5;">
+            Введи токен авторизации команды (broker_id), чтобы открыть приложение.<br>
+            Токен ты получаешь от руководителя команды.
+        </div>
+        <input id="auth-gate-input" type="text"
+            placeholder="например: 1d76abea-3c85-438c-82af-0bf3d8801651"
+            style="width:100%; padding:10px 12px; font-size:13px; font-family:monospace;
+                background:var(--surface, #0f141c); color:var(--text, #fff);
+                border:1px solid var(--border, #2a3240); border-radius:6px;
+                margin-bottom:14px; box-sizing:border-box;"
+            onkeydown="if(event.key==='Enter') _authGateSubmit();" />
+        <button id="auth-gate-btn" onclick="_authGateSubmit()"
+            style="width:100%; padding:10px; background:var(--accent, #7c6ff7); color:#fff;
+                border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:13px;">
+            Войти
+        </button>
+        <div id="auth-gate-err" style="margin-top:12px; font-size:11px; color:var(--text3, #788); min-height:14px;"></div>
+        <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border, #2a3240);
+            font-size:10px; color:var(--text3, #788); line-height:1.5;">
+            Skipi Broker — closed beta. Токен валидируется на сервере при каждом запуске.
+            При смене токена руководителем старая копия приложения попросит ввести новый.
+        </div>
+    </div>
+</div>
+
 
 <div id="update-banner-host"></div>
 
@@ -4949,6 +4985,67 @@ async function doInstallUpdate(){
     }
 }
 
+// ---------- Auth gate ----------
+// User can't see anything until they enter a valid broker_id (team auth
+// token). On every boot we verify the stored token against the server —
+// if the broker was revoked (deleted on the backend), we wipe it and
+// force re-auth. Required by Тимур after token rotation incident.
+async function _authGateValidate(bid){
+    if(!bid) return false;
+    if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bid)) return false;
+    try {
+        var r = await fetch('https://api.skipi.app/api/brokers/' + encodeURIComponent(bid));
+        return r.ok;
+    } catch(_) { return false; }
+}
+function _authGateShow(){
+    var el = document.getElementById('auth-gate-overlay');
+    if(el){ el.style.display = 'flex'; setTimeout(function(){
+        var inp = document.getElementById('auth-gate-input'); if(inp) inp.focus();
+    }, 80); }
+}
+function _authGateHide(){
+    var el = document.getElementById('auth-gate-overlay');
+    if(el) el.style.display = 'none';
+}
+async function _authGateSubmit(){
+    var inp = document.getElementById('auth-gate-input');
+    var err = document.getElementById('auth-gate-err');
+    var btn = document.getElementById('auth-gate-btn');
+    if(!inp || !err) return;
+    var bid = (inp.value || '').trim();
+    if(!bid){ err.textContent = 'Введите токен'; return; }
+    if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bid)){
+        err.textContent = 'Неверный формат (ожидается UUID)';
+        return;
+    }
+    err.style.color = 'var(--text3)';
+    err.textContent = 'Проверяю на сервере…';
+    if(btn) btn.disabled = true;
+    var ok = await _authGateValidate(bid);
+    if(btn) btn.disabled = false;
+    if(!ok){
+        err.style.color = '#e55561';
+        err.textContent = 'Токен не найден или отозван. Уточни у руководителя.';
+        return;
+    }
+    state.settings = state.settings || {};
+    state.settings.broker_id = bid;
+    try { state.settings = await invoke('save_settings', { incoming: state.settings }); } catch(_){}
+    _authGateHide();
+    await _bootContinue();
+}
+async function _bootContinue(){
+    refreshIdentityBadge();
+    await refreshAll();
+    startAutoRefresh();
+    initTeamChat();
+    showView(state.view || 'ex');
+    emitTeamEvent('user_opened', '🚪 зашёл в Skipi (v' + APP_VERSION + ')');
+    checkForUpdates();
+    maybePromptForFeedback('broker-board');
+}
+
 // ---------- Boot ----------
 async function boot(){
     applyTheme();
@@ -4958,22 +5055,19 @@ async function boot(){
         showToast('Settings load failed: '+e, 'error');
     }
     startAppDiagnostics();
-    refreshIdentityBadge();
-    if(!state.settings.broker_id){
-        // First run — show settings so user registers.
-        openSettings();
+    // Hard gate: validate stored broker_id against /api/brokers/{id}.
+    // If revoked or absent — wipe and force user to re-enter.
+    var validBid = await _authGateValidate(state.settings && state.settings.broker_id);
+    if(!validBid){
+        if(state.settings && state.settings.broker_id){
+            state.settings.broker_id = null;
+            try { state.settings = await invoke('save_settings', { incoming: state.settings }); } catch(_){}
+            refreshIdentityBadge();
+        }
+        _authGateShow();
         return;
     }
-    await refreshAll();
-    startAutoRefresh();
-    initTeamChat();
-    showView(state.view || 'ex');
-    // Tell the team you're online — fires once per app start; idle sessions
-    // don't spam because there's no second boot until restart.
-    emitTeamEvent('user_opened', '🚪 зашёл в Skipi (v' + APP_VERSION + ')');
-    // Silent background check; banner appears only if a newer release is live.
-    checkForUpdates();
-    maybePromptForFeedback('broker-board');
+    await _bootContinue();
 }
 
 async function refreshAll(){
