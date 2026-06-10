@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.105';
+var APP_VERSION='0.1.106';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -2093,16 +2093,70 @@ function renderTeamStream(){
         var v = state.pendingUpdate.version || '';
         html += '<div class="team-event update-event">🎉 Доступна новая версия Skipi Broker <b>'+esc(v)+'</b> — установи через баннер сверху или ⚙ → О программе → Проверить обновления.</div>';
     }
+    // Preserve scroll position when the user is reading history. Only
+    // auto-pin to bottom if they were already near the bottom. Андрей
+    // 2026-06-10: «при появлении нового сообщения чат скролится в самый
+    // низ — неудобно для тех кто читает выше». Was always yanking down,
+    // breaking history-scroll. Now: only stick to bottom when already
+    // there; otherwise show a «new messages ↓» badge.
+    var prevScrollTop = stream.scrollTop;
+    var prevScrollHeight = stream.scrollHeight;
+    var prevClientHeight = stream.clientHeight;
+    var wasNearBottom = (prevScrollHeight - prevScrollTop - prevClientHeight) < 60;
+    var hadAnyContent = prevScrollHeight > prevClientHeight;
     stream.innerHTML = html;
-    // Always pin to the latest message — the chat is treated like a
-    // tail-following log. If the user is scrolled up, the next render
-    // still yanks them down; that matches the «keep me on the latest»
-    // request and removes ambiguity about unread state.
-    stream.scrollTop = stream.scrollHeight;
-    state.team.lastSeenTs = state.team.lastTs;
-    state.team.unread = 0;
+    if(!hadAnyContent || wasNearBottom){
+        stream.scrollTop = stream.scrollHeight;
+        state.team.lastSeenTs = state.team.lastTs;
+        state.team.unread = 0;
+        _hideTeamNewBadge();
+    } else {
+        // Keep the user's reading position, but flash a badge so they
+        // know new content arrived.
+        stream.scrollTop = prevScrollTop;
+        _showTeamNewBadge();
+    }
     renderTeamUnread();
 }
+
+function _showTeamNewBadge(){
+    var bar = document.getElementById('team-stream');
+    if(!bar) return;
+    var existing = document.getElementById('team-new-badge');
+    if(existing) return;
+    var badge = document.createElement('button');
+    badge.id = 'team-new-badge';
+    badge.textContent = '⬇ Новые сообщения';
+    badge.onclick = function(){
+        var s = document.getElementById('team-stream');
+        if(s){ s.scrollTop = s.scrollHeight; }
+        _hideTeamNewBadge();
+    };
+    badge.style.cssText = 'position:absolute; right:14px; bottom:80px; z-index:10; '
+        + 'background:var(--accent, #7c6ff7); color:#fff; border:none; '
+        + 'padding:8px 14px; border-radius:16px; cursor:pointer; '
+        + 'font-size:12px; font-weight:600; box-shadow:0 4px 12px rgba(0,0,0,0.3);';
+    bar.style.position = bar.style.position || 'relative';
+    bar.parentNode.appendChild(badge);
+}
+function _hideTeamNewBadge(){
+    var b = document.getElementById('team-new-badge');
+    if(b) b.remove();
+}
+// Hide badge when user manually scrolls to bottom.
+document.addEventListener('DOMContentLoaded', function(){
+    var s = document.getElementById('team-stream');
+    if(!s) return;
+    s.addEventListener('scroll', function(){
+        var nearBottom = (s.scrollHeight - s.scrollTop - s.clientHeight) < 40;
+        if(nearBottom){
+            _hideTeamNewBadge();
+            state.team.lastSeenTs = state.team.lastTs;
+            state.team.unread = 0;
+            renderTeamUnread();
+        }
+    });
+});
 
 function _fmtTime(iso){
     if(!iso) return '';
