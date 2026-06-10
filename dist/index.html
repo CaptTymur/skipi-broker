@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.104';
+var APP_VERSION='0.1.105';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -5031,6 +5031,7 @@ async function _authGateSubmit(){
     }
     state.settings = state.settings || {};
     state.settings.broker_id = bid;
+    state.settings.bearer_token = bid; // см. overrideBrokerId — авто-синк
     try { state.settings = await invoke('save_settings', { incoming: state.settings }); } catch(_){}
     _authGateHide();
     await _bootContinue();
@@ -8474,12 +8475,14 @@ function closeSettings(){
 function renderSettingsNav(){
     var tabs = [
         {id:'general',    label:tr('settings.tab.general')},
-        {id:'connection', label:tr('settings.tab.connection')},
-        {id:'identity',   label:tr('settings.tab.identity')},
-        {id:'reply',      label:tr('settings.tab.reply')},
+        {id:'profile',    label:'Профиль и доступ'},
         {id:'appearance', label:tr('settings.tab.appearance')},
         {id:'about',      label:tr('settings.tab.about')},
     ];
+    // Legacy tab ids redirect to the consolidated 'profile' tab.
+    if(state.settingsTab === 'connection' || state.settingsTab === 'identity' || state.settingsTab === 'reply'){
+        state.settingsTab = 'profile';
+    }
     if(!state.settingsTab) state.settingsTab='general';
     document.getElementById('set-nav').innerHTML = tabs.map(function(t){
         return '<div class="set-nav-item '+(state.settingsTab===t.id?'active':'')
@@ -8504,39 +8507,42 @@ function renderSettingsBody(){
                     '<div class="setting-control">'+uiLanguageSelectHtml()+'</div>'+
                 '</div>'+
             '</div>';
-    } else if(t==='connection'){
-        body.innerHTML = '<h3>Подключение к серверу</h3><div class="sub">Доска брокера по умолчанию идет через Timeweb, с резервом на основной сервер.</div>'+
-            '<div class="field-grid">'+
-                '<div class="field full"><label>Server URL</label><input id="set-server" value="'+esc(s.server_url||'')+'" placeholder="https://api-ru.skipi.app"></div>'+
-                '<div class="field full"><label>Bearer token</label><input id="set-bearer" value="'+esc(s.bearer_token||'')+'" placeholder="токен доступа"></div>'+
+    } else if(t==='profile'){
+        // Skipi Broker архитектурно использует ОДИН токен — broker_id.
+        // Он же выполняет роль Bearer для API. Раньше в UI было два поля
+        // (Bearer token + Team broker_id), одно значение в обоих. Это путало.
+        // Теперь — одно поле "Токен команды".
+        body.innerHTML =
+            // ── 1. Токен (главное и единственное) ──────────────────
+            '<h3>🔐 Токен команды</h3>'+
+            '<div class="sub">Один токен, без него приложение не открывается. Выдаёт руководитель команды.</div>'+
+            '<div class="field-grid" style="margin-top:10px;">'+
+                '<div class="field full"><label>Token (broker_id)</label><input id="set-team-bid" value="'+esc(s.broker_id||'')+'" placeholder="UUID, например 1d76abea-3c85-438c-82af-0bf3d8801651" style="font-family:monospace;"></div>'+
             '</div>'+
-            '<div style="margin-top:18px;"><button class="btn btn-accent" onclick="saveConnection()">Сохранить</button></div>';
-    } else if(t==='identity'){
-        body.innerHTML = '<h3>Профиль брокера</h3><div class="sub">Регистрация участника на сервере.</div>'+
-            '<div class="field-grid">'+
-                '<div class="field full"><label>Имя/компания</label><input id="set-display" value="'+esc(s.display_name||'')+'"></div>'+
-                '<div class="field full"><label>Контактный email</label><input id="set-contact" value="'+esc(s.reply_to||'')+'"></div>'+
-            '</div>'+
-            '<div style="margin-top:18px;">'+
-                (s.broker_id
-                    ? '<div class="sub" style="margin:6px 0;">Зарегистрирован: <code>'+esc(s.broker_id)+'</code></div>'
-                    : '')+
-                '<button class="btn btn-accent" onclick="registerBroker()">'+(s.broker_id?'Перерегистрировать':'Зарегистрировать')+'</button>'+
-            '</div>'+
+            (s.broker_id
+                ? '<div class="sub" style="margin:8px 0 4px 0;">Сейчас активен: <code>'+esc(s.broker_id)+'</code></div>'
+                : '<div class="sub" style="margin:8px 0 4px 0; color:#e55561;">Токен не введён</div>')+
+            '<div style="margin-top:10px;"><button class="btn btn-accent" onclick="overrideBrokerId()">Использовать этот токен</button></div>'+
+
             '<hr style="margin:22px 0; border:none; border-top:1px solid var(--border);">'+
-            '<h4 style="margin-bottom:4px;">Командный режим</h4>'+
-            '<div class="sub" style="margin-bottom:10px;">Вставь broker_id напарника чтобы видеть его циркуляции и совпадения как свои. Полезно для команд из нескольких человек на одном аккаунте.</div>'+
-            '<div class="field-grid">'+
-                '<div class="field full"><label>Team broker_id</label><input id="set-team-bid" value="'+esc(s.broker_id||'')+'" placeholder="вставь UUID"></div>'+
+
+            // ── 2. Профиль (имя + email) ───────────────────────────
+            '<h3>👤 Профиль</h3>'+
+            '<div class="sub">Имя и email — для сигналов, подписей и .eml-писем.</div>'+
+            '<div class="field-grid" style="margin-top:10px;">'+
+                '<div class="field full"><label>Имя / Компания</label><input id="set-display" value="'+esc(s.display_name||'')+'"></div>'+
+                '<div class="field full"><label>Email (Reply-to)</label><input id="set-contact" value="'+esc(s.reply_to||'')+'"></div>'+
+                // hidden mirrors so saveReply() finds the same values
+                '<input type="hidden" id="set-fname" value="'+esc(s.display_name||'')+'">'+
+                '<input type="hidden" id="set-femail" value="'+esc(s.reply_to||'')+'">'+
             '</div>'+
-            '<div style="margin-top:10px;"><button class="btn" onclick="overrideBrokerId()">Использовать этот ID</button></div>';
-    } else if(t==='reply'){
-        body.innerHTML = '<h3>Reply-to</h3><div class="sub">Отправитель в подготовленных .eml письмах.</div>'+
-            '<div class="field-grid">'+
-                '<div class="field full"><label>Имя отправителя</label><input id="set-fname" value="'+esc(s.display_name||'')+'"></div>'+
-                '<div class="field full"><label>Email отправителя</label><input id="set-femail" value="'+esc(s.reply_to||'')+'"></div>'+
+            '<div style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap;">'+
+                '<button class="btn btn-accent" onclick="saveProfileCombined()">Сохранить</button>'+
+                '<button class="btn btn-outline" onclick="registerBroker()">'+(s.broker_id?'Перерегистрировать на сервере':'Зарегистрировать на сервере')+'</button>'+
             '</div>'+
-            '<div style="margin-top:18px;"><button class="btn btn-accent" onclick="saveReply()">Сохранить</button></div>';
+
+            // Server URL — спрятан в About вкладке как технический инфо
+            '<div class="sub" style="margin-top:24px; font-size:10px; color:var(--text3);">Сервер: '+esc(s.server_url||'https://api.skipi.app')+'</div>';
     } else if(t==='appearance'){
         var cur = localStorage.getItem('skipi-broker-theme') || 'dark';
         body.innerHTML = '<h3>Внешний вид</h3><div class="sub">Тема интерфейса.</div>'+
@@ -8577,11 +8583,28 @@ async function registerBroker(){
     try {
         await invoke('register_broker', { displayName:name, contactEmail:email });
         state.settings = await invoke('get_settings');
+        // Sync bearer_token = broker_id (см. overrideBrokerId).
+        if(state.settings.broker_id && state.settings.bearer_token !== state.settings.broker_id){
+            state.settings.bearer_token = state.settings.broker_id;
+            try { state.settings = await invoke('save_settings', { incoming: state.settings }); } catch(_){}
+        }
         refreshIdentityBadge();
         showToast('Зарегистрирован: '+state.settings.broker_id, 'ok');
         renderSettingsBody();
         await refreshAll();
     } catch(e){ showToast('Register: '+e, 'error'); }
+}
+
+// Combined profile saver: name+email at once.
+async function saveProfileCombined(){
+    var s = state.settings;
+    s.display_name = val('set-display');
+    s.reply_to = val('set-contact');
+    try {
+        state.settings = await invoke('save_settings', { incoming:s });
+        showToast('Сохранено.', 'ok');
+        refreshIdentityBadge();
+    } catch(e){ showToast('Save: '+e, 'error'); }
 }
 
 async function overrideBrokerId(){
@@ -8591,6 +8614,11 @@ async function overrideBrokerId(){
     }
     var s = state.settings;
     s.broker_id = newId;
+    // Bearer token = broker_id в Skipi архитектуре. Раньше пользователь
+    // должен был вводить токен два раза в два разных поля — теперь
+    // авто-синхронизация. Без этого все API-запросы падали с 401
+    // 'missing bearer token' если пользователь ввёл только broker_id.
+    s.bearer_token = newId;
     try {
         state.settings = await invoke('save_settings', { incoming:s });
         refreshIdentityBadge();
