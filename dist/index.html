@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.106';
+var APP_VERSION='0.1.107';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -3506,7 +3506,7 @@ function _renderCaseDetail(){
         +     '<button class="cd-add-btn" onclick="document.getElementById(\'case-file-input-\'+\''+esc(c.id)+'\').click()">📎 Файл</button>'
         +     '<input id="case-file-input-'+esc(c.id)+'" type="file" style="display:none;" onchange="attachCaseFile(\''+esc(c.id)+'\',this.files[0]);this.value=\'\'" />'
         +     '<button class="cd-add-btn" onclick="askLLMAboutCase(\''+esc(c.id)+'\')">🤖 Спросить LLM</button>'
-        +     '<button class="cd-add-btn danger" onclick="if(confirm(\'Удалить дело?\'))deleteCase(\''+esc(c.id)+'\')">🗑 Удалить</button>'
+        +     '<button class="cd-add-btn danger" onclick="deleteCase(\''+esc(c.id)+'\')">🗑 Удалить</button>'
         +   '</div>'
         + '</div>';
 }
@@ -3647,8 +3647,73 @@ function _downloadCaseFile(caseId, evId){
     document.body.removeChild(a);
 }
 
-function deleteCase(id){
-    state.cases = _getCases().filter(function(c){ return c.id !== id; });
+// Custom confirm — Tauri webview sometimes ignores native confirm(),
+// so we render our own modal. Returns a Promise<boolean>. Используется
+// для критичных delete-операций после жалобы Андрея (2026-06-10) на то
+// что удаление дела происходит без подтверждения.
+function customConfirm(opts){
+    if(typeof opts === 'string') opts = { text: opts };
+    var text = opts.text || 'Подтверждение?';
+    var title = opts.title || '⚠ Подтверждение';
+    var okLabel = opts.okLabel || 'Подтвердить';
+    var cancelLabel = opts.cancelLabel || 'Отмена';
+    var dangerous = opts.dangerous !== false;
+    return new Promise(function(resolve){
+        var ov = document.createElement('div');
+        ov.id = 'custom-confirm-ov';
+        ov.style.cssText = 'position:fixed; inset:0; z-index:99998; '
+            + 'background:rgba(10,15,25,0.7); backdrop-filter:blur(4px); '
+            + 'display:flex; align-items:center; justify-content:center; padding:20px;';
+        var card = document.createElement('div');
+        card.style.cssText = 'background:var(--bg, #1a1f28); border:1px solid var(--border, #2a3240); '
+            + 'border-radius:10px; max-width:440px; width:100%; padding:24px; '
+            + 'box-shadow:0 16px 48px rgba(0,0,0,0.6);';
+        card.innerHTML =
+            '<div style="font-size:15px; font-weight:700; color:var(--text, #fff); margin-bottom:10px;">'+esc(title)+'</div>'
+          + '<div style="font-size:13px; color:var(--text2, #ccd); margin-bottom:20px; line-height:1.5; white-space:pre-wrap;">'+esc(text)+'</div>'
+          + '<div style="display:flex; gap:10px; justify-content:flex-end;">'
+            + '<button id="cc-cancel" style="padding:8px 16px; background:transparent; color:var(--text, #fff); '
+                + 'border:1px solid var(--border, #2a3240); border-radius:6px; cursor:pointer; font-size:12px; font-weight:600;">'
+                + esc(cancelLabel) + '</button>'
+            + '<button id="cc-ok" style="padding:8px 16px; background:'+(dangerous?'#e55561':'var(--accent, #7c6ff7)')+'; color:#fff; '
+                + 'border:none; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600;">'
+                + esc(okLabel) + '</button>'
+          + '</div>';
+        ov.appendChild(card);
+        document.body.appendChild(ov);
+        function done(answer){
+            try { ov.remove(); } catch(_){}
+            resolve(answer);
+        }
+        card.querySelector('#cc-ok').onclick = function(){ done(true); };
+        card.querySelector('#cc-cancel').onclick = function(){ done(false); };
+        ov.onclick = function(e){ if(e.target === ov) done(false); };
+        document.addEventListener('keydown', function escHandler(ev){
+            if(ev.key === 'Escape'){
+                document.removeEventListener('keydown', escHandler);
+                done(false);
+            }
+            if(ev.key === 'Enter'){
+                document.removeEventListener('keydown', escHandler);
+                done(true);
+            }
+        });
+        setTimeout(function(){ card.querySelector('#cc-ok').focus(); }, 50);
+    });
+}
+
+async function deleteCase(id){
+    var c = _findCase(id);
+    var caption = c ? '«' + (c.title || c.id) + '»' : 'это дело';
+    var ok = await customConfirm({
+        title: '🗑 Удалить дело',
+        text: 'Удалить ' + caption + '?\n\nЭто действие необратимо. Все заметки, файлы и события в ленте будут потеряны.',
+        okLabel: 'Удалить',
+        cancelLabel: 'Отмена',
+        dangerous: true,
+    });
+    if(!ok) return;
+    state.cases = _getCases().filter(function(cc){ return cc.id !== id; });
     _persistCases();
     closeCaseDetail();
     renderCasesView();
