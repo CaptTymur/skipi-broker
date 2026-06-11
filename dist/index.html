@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.108';
+var APP_VERSION='0.1.109';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -328,6 +328,7 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 /* 🚢 Vessel card — клик по имени судна где угодно открывает карточку из базы */
 .vessel-link { color:var(--accent); cursor:pointer; text-decoration:none; border-bottom:1px dotted var(--accent); }
 .vessel-link:hover { opacity:0.8; }
+.pairs-region-sel { font-size:10px; background:var(--surface); color:var(--text2); border:1px solid var(--border); border-radius:3px; padding:1px 3px; max-width:110px; }
 .vc-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px 18px; margin:8px 0; }
 .vc-row { display:flex; justify-content:space-between; gap:10px; font-size:12px; padding:3px 0; border-bottom:1px solid var(--border); }
 .vc-row .k { color:var(--text3); white-space:nowrap; }
@@ -1146,6 +1147,18 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
                 <div class="col-head">
                     <span>🔗 Цепочки cargo↔tonnage</span>
                     <span class="count" id="signals-count">0</span>
+                    <select id="pairs-region" class="pairs-region-sel" onchange="renderSignalsFeed()" title="Фильтр пар по региону — пара проходит, если груз или судно в регионе">
+                        <option value="">регион: все</option>
+                        <option value="blacksea">Black Sea</option>
+                        <option value="med">Med</option>
+                        <option value="weurope">NW Europe</option>
+                        <option value="india">India</option>
+                        <option value="china">China / SEA</option>
+                        <option value="waf">West Africa</option>
+                        <option value="eaf">East Africa</option>
+                        <option value="me">Middle East</option>
+                        <option value="americas">Americas</option>
+                    </select>
                     <span class="p2-refresh" id="p2-refresh" title="Запросить апдейт у агента — подтянуть свежие сигналы из mbox/ShipNext и пересчитать совпадения." onclick="actionAgentUpdate()">🔄</span>
                     <span class="p2-refresh" title="Опубликовать новую циркуляцию" onclick="openPublishModal()">＋</span>
                 </div>
@@ -6788,10 +6801,21 @@ function renderSignalsFeed(){
     var count = document.getElementById('signals-count');
     if(!body) return;
     var pairs = state.bazaarPairs || [];
+    // Регион-фильтр (запрос Андрея 11.06): пара проходит, если ХОТЯ БЫ ОДНА
+    // сторона в регионе — груз грузится там, либо судно там открывается.
+    var region = (document.getElementById('pairs-region') || {}).value || '';
+    if(region){
+        pairs = pairs.filter(function(p){
+            return _signalsRegionMatch(p.cargo_signal || {}, region)
+                || _signalsRegionMatch(p.tonnage_signal || {}, region);
+        });
+    }
     if(count) count.textContent = pairs.length;
 
     if(pairs.length === 0){
-        body.innerHTML = '<div class="col-empty">Пока нет пар в базаре.<br><span class="hint">Пары появляются когда matcher находит cargo-сигнал, совпадающий с tonnage-сигналом из базара. Нажми 🔄 чтобы обновить.</span></div>';
+        body.innerHTML = region
+            ? '<div class="col-empty">В регионе пар нет.<br><span class="hint">Сбрось фильтр региона или нажми 🔄 чтобы подтянуть свежие.</span></div>'
+            : '<div class="col-empty">Пока нет пар в базаре.<br><span class="hint">Пары появляются когда matcher находит cargo-сигнал, совпадающий с tonnage-сигналом из базара. Нажми 🔄 чтобы обновить.</span></div>';
         return;
     }
 

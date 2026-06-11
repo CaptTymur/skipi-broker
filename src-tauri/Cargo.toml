@@ -1,6 +1,6 @@
 [package]
 name = "skipi-broker"
-version = "0.1.108"
+version = "0.1.109"
 description = "Skipi Broker — freight board client for cargo↔tonnage matching"
 authors = ["Tymur Rudov"]
 license = "Proprietary"
@@ -22,17 +22,20 @@ tauri = { version = "2.10.3", features = [ "devtools"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
+# Cross-platform deps — reqwest/chrono/uuid/dirs/lettre work on android+ios via rustls
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+dirs = "6"
+lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "rustls-tls", "builder", "tokio1-rustls-tls"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
+# rusqlite isn't used yet but kept bundled for parity with crewing
 rusqlite = { version = "0.32", features = ["bundled"] }
 
 [target."cfg(not(any(target_os = \"android\", target_os = \"ios\")))".dependencies]
-chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1", features = ["v4"] }
-reqwest = { version = "0.12", features = ["blocking", "json"] }
-dirs = "6"
+# Desktop-only — updater/process aren't supported on mobile (use platform stores).
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
-lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "rustls-tls", "builder", "tokio1-rustls-tls"] }
-tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
 
 [profile.release]
 panic = "abort"

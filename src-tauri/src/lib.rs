@@ -953,16 +953,27 @@ async fn fetch_team_messages(
 // viral hook persists regardless of which channel is used.
 
 fn open_path_or_url(target: &str) -> Result<(), String> {
-    use std::process::Command;
-    #[cfg(target_os = "linux")]
-    let result = Command::new("xdg-open").arg(target).spawn();
-    #[cfg(target_os = "macos")]
-    let result = Command::new("open").arg(target).spawn();
-    #[cfg(target_os = "windows")]
-    let result = Command::new("cmd")
-        .args(["/C", "start", "", target])
-        .spawn();
-    result.map(|_| ()).map_err(|e| format!("open failed: {e}"))
+    // On desktop, hand off to the OS via xdg-open / open / start. On
+    // Android/iOS this Rust path never runs — the JS layer should use
+    // tauri-plugin-opener or platform Intent APIs instead.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        use std::process::Command;
+        #[cfg(target_os = "linux")]
+        let result = Command::new("xdg-open").arg(target).spawn();
+        #[cfg(target_os = "macos")]
+        let result = Command::new("open").arg(target).spawn();
+        #[cfg(target_os = "windows")]
+        let result = Command::new("cmd")
+            .args(["/C", "start", "", target])
+            .spawn();
+        return result.map(|_| ()).map_err(|e| format!("open failed: {e}"));
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let _ = target;
+        Err("open_path_or_url unsupported on mobile".to_string())
+    }
 }
 
 fn url_percent_encode(input: &str) -> String {
@@ -1342,12 +1353,17 @@ async fn request_agent_update(state: tauri::State<'_, AppState>) -> Result<JsonV
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_log::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_fs::init());
+    // updater + process are desktop-only — Tauri mobile uses platform stores
+    // for updates and has no process-relaunch concept on Android/iOS.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let builder = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_process::init());
+    builder
         .manage(AppState {
             settings: Mutex::new(Settings::load()),
             active_api_base: Mutex::new(None),
