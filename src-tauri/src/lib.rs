@@ -625,6 +625,73 @@ async fn fetch_bazaar_pairs(state: tauri::State<'_, AppState>) -> Result<JsonVal
     request_api(&state, s, reqwest::Method::GET, "/api/bazaar-pairs?limit=300".to_string(), None).await
 }
 
+/// Vessel DB lookup — full card (details, Skipi scores, managers,
+/// seafarer review aggregates) for the in-app vessel card.
+#[tauri::command]
+async fn fetch_vessel(state: tauri::State<'_, AppState>, imo: u64) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    request_api(&state, s, reqwest::Method::GET, format!("/api/vessels/{}", imo), None).await
+}
+
+fn pct_encode(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{:02X}", b),
+        })
+        .collect()
+}
+
+/// Resolve a vessel name from a bazaar signal against the vessel DB —
+/// signals usually carry a name without IMO.
+#[tauri::command]
+async fn search_vessels(state: tauri::State<'_, AppState>, q: String) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let path = format!("/api/vessels/search?q={}&limit=8", pct_encode(q.trim()));
+    request_api(&state, s, reqwest::Method::GET, path, None).await
+}
+
+/// MarineTraffic mini-browser — last known position without leaving the
+/// app. Same dedicated-window pattern as open_wa_chat: reuse + renavigate
+/// if already open. By IMO when known, by name search otherwise.
+#[tauri::command]
+fn open_marinetraffic(app: tauri::AppHandle, imo: Option<String>, name: Option<String>) -> Result<(), String> {
+    use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+
+    let imo_digits = imo
+        .map(|i| i.chars().filter(|c| c.is_ascii_digit()).collect::<String>())
+        .filter(|d| d.len() >= 6);
+    let url = if let Some(d) = imo_digits {
+        format!("https://www.marinetraffic.com/en/ais/details/ships/imo:{}", d)
+    } else if let Some(n) = name.map(|n| n.trim().to_uppercase()).filter(|n| !n.is_empty()) {
+        format!("https://www.marinetraffic.com/en/ais/home/shipname:{}", pct_encode(&n))
+    } else {
+        return Err("нет ни IMO, ни имени судна".into());
+    };
+
+    if let Some(win) = app.get_webview_window("marinetraffic") {
+        let _ = win.eval(&format!("window.location.href = '{}';", url));
+        let _ = win.show();
+        let _ = win.set_focus();
+        return Ok(());
+    }
+
+    WebviewWindowBuilder::new(
+        &app,
+        "marinetraffic",
+        WebviewUrl::External(reqwest::Url::parse(&url).map_err(|e| e.to_string())?),
+    )
+    .title("MarineTraffic — Skipi Broker")
+    .inner_size(1150.0, 820.0)
+    .min_inner_size(640.0, 420.0)
+    .resizable(true)
+    .build()
+    .map(|_| ())
+    .map_err(|e| format!("open MarineTraffic window: {e}"))
+}
+
 /// Brokerage counterparts CRM — full profile list synced from freight_agent's
 /// competitor_profiles.csv. Used by the Контрагенты tab to enrich the local
 /// signal-derived aggregation with role, top_cargoes/routes, commission, etc.
@@ -1297,6 +1364,9 @@ pub fn run() {
             fetch_my_tonnage,
             fetch_bazaar_cross_matches,
             fetch_bazaar_pairs,
+            fetch_vessel,
+            search_vessels,
+            open_marinetraffic,
             fetch_counterparts,
             fetch_bazaar_signal_list,
             fetch_duplicate_clusters,

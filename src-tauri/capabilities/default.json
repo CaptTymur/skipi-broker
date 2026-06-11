@@ -7,8 +7,6 @@
     "core:default",
     "dialog:default",
     "fs:default",
-    "log:default",
-    "updater:default",
-    "process:default"
+    "log:default"
   ]
 }

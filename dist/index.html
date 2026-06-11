@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.107';
+var APP_VERSION='0.1.108';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -325,6 +325,22 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .lead2-card .l2-cargo { font-size:11px; color:var(--text2); line-height:1.35; }
 .lead2-card .l2-vessel { font-size:11px; color:var(--text2); line-height:1.35; }
 .lead2-card .l2-vessel b { color:var(--text); font-weight:500; }
+/* 🚢 Vessel card — клик по имени судна где угодно открывает карточку из базы */
+.vessel-link { color:var(--accent); cursor:pointer; text-decoration:none; border-bottom:1px dotted var(--accent); }
+.vessel-link:hover { opacity:0.8; }
+.vc-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px 18px; margin:8px 0; }
+.vc-row { display:flex; justify-content:space-between; gap:10px; font-size:12px; padding:3px 0; border-bottom:1px solid var(--border); }
+.vc-row .k { color:var(--text3); white-space:nowrap; }
+.vc-row .v { color:var(--text); text-align:right; }
+.vc-scores { display:flex; flex-wrap:wrap; gap:6px; margin:10px 0; }
+.vc-chip { font-size:11px; padding:3px 9px; border-radius:10px; background:var(--surface); border:1px solid var(--border); color:var(--text2); }
+.vc-chip b { color:var(--text); }
+.vc-actions { display:flex; gap:8px; margin-top:12px; }
+.vc-actions button { flex:1; padding:8px 10px; font-size:12px; cursor:pointer; background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:4px; }
+.vc-actions button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+.vc-pick-row { padding:7px 9px; border:1px solid var(--border); border-radius:4px; margin-bottom:6px; cursor:pointer; font-size:12px; }
+.vc-pick-row:hover { border-color:var(--accent); }
+.vc-warn { background:rgba(220,80,80,0.12); border:1px solid rgba(220,80,80,0.4); border-radius:4px; padding:6px 9px; font-size:11px; margin:8px 0; }
 .lead2-card .l2-meta { font-size:10px; color:var(--text3); display:flex; gap:8px; }
 .lead2-card .l2-meta .score { color:var(--accent); font-weight:600; }
 /* Mini SVG route preview: 240x90 px world strip with two dots and a dashed line. */
@@ -1596,6 +1612,17 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
     </div>
 </div>
 
+<!-- Vessel card modal — наша база по судну + MarineTraffic -->
+<div class="modal-overlay" id="vessel-overlay" onclick="if(event.target===this)closeVesselCard();">
+    <div class="modal" style="width:620px; max-width:92%;">
+        <div class="modal-head">
+            <span id="vessel-card-title">🚢 Судно</span>
+            <span class="modal-x" onclick="closeVesselCard()">✕</span>
+        </div>
+        <div class="modal-body" id="vessel-card-body" style="max-height:70vh; overflow-y:auto;"></div>
+    </div>
+</div>
+
 <!-- Settings modal -->
 <div class="modal-overlay" id="settings-overlay" onclick="if(event.target===this)closeSettings();">
     <div class="modal set-modal">
@@ -1841,6 +1868,166 @@ function openVesselPage(imo){
     var url = 'https://www.marinetraffic.com/en/ais/details/ships/imo:'+imo;
     try { invoke('open_external', { url:url }); }
     catch(e){ showToast('open: '+e, 'error'); }
+}
+
+// ---------- 🚢 Карточка судна: наша база (65k+) + оценки моряков + MarineTraffic ----------
+// Любое упоминание судна в Совпадениях/Лидах/Делах кликабельно через
+// vesselNameLinkHtml. Bazaar-сигналы обычно несут имя без IMO, поэтому
+// сначала резолвим имя через /api/vessels/search, потом тянем карточку.
+function vesselNameLinkHtml(name, imo){
+    if(!name) return '—';
+    var safe = String(name).replace(/['\\]/g, '');
+    return '<a href="#" class="vessel-link" title="Карточка судна: база Skipi + MarineTraffic" '
+        + 'onclick="event.preventDefault(); event.stopPropagation(); openVesselCard(\''+esc(safe)+'\','
+        + (imo ? '\''+esc(String(imo))+'\'' : 'null')
+        + '); return false;">'+esc(name)+'</a>';
+}
+
+function closeVesselCard(){
+    var ov = document.getElementById('vessel-overlay');
+    if(ov) ov.style.display = 'none';
+}
+
+function _vcBody(html){
+    var b = document.getElementById('vessel-card-body');
+    if(b) b.innerHTML = html;
+}
+
+async function openVesselCard(name, imo){
+    var ov = document.getElementById('vessel-overlay');
+    if(!ov) return;
+    ov.style.display = 'flex';
+    var t = document.getElementById('vessel-card-title');
+    if(t) t.textContent = '🚢 ' + (name || ('IMO ' + imo));
+    _vcBody('<div class="col-empty">Ищу в базе…</div>');
+    try {
+        if(imo){
+            var v = await invoke('fetch_vessel', { imo: Number(imo) });
+            _vcRenderFull(v);
+            return;
+        }
+        var rows = await invoke('search_vessels', { q: String(name || '').trim() });
+        rows = Array.isArray(rows) ? rows : [];
+        if(rows.length === 0){ _vcRenderNotFound(name); return; }
+        if(rows.length === 1){
+            var v1 = await invoke('fetch_vessel', { imo: rows[0].imo });
+            _vcRenderFull(v1);
+            return;
+        }
+        _vcRenderPick(rows, name);
+    } catch(e){
+        _vcBody('<div class="col-empty">Ошибка запроса: '+esc(String(e))
+            + '<br><br><button onclick="openMarineTraffic(null,\''+esc(String(name||'').replace(/['\\]/g,''))+'\')">🌍 Искать на MarineTraffic</button></div>');
+    }
+}
+
+async function _vcLoadImo(imo){
+    _vcBody('<div class="col-empty">Загружаю карточку…</div>');
+    try {
+        var v = await invoke('fetch_vessel', { imo: Number(imo) });
+        _vcRenderFull(v);
+    } catch(e){
+        _vcBody('<div class="col-empty">Ошибка: '+esc(String(e))+'</div>');
+    }
+}
+
+function _vcRenderPick(rows, name){
+    _vcBody('<div style="font-size:11px; color:var(--text3); margin-bottom:8px;">В базе несколько судов под «'+esc(name)+'» — выбери:</div>'
+        + rows.map(function(r){
+            return '<div class="vc-pick-row" onclick="_vcLoadImo('+Number(r.imo)+')">'
+                + '<b>'+esc(r.name_current || '?')+'</b> · IMO '+Number(r.imo)
+                + (r.dwt ? ' · '+Number(r.dwt).toLocaleString()+' DWT' : '')
+                + (r.built_year ? ' · '+r.built_year : '')
+                + (r.vessel_type ? ' · '+esc(r.vessel_type) : '')
+                + (r.flag_current ? ' · '+esc(r.flag_current) : '')
+                + '</div>';
+        }).join('')
+        + '<div class="vc-actions"><button onclick="openMarineTraffic(null,\''+esc(String(name||'').replace(/['\\]/g,''))+'\')">🌍 Искать на MarineTraffic</button></div>');
+}
+
+function _vcRenderNotFound(name){
+    _vcBody('<div class="col-empty">«'+esc(name)+'» в нашей базе нет (65k+ судов).<br>'
+        + '<span class="hint">Имя из базара бывает с опечаткой или сокращением — попробуй MarineTraffic.</span></div>'
+        + '<div class="vc-actions"><button class="primary" onclick="openMarineTraffic(null,\''+esc(String(name||'').replace(/['\\]/g,''))+'\')">🌍 Искать на MarineTraffic</button></div>');
+}
+
+function _vcChip(label, val, suffix){
+    if(val === null || val === undefined || val === '') return '';
+    return '<span class="vc-chip">'+esc(label)+' <b>'+esc(String(val))+(suffix||'')+'</b></span>';
+}
+
+function _vcRenderFull(v){
+    if(!v || !v.imo){ _vcBody('<div class="col-empty">Пустой ответ от сервера.</div>'); return; }
+    var t = document.getElementById('vessel-card-title');
+    if(t) t.textContent = '🚢 m/v ' + (v.name_current || '?') + ' · IMO ' + v.imo;
+    var rows = [];
+    function row(k, val){ if(val !== null && val !== undefined && val !== '') rows.push('<div class="vc-row"><span class="k">'+esc(k)+'</span><span class="v">'+esc(String(val))+'</span></div>'); }
+    row('Тип', (v.vessel_type || '') + (v.vessel_subtype ? ' / ' + v.vessel_subtype : ''));
+    row('DWT', v.dwt ? Number(v.dwt).toLocaleString() : null);
+    row('GT', v.gross_tonnage ? Number(v.gross_tonnage).toLocaleString() : null);
+    row('Построено', v.built_year);
+    row('Флаг', v.flag_current);
+    row('Класс', v.class_society);
+    row('Верфь', v.builder_yard);
+    var cm = v.current_commercial_manager_name
+        ? v.current_commercial_manager_name + (v.current_commercial_manager_country ? ' ('+v.current_commercial_manager_country+')' : '') : null;
+    row('Comm. manager', cm);
+    var ow = v.current_owner_name
+        ? v.current_owner_name + (v.current_owner_country ? ' ('+v.current_owner_country+')' : '') : null;
+    row('Owner', ow);
+    row('Operator', v.operator_company);
+    row('Статус', v.status !== 'active' ? v.status : null);
+
+    var scores = ''
+        + _vcChip('Tech', v.skipi_technical_index)
+        + _vcChip('Comfort', v.skipi_comfort_score)
+        + _vcChip('Риск', v.skipi_operational_risk)
+        + _vcChip('Comm. rel.', v.skipi_commercial_reliability)
+        + _vcChip('Safety', v.skipi_safety_culture);
+    var scoresBlock = scores
+        ? '<div style="font-size:10px; color:var(--text3); margin-top:10px;">Skipi-скоры'
+            + (v.skipi_score_confidence ? ' (confidence: '+esc(v.skipi_score_confidence)+')' : '')+':</div><div class="vc-scores">'+scores+'</div>'
+        : '';
+
+    var sanctions = (v.sanctions && v.sanctions.length)
+        ? '<div class="vc-warn">⚠ Санкционные записи: '+v.sanctions.length+' — проверь перед фиксацией!</div>' : '';
+
+    var reviewsBlock = '';
+    var rc = Number(v.review_count || 0);
+    var axes = v.average_by_axis || {};
+    var axisLabels = { vessel_condition:'Состояние', food:'Еда', paperwork:'Документы', internet:'Интернет', company_attitude:'Отношение конторы' };
+    var axisHtml = Object.keys(axes).filter(function(k){ return axes[k] != null; })
+        .map(function(k){ return _vcChip(axisLabels[k] || k, Number(axes[k]).toFixed(1)); }).join('');
+    if(rc > 0 || axisHtml){
+        reviewsBlock = '<div style="font-size:10px; color:var(--text3); margin-top:10px;">Оценки моряков ('+rc+' отзывов'
+            + (v.average_overall ? ', средняя '+Number(v.average_overall).toFixed(1) : '')+'):</div>'
+            + '<div class="vc-scores">'+(axisHtml || '<span class="vc-chip">пока без детализации</span>')+'</div>';
+    } else {
+        reviewsBlock = '<div style="font-size:10px; color:var(--text3); margin-top:10px;">Оценок моряков по этому судну пока нет.</div>';
+    }
+    var excerpts = (v.reviews && Array.isArray(v.reviews.recent_excerpts)) ? v.reviews.recent_excerpts : [];
+    if(excerpts.length){
+        reviewsBlock += excerpts.slice(0,3).map(function(x){
+            var txt = (typeof x === 'string') ? x : (x.text || x.excerpt || JSON.stringify(x));
+            return '<div style="font-size:11px; color:var(--text2); border-left:2px solid var(--border); padding:3px 8px; margin:4px 0;">'+esc(String(txt).slice(0,300))+'</div>';
+        }).join('');
+    }
+
+    _vcBody(sanctions
+        + '<div>' + rows.join('') + '</div>'
+        + scoresBlock
+        + reviewsBlock
+        + '<div class="vc-actions">'
+        + '<button class="primary" onclick="openMarineTraffic(\''+v.imo+'\',\''+esc(String(v.name_current||'').replace(/['\\]/g,''))+'\')">🌍 Позиция на MarineTraffic</button>'
+        + '<button onclick="openVesselPage(\''+v.imo+'\')" title="Открыть во внешнем браузере">↗ В браузере</button>'
+        + '</div>');
+}
+
+// Мини-браузер MarineTraffic (отдельное окно, как WhatsApp). IMO если
+// есть — точная страница судна; иначе поиск по имени на карте.
+function openMarineTraffic(imo, name){
+    invoke('open_marinetraffic', { imo: imo ? String(imo) : null, name: name || null })
+        .catch(function(e){ showToast('MarineTraffic: '+e, 'error'); });
 }
 
 // Age ring: always visible. Outer ring = age color (green/yellow/orange/red),
@@ -2583,7 +2770,7 @@ function renderLeads2View(){
             + '<div class="l2-route">'+esc(routeText)+'</div>'
             + '<div class="l2-cargo">📦 ' + esc(c.cargo_type || '?') + ', ' + esc((c.quantity_mt || '?')+' MT')
                 + (c.laycan_from ? ' · laycan ' + esc((c.laycan_from || '').slice(0,10)) : '') + '</div>'
-            + '<div class="l2-vessel">🚢 <b>m/v ' + esc(t.vessel_name || t.vessel_type || '?') + '</b>'
+            + '<div class="l2-vessel">🚢 <b>m/v </b>' + (t.vessel_name ? vesselNameLinkHtml(t.vessel_name) : '<b>'+esc(t.vessel_type || '?')+'</b>')
                 + (t.dwt ? ', ' + esc(t.dwt+' DWT') : '')
                 + (t.open_port ? ' @ ' + esc(t.open_port) : '')
                 + '</div>'
@@ -3495,7 +3682,13 @@ function _renderCaseDetail(){
         +   '<div class="cd-meta-cell"><span class="k">Watchers</span><input value="'+esc(watchers)+'" onchange="updateCaseField(\''+esc(c.id)+'\',\'watchers\',this.value.split(/\\s*,\\s*/).filter(Boolean))" /></div>'
         + '</div>'
         + '<div class="cd-body">'
-        +   (c.link ? '<div class="cd-section"><div class="cd-section-h">'+linkLbl+'</div><pre style="font-size:10px; color:var(--text2); background:var(--surface); padding:8px; border-radius:3px; overflow:auto; max-height:180px;">'+esc(JSON.stringify(c.link.payload, null, 2))+'</pre></div>' : '')
+        +   (function(){
+            if(!c.link) return '';
+            var pay = c.link.payload || {};
+            var tv = (pay.tonnage && pay.tonnage.vessel_name) ? pay.tonnage.vessel_name : null;
+            var chip = tv ? '<div style="margin-bottom:6px; font-size:12px;">🚢 m/v '+vesselNameLinkHtml(tv)+' <span style="font-size:10px; color:var(--text3);">— карточка из базы + MarineTraffic</span></div>' : '';
+            return '<div class="cd-section"><div class="cd-section-h">'+linkLbl+'</div>'+chip+'<pre style="font-size:10px; color:var(--text2); background:var(--surface); padding:8px; border-radius:3px; overflow:auto; max-height:180px;">'+esc(JSON.stringify(c.link.payload, null, 2))+'</pre></div>';
+        })()
         +   _renderWatchedEmails(c)
         +   '<div class="cd-section"><div class="cd-section-h">Лента событий ('+(c.events||[]).length+')</div><div class="cd-timeline">'+events+'</div></div>'
         + '</div>'
@@ -6729,7 +6922,7 @@ function renderSelectedSignalDetail(){
         if(sig.laycan_from || sig.laycan_to) fields.push(['Laycan', (sig.laycan_from || '').slice(0,10) + ' — ' + (sig.laycan_to || '').slice(0,10)]);
         if(sig.rate_indication) fields.push(['Рейт', sig.rate_indication]);
     } else {
-        if(sig.vessel_name) fields.push(['Судно', sig.vessel_name]);
+        if(sig.vessel_name) fields.push(['Судно', sig.vessel_name, 'vessel']);
         if(sig.vessel_type) fields.push(['Тип', sig.vessel_type]);
         if(sig.dwt) fields.push(['DWT', sig.dwt]);
         if(sig.open_port) fields.push(['Open', sig.open_port]);
@@ -6746,7 +6939,7 @@ function renderSelectedSignalDetail(){
     var html = '<h2>'+(kind === 'cargo' ? '📦' : '🚢')+' '+esc(title)+'</h2>'
         + '<div class="sub">'+_sigIdBadge(sig.id)+' · источник: '+esc(sig.source || '—')+(sig.signal_provenance ? ' · ' + esc(sig.signal_provenance) : '')+'</div>'
         + '<div class="detail-block">'
-        + fields.map(function(f){ return '<div class="detail-row"><span class="k">'+esc(f[0])+'</span><span class="v">'+esc(f[1])+'</span></div>'; }).join('')
+        + fields.map(function(f){ var fv = (f[2]==='vessel') ? vesselNameLinkHtml(f[1]) : esc(f[1]); return '<div class="detail-row"><span class="k">'+esc(f[0])+'</span><span class="v">'+fv+'</span></div>'; }).join('')
         + '</div>';
     body.innerHTML = html;
 }
@@ -6934,7 +7127,7 @@ function renderOppositeSignalDetail(){
         if(sig.laycan_from || sig.laycan_to) fields.push(['Laycan', (sig.laycan_from || '').slice(0,10) + ' — ' + (sig.laycan_to || '').slice(0,10)]);
         if(sig.rate_indication) fields.push(['Рейт', sig.rate_indication]);
     } else {
-        if(sig.vessel_name) fields.push(['Судно', sig.vessel_name]);
+        if(sig.vessel_name) fields.push(['Судно', sig.vessel_name, 'vessel']);
         if(sig.vessel_type) fields.push(['Тип', sig.vessel_type]);
         if(sig.dwt) fields.push(['DWT', String(sig.dwt)]);
         if(sig.open_port) fields.push(['Open', sig.open_port]);
@@ -6947,7 +7140,7 @@ function renderOppositeSignalDetail(){
     var html = '<h2>'+(sigKind === 'cargo' ? '📦' : '🚢')+' '+esc(title)+'</h2>'
         + '<div class="sub">'+_sigIdBadge(sig.id)+' · источник: '+esc(sig.source || '—')+'</div>'
         + '<div class="detail-block">'
-        + fields.map(function(f){ return '<div class="detail-row"><span class="k">'+esc(f[0])+'</span><span class="v">'+esc(f[1])+'</span></div>'; }).join('')
+        + fields.map(function(f){ var fv = (f[2]==='vessel') ? vesselNameLinkHtml(f[1]) : esc(f[1]); return '<div class="detail-row"><span class="k">'+esc(f[0])+'</span><span class="v">'+fv+'</span></div>'; }).join('')
         + '</div>';
 
     // Contact block — first because it's the actionable bit.
