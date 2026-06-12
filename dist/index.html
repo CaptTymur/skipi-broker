@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.111';
+var APP_VERSION='0.1.112';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -223,6 +223,22 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .mb-fresh:hover { color:var(--text); }
 .mb-fresh.updating { opacity:0.45; pointer-events:none; }
 .mb-fresh svg { display:block; }
+/* Команда: панель участников слева от чата, онлайн = пульс как на карте */
+.team-members { width:190px; flex:0 0 190px; border:1px solid var(--border); border-radius:6px;
+    padding:10px 8px; overflow-y:auto; background:var(--surface); }
+.team-members .tm-head { font-size:10px; color:var(--text3); text-transform:uppercase;
+    letter-spacing:0.4px; margin:0 4px 8px; }
+.tm-row { display:flex; align-items:center; gap:8px; padding:6px 6px; border-radius:4px; font-size:12px; }
+.tm-row .tm-name { color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+.tm-row.offline .tm-name { color:var(--text2); }
+.tm-row .tm-ago { font-size:10px; color:var(--text3); white-space:nowrap; }
+.tm-dot { position:relative; width:14px; height:14px; flex:0 0 14px; }
+.tm-dot .core { position:absolute; top:50%; left:50%; width:8px; height:8px; margin:-4px 0 0 -4px;
+    border-radius:50%; background:#2ea043; box-shadow:0 0 8px rgba(46,160,67,.8); }
+.tm-dot .ring { position:absolute; top:50%; left:50%; width:8px; height:8px; margin:-4px 0 0 -4px;
+    border-radius:50%; border:1.5px solid #2ea043; opacity:.7; animation:vizPulse 1.8s ease-out infinite; }
+.tm-dot.off .core { background:var(--text3); box-shadow:none; }
+.tm-dot.off .ring { display:none; }
 
 /* App layout: 4-panel column-view + status bar */
 .app { display:flex; flex:1; flex-direction:column; overflow:hidden; }
@@ -415,35 +431,99 @@ body.mobile-mode .mobile-tabbar .mtb-tab:active {
     /* Initial state: team is the active mobile view */
     body.mobile-mode #view-team:not([data-mobile-inactive="1"]) { display:flex !important; }
 
-    /* ----- view-match mobile layout -----
-       Stack the 4 desktop columns vertically. Source order is 1,2,3,4
-       but we want 2 (pairs list) on top, then 1 (selected signal),
-       then 4 (opposite). Col 3 (additional matches) is hidden in v1. */
+    /* ----- view-match mobile layout (2026-06-12) -----
+       3-row grid with a draggable horizontal splitter between list and details:
+         row 1 — pairs list (col 2), full width
+         row 2 — draggable splitter (8px bar with grab indicator)
+         row 3 — cargo (col 1) | tonnage (col 4), side-by-side
+       --mobile-split CSS var controls top row height; updated by JS drag.
+       Col 3 (additional matches) is hidden in v1. */
     body.mobile-mode #view-match .columns {
-        flex-direction:column !important;
-        gap:8px;
-        overflow-y:auto;
+        display:grid !important;
+        grid-template-rows:var(--mobile-split, 50%) 8px 1fr;
+        grid-template-columns:1fr 1fr;
+        grid-template-areas:
+            "list     list"
+            "rowsplit rowsplit"
+            "cargo    tonnage";
+        gap:0;
         padding:0;
+        overflow:hidden;
+        height:100%;
+        flex-direction:row !important;
     }
-    body.mobile-mode #view-match .col {
-        flex:0 0 auto !important;
-        width:100% !important;
-        max-width:none !important;
-        min-height:0;
+    body.mobile-mode #view-match .mobile-row-splitter {
+        grid-area:rowsplit;
+        background:var(--surface2, #1f2230);
+        cursor:row-resize;
+        touch-action:none;
+        position:relative;
+        border-top:1px solid var(--border, #2a2e3a);
         border-bottom:1px solid var(--border, #2a2e3a);
     }
-    body.mobile-mode #view-match .col:nth-child(1) { order:2; min-height:140px; }
-    body.mobile-mode #view-match .col:nth-child(2) { order:1; min-height:280px; }
-    body.mobile-mode #view-match .col:nth-child(3) { display:none !important; } /* col 3 hidden for v1 */
-    body.mobile-mode #view-match .col:nth-child(4) { order:3; min-height:140px; }
+    /* Grab indicator */
+    body.mobile-mode #view-match .mobile-row-splitter::before {
+        content:'';
+        position:absolute;
+        left:50%; top:50%;
+        width:48px; height:4px;
+        margin:-2px 0 0 -24px;
+        background:var(--text3, #555a6b);
+        border-radius:2px;
+        pointer-events:none;
+    }
+    /* Extra hit area outside the visible 8px bar */
+    body.mobile-mode #view-match .mobile-row-splitter::after {
+        content:'';
+        position:absolute;
+        inset:-10px 0;
+    }
+    body.mobile-mode #view-match .mobile-row-splitter.dragging::before {
+        background:var(--accent, #6c5ce7);
+    }
+    body.mobile-mode #view-match .col {
+        flex:none !important;
+        width:auto !important;
+        max-width:none !important;
+        min-width:0;
+        min-height:0;
+        overflow:hidden;
+        display:flex;
+        flex-direction:column;
+    }
+    /* Source order is 1,2,3,4 — map each to its grid area */
+    body.mobile-mode #view-match .col:nth-child(1) {
+        grid-area:cargo;
+        border-top:1px solid var(--border, #2a2e3a);
+        border-right:1px solid var(--border, #2a2e3a);
+    }
+    body.mobile-mode #view-match .col:nth-child(2) {
+        grid-area:list;
+        border-bottom:1px solid var(--border, #2a2e3a);
+    }
+    body.mobile-mode #view-match .col:nth-child(3) { display:none !important; }
+    body.mobile-mode #view-match .col:nth-child(4) {
+        grid-area:tonnage;
+        border-top:1px solid var(--border, #2a2e3a);
+    }
 
-    /* Hide desktop horizontal splitters in view-match — mobile uses page scroll */
+    /* Each tile owns its own internal scroll inside col-body */
+    body.mobile-mode #view-match .col-body { overflow-y:auto; flex:1; min-height:0; }
+
+    /* Hide desktop horizontal splitters in view-match — mobile uses fixed grid */
     body.mobile-mode #view-match .splitter { display:none !important; }
     /* Hide bottom strip (team chat) on view-match in mobile — Команда is its own tab */
     body.mobile-mode #view-match .bottom-strip { display:none !important; }
-    /* Make pair-region selector wrap nicely */
-    body.mobile-mode #view-match .col-head { flex-wrap:wrap; gap:6px; padding:8px 10px; font-size:13px; }
-    body.mobile-mode #view-match .pairs-region-sel { font-size:12px; padding:4px 6px; }
+    /* Compact col-head for narrow tiles */
+    body.mobile-mode #view-match .col-head {
+        flex-wrap:wrap; gap:6px;
+        padding:6px 10px; font-size:12px;
+        flex-shrink:0;
+    }
+    body.mobile-mode #view-match .pairs-region-sel { font-size:11px; padding:3px 5px; }
+    /* Cargo + tonnage tiles get even smaller header since each is half-width */
+    body.mobile-mode #view-match .col:nth-child(1) .col-head,
+    body.mobile-mode #view-match .col:nth-child(4) .col-head { font-size:11px; padding:4px 8px; }
 
     /* Reserve top inset for Android status bar (clock / cutout / notch).
        env(safe-area-inset-top) often returns 0 on Tauri-Android by default
@@ -482,7 +562,7 @@ body.mobile-mode .mobile-tabbar .mtb-tab:active {
     body.mobile-mode .team-msg { font-size:13px; max-width:92%; }
     body.mobile-mode .team-stream { padding:8px; }
 }
-.team-fullscreen-wrap { flex:1; display:flex; flex-direction:column; max-width:1100px; width:100%;
+.team-fullscreen-wrap { flex:1; display:flex; flex-direction:row; gap:10px; max-width:1100px; width:100%;
     margin:0 auto; padding:14px 20px; min-height:0; }
 .team-fullscreen-wrap > .team-mount { flex:1; min-height:0; border:1px solid var(--border); border-radius:6px; }
 /* LLM bubble: lives inside the same team-stream, distinct from human msgs */
@@ -1716,6 +1796,7 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
          all share one room. team-block migrates here when this tab is active. -->
     <div class="view-pane view-team-stack" id="view-team" style="display:none;">
         <div class="team-fullscreen-wrap">
+            <div class="team-members" id="team-members"></div>
             <div class="team-mount" id="team-mount-team"></div>
         </div>
     </div>
@@ -2301,8 +2382,57 @@ async function saveTeamNameInline(){
     }
 }
 
+var _presenceLastPing = 0;
+async function _teamPresenceCycle(){
+    // Пингуем presence и обновляем список участников не чаще раза в ~25с —
+    // чат поллится каждые 10с, серверу чаще не нужно.
+    if(Date.now() - _presenceLastPing < 25000) return;
+    _presenceLastPing = Date.now();
+    try { invoke('ping_team_presence').catch(function(){}); } catch(_){}
+    try {
+        var rows = await invoke('fetch_team_members');
+        if(Array.isArray(rows)){
+            state.team.members = rows;
+            renderTeamMembers();
+        }
+    } catch(_){}
+}
+
+function renderTeamMembers(){
+    var el = document.getElementById('team-members');
+    if(!el) return;
+    var rows = (state.team && state.team.members) || [];
+    if(rows.length === 0){
+        el.innerHTML = '<div class="tm-head">Команда</div><div style="font-size:11px; color:var(--text3); padding:0 4px;">Пока никого — участники появятся после первого захода с токеном комнаты.</div>';
+        return;
+    }
+    var now = Date.now();
+    var items = rows.map(function(m){
+        var t = m.last_seen_at ? Date.parse(m.last_seen_at) : 0;
+        var ageS = t ? Math.max(0, (now - t) / 1000) : 1e9;
+        return { m: m, ageS: ageS, online: ageS < 90 };
+    });
+    items.sort(function(a, b){
+        if(a.online !== b.online) return a.online ? -1 : 1;
+        return a.ageS - b.ageS;
+    });
+    el.innerHTML = '<div class="tm-head">Команда · онлайн ' + items.filter(function(x){ return x.online; }).length + '</div>'
+        + items.map(function(x){
+            var ago = x.online ? 'сейчас'
+                : x.ageS < 3600 ? Math.floor(x.ageS/60) + 'м'
+                : x.ageS < 86400 ? Math.floor(x.ageS/3600) + 'ч'
+                : Math.floor(x.ageS/86400) + 'д';
+            return '<div class="tm-row ' + (x.online ? 'online' : 'offline') + '" title="' + esc(x.m.nickname) + (x.m.app_version ? ' · v' + esc(x.m.app_version) : '') + '">'
+                + '<div class="tm-dot' + (x.online ? '' : ' off') + '"><div class="ring"></div><div class="core"></div></div>'
+                + '<span class="tm-name">' + esc(x.m.nickname) + '</span>'
+                + '<span class="tm-ago">' + esc(ago) + '</span>'
+                + '</div>';
+        }).join('');
+}
+
 async function teamPollOnce(initial){
     if(!state.settings.broker_id) return;
+    try { _teamPresenceCycle(); } catch(_){}
     if(state.team.polling) return;
     state.team.polling = true;
     try {
@@ -2492,6 +2622,75 @@ function mobileInitIfNeeded(){
         setTimeout(tryShow, 50);
     };
     tryShow();
+    // Inject view-match draggable row splitter (once).
+    var trySplit = function(){
+        if(setupMobileMatchSplitter()) return;
+        setTimeout(trySplit, 100);
+    };
+    trySplit();
+}
+
+// Insert a draggable splitter between the pairs list (top half) and
+// the cargo/tonnage details (bottom half) on the Совпадения mobile view.
+// Returns true once the splitter is in place. Idempotent.
+function setupMobileMatchSplitter(){
+    var container = document.querySelector('#view-match > .columns');
+    if(!container) return false;
+    if(container.querySelector('.mobile-row-splitter')) return true;
+
+    var splitter = document.createElement('div');
+    splitter.className = 'mobile-row-splitter';
+    splitter.setAttribute('role','separator');
+    splitter.setAttribute('aria-orientation','horizontal');
+    container.appendChild(splitter);
+
+    // Restore last position
+    try {
+        var saved = parseFloat(localStorage.getItem('mobile-match-split-pct'));
+        if(saved >= 15 && saved <= 85){
+            container.style.setProperty('--mobile-split', saved + '%');
+        }
+    } catch(_) {}
+
+    var dragging = false;
+    function pctFromY(clientY){
+        var rect = container.getBoundingClientRect();
+        var pct = ((clientY - rect.top) / rect.height) * 100;
+        return Math.max(15, Math.min(85, pct));
+    }
+    function onDown(e){
+        dragging = true;
+        splitter.classList.add('dragging');
+        try { splitter.setPointerCapture(e.pointerId); } catch(_) {}
+        e.preventDefault();
+    }
+    function onMove(e){
+        if(!dragging) return;
+        var pct = pctFromY(e.clientY);
+        container.style.setProperty('--mobile-split', pct + '%');
+        e.preventDefault();
+    }
+    function onUp(e){
+        if(!dragging) return;
+        dragging = false;
+        splitter.classList.remove('dragging');
+        try { splitter.releasePointerCapture(e.pointerId); } catch(_) {}
+        try {
+            var v = container.style.getPropertyValue('--mobile-split');
+            if(v) localStorage.setItem('mobile-match-split-pct', parseFloat(v));
+        } catch(_) {}
+    }
+    splitter.addEventListener('pointerdown', onDown);
+    splitter.addEventListener('pointermove', onMove);
+    splitter.addEventListener('pointerup', onUp);
+    splitter.addEventListener('pointercancel', onUp);
+    splitter.addEventListener('lostpointercapture', onUp);
+    // Double-tap → reset to 50%
+    splitter.addEventListener('dblclick', function(){
+        container.style.setProperty('--mobile-split', '50%');
+        try { localStorage.setItem('mobile-match-split-pct', '50'); } catch(_) {}
+    });
+    return true;
 }
 
 // Mobile tab switch — toggles tab active state and per-view data attrs,

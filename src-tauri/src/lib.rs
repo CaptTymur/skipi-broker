@@ -704,6 +704,31 @@ fn open_marinetraffic(app: tauri::AppHandle, imo: Option<String>, name: Option<S
     .map_err(|e| format!("open MarineTraffic window: {e}"))
 }
 
+/// Team presence: heartbeat while the team chat polls + member list
+/// for the «Команда» module (online dots).
+#[tauri::command]
+async fn ping_team_presence(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let nick = if s.team_nickname.trim().is_empty() {
+        s.display_name.clone()
+    } else {
+        s.team_nickname.clone()
+    };
+    let body = serde_json::json!({
+        "broker_id": s.broker_id,
+        "nickname": nick,
+        "app_version": env!("CARGO_PKG_VERSION"),
+    });
+    request_api(&state, s, reqwest::Method::POST, "/api/team/presence".to_string(), Some(body)).await
+}
+
+#[tauri::command]
+async fn fetch_team_members(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let path = format!("/api/team/members?broker_id={}", s.broker_id);
+    request_api(&state, s, reqwest::Method::GET, path, None).await
+}
+
 /// Case seeds — дела, созданные удалённо (LLM-ассистент из чата или
 /// админ). Клиент подхватывает их в локальный модуль Дела (dedup по id).
 #[tauri::command]
@@ -1402,6 +1427,8 @@ pub fn run() {
             fetch_bazaar_cross_matches,
             fetch_bazaar_pairs,
             fetch_case_seeds,
+            ping_team_presence,
+            fetch_team_members,
             fetch_vessel,
             search_vessels,
             open_marinetraffic,
