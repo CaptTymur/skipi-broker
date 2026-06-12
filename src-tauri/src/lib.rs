@@ -704,6 +704,15 @@ fn open_marinetraffic(app: tauri::AppHandle, imo: Option<String>, name: Option<S
     .map_err(|e| format!("open MarineTraffic window: {e}"))
 }
 
+/// Case seeds — дела, созданные удалённо (LLM-ассистент из чата или
+/// админ). Клиент подхватывает их в локальный модуль Дела (dedup по id).
+#[tauri::command]
+async fn fetch_case_seeds(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let path = format!("/api/case-seeds?broker_id={}", s.broker_id);
+    request_api(&state, s, reqwest::Method::GET, path, None).await
+}
+
 /// Brokerage counterparts CRM — full profile list synced from freight_agent's
 /// competitor_profiles.csv. Used by the Контрагенты tab to enrich the local
 /// signal-derived aggregation with role, top_cargoes/routes, commission, etc.
@@ -1392,6 +1401,7 @@ pub fn run() {
             fetch_my_tonnage,
             fetch_bazaar_cross_matches,
             fetch_bazaar_pairs,
+            fetch_case_seeds,
             fetch_vessel,
             search_vessels,
             open_marinetraffic,

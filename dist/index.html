@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.110';
+var APP_VERSION='0.1.111';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -5593,6 +5593,7 @@ async function refreshAll(){
         try { _afterRefreshNotify(); } catch(e) { /* never fail refresh on UI cue */ }
         try { _tickFreshIndicator(); } catch(e) { /* indicator must never break refresh */ }
         try { _maybeAutoAgentUpdate(); } catch(e) { /* one-shot, non-critical */ }
+        try { _importCaseSeeds(); } catch(e) { /* seeds must never break refresh */ }
     })();
     try {
         return await state.refreshPromise;
@@ -7721,6 +7722,52 @@ window.addEventListener('DOMContentLoaded', _tickFreshIndicator);
 
 // Авто-запрос агенту при старте приложения — один раз за сессию, с
 // задержкой чтобы UI успел отрисоваться по кэшу/серверу.
+// === case seeds: дела, созданные ассистентом из чата (запрос Тимура 12.06) ===
+// Сервер держит очередь /api/case-seeds; каждая установка импортирует
+// невиданные сиды в свой локальный модуль Дела ровно один раз (id дела
+// детерминирован от id сида).
+async function _importCaseSeeds(){
+    if(!state.settings.broker_id) return;
+    var rows;
+    try { rows = await invoke('fetch_case_seeds'); } catch(e){ return; }
+    if(!Array.isArray(rows) || rows.length === 0) return;
+    var cases = _getCases();
+    var have = {};
+    cases.forEach(function(c){ have[c.id] = 1; });
+    var added = 0;
+    rows.forEach(function(seed){
+        var cid = 'case-seed-' + seed.id;
+        if(have[cid]) return;
+        cases.unshift({
+            id: cid,
+            title: seed.title || 'Дело от ассистента',
+            status: seed.status || 'lead',
+            type: seed.case_type || 'general',
+            owners: [],
+            watchers: [],
+            link: null,
+            created_by: seed.created_by || '🤖 Брокер-LLM',
+            created_at: seed.created_at || new Date().toISOString(),
+            events: [{
+                ts: seed.created_at || new Date().toISOString(),
+                kind: 'note',
+                by: seed.created_by || '🤖 Брокер-LLM',
+                body: seed.context || 'Дело создано ассистентом из чата.',
+            }],
+            watched_emails: [],
+            unread_replies: [],
+            last_seen_reply_at: null,
+        });
+        have[cid] = 1;
+        added++;
+    });
+    if(added > 0){
+        _persistCases();
+        if(state.view === 'cases'){ try { renderCasesView(); } catch(_){} }
+        showToast('📂 Новых дел от ассистента: ' + added, 'ok');
+    }
+}
+
 var _autoAgentUpdateDone = false;
 function _maybeAutoAgentUpdate(){
     if(_autoAgentUpdateDone) return;
