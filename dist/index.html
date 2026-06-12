@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.109';
+var APP_VERSION='0.1.110';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -217,6 +217,12 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .mb-clock .mc-state { font-size:9px; letter-spacing:0.3px; text-transform:uppercase; }
 .mb-clock.open .mc-state { color:#2ea043; }
 .mb-clock.closed .mc-state { color:#bd4040; }
+/* Свежесть базара — кольцо как у сигналов (зелёный→красный), клик = апдейт агентом */
+.mb-fresh { display:flex; align-items:center; gap:5px; padding:0 8px; cursor:pointer;
+    font-size:10px; color:var(--text2); font-variant-numeric:tabular-nums; user-select:none; }
+.mb-fresh:hover { color:var(--text); }
+.mb-fresh.updating { opacity:0.45; pointer-events:none; }
+.mb-fresh svg { display:block; }
 
 /* App layout: 4-panel column-view + status bar */
 .app { display:flex; flex:1; flex-direction:column; overflow:hidden; }
@@ -361,6 +367,121 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .take-lead-btn:hover { opacity:.9; }
 .take-lead-btn:disabled { opacity:.5; cursor:default; }
 .view-team-stack { flex-direction:column; }
+
+/* ============================================================
+   Mobile mode (≤720px) — collapse the app to a phone-friendly UX.
+   Activated on app start by mobileInitIfNeeded() in JS.
+   Currently supports two views: Команда (chat) and Совпадения (bxb pairs).
+   ============================================================ */
+
+/* Mobile tabbar — hidden by default; only renders on body.mobile-mode */
+.mobile-tabbar { display:none; }
+body.mobile-mode .mobile-tabbar {
+    display:flex; gap:0;
+    background:var(--surface, #1a1d26);
+    border-bottom:1px solid var(--border, #2a2e3a);
+    height:48px;
+    flex-shrink:0;
+}
+body.mobile-mode .mobile-tabbar .mtb-tab {
+    flex:1; display:flex; align-items:center; justify-content:center;
+    font-size:14px; font-weight:600; color:var(--text2, #9aa);
+    cursor:pointer; user-select:none;
+    border-bottom:2px solid transparent;
+    transition:color 0.15s, border-color 0.15s, background 0.15s;
+}
+body.mobile-mode .mobile-tabbar .mtb-tab.active {
+    color:var(--accent, #6c5ce7);
+    border-bottom-color:var(--accent, #6c5ce7);
+    background:rgba(108,92,231,0.08);
+}
+body.mobile-mode .mobile-tabbar .mtb-tab:active {
+    background:rgba(108,92,231,0.16);
+}
+@media (max-width: 720px) {
+    body.mobile-mode .modules-bar,
+    body.mobile-mode .statusbar,
+    body.mobile-mode #ctx-chat-host,
+    body.mobile-mode #ctx-chat-restore,
+    body.mobile-mode .ctx-chat-bar,
+    body.mobile-mode .ctx-chat-host,
+    body.mobile-mode #update-banner-host { display:none !important; }
+
+    /* Force all view-panes off except whichever mobile view is active.
+       JS toggles display via showView(); here we just provide defaults. */
+    body.mobile-mode .view-pane { display:none !important; }
+    body.mobile-mode #view-team[data-mobile-active="1"],
+    body.mobile-mode #view-match[data-mobile-active="1"] { display:flex !important; }
+    /* Initial state: team is the active mobile view */
+    body.mobile-mode #view-team:not([data-mobile-inactive="1"]) { display:flex !important; }
+
+    /* ----- view-match mobile layout -----
+       Stack the 4 desktop columns vertically. Source order is 1,2,3,4
+       but we want 2 (pairs list) on top, then 1 (selected signal),
+       then 4 (opposite). Col 3 (additional matches) is hidden in v1. */
+    body.mobile-mode #view-match .columns {
+        flex-direction:column !important;
+        gap:8px;
+        overflow-y:auto;
+        padding:0;
+    }
+    body.mobile-mode #view-match .col {
+        flex:0 0 auto !important;
+        width:100% !important;
+        max-width:none !important;
+        min-height:0;
+        border-bottom:1px solid var(--border, #2a2e3a);
+    }
+    body.mobile-mode #view-match .col:nth-child(1) { order:2; min-height:140px; }
+    body.mobile-mode #view-match .col:nth-child(2) { order:1; min-height:280px; }
+    body.mobile-mode #view-match .col:nth-child(3) { display:none !important; } /* col 3 hidden for v1 */
+    body.mobile-mode #view-match .col:nth-child(4) { order:3; min-height:140px; }
+
+    /* Hide desktop horizontal splitters in view-match — mobile uses page scroll */
+    body.mobile-mode #view-match .splitter { display:none !important; }
+    /* Hide bottom strip (team chat) on view-match in mobile — Команда is its own tab */
+    body.mobile-mode #view-match .bottom-strip { display:none !important; }
+    /* Make pair-region selector wrap nicely */
+    body.mobile-mode #view-match .col-head { flex-wrap:wrap; gap:6px; padding:8px 10px; font-size:13px; }
+    body.mobile-mode #view-match .pairs-region-sel { font-size:12px; padding:4px 6px; }
+
+    /* Reserve top inset for Android status bar (clock / cutout / notch).
+       env(safe-area-inset-top) often returns 0 on Tauri-Android by default
+       (window flags don't request edge-to-edge), so we hardcode 48px as a
+       conservative fallback that covers Pixel-class devices. */
+    body.mobile-mode {
+        padding-top:max(48px, env(safe-area-inset-top, 48px));
+        padding-bottom:max(0px, env(safe-area-inset-bottom, 0px));
+        box-sizing:border-box;
+        min-height:100vh;
+    }
+    body.mobile-mode #app {
+        height:calc(100vh - max(48px, env(safe-area-inset-top, 48px)));
+        box-sizing:border-box;
+    }
+
+    /* Team chat takes the full viewport */
+    body.mobile-mode .team-fullscreen-wrap,
+    body.mobile-mode .team-mount,
+    body.mobile-mode #team-block { flex:1; min-height:0; display:flex; flex-direction:column; }
+
+    /* Make composer touch-friendly */
+    body.mobile-mode .team-composer { gap:6px; padding:8px; }
+    body.mobile-mode .team-composer textarea { font-size:15px; min-height:38px; padding:8px 10px; }
+    body.mobile-mode .team-composer .btn { min-width:44px; min-height:44px; font-size:16px; }
+    body.mobile-mode .team-attach-btn { min-width:40px; min-height:40px; font-size:18px; }
+
+    /* Hide rarely-used name-row + reply-quote on first pass; keep target pills */
+    body.mobile-mode .team-name-row { display:none; }
+    body.mobile-mode .team-target-row { padding:6px 8px; overflow-x:auto; flex-wrap:nowrap; white-space:nowrap; }
+    body.mobile-mode .tt-pill { font-size:12px; padding:5px 9px; }
+    body.mobile-mode .tt-hint { display:none; }
+
+    /* Header — title + status */
+    body.mobile-mode #team-block .col-head { font-size:14px; padding:10px 12px; }
+    body.mobile-mode .team-msg { font-size:13px; max-width:92%; }
+    body.mobile-mode .team-stream { padding:8px; }
+}
 .team-fullscreen-wrap { flex:1; display:flex; flex-direction:column; max-width:1100px; width:100%;
     margin:0 auto; padding:14px 20px; min-height:0; }
 .team-fullscreen-wrap > .team-mount { flex:1; min-height:0; border:1px solid var(--border); border-radius:6px; }
@@ -1023,6 +1144,13 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
 </div>
 <div id="ctx-chat-restore" class="ctx-chat-restore" onclick="showCtxBar()">💬 спросить LLM</div>
 
+<!-- Mobile-only top tab bar (visible only on body.mobile-mode). Switches
+     between the two mobile-supported views: Команда and Совпадения. -->
+<div class="mobile-tabbar" id="mobile-tabbar">
+    <div class="mtb-tab active" id="mtb-team" onclick="mobileSwitchView('team')">💬 Команда</div>
+    <div class="mtb-tab" id="mtb-match" onclick="mobileSwitchView('match')">🔗 Совпадения</div>
+</div>
+
 <div class="modules-bar">
     <div class="mod-tab active" id="nav-ex" onclick="showView('ex')"><span data-i18n="nav.exclusives">📋 Эксклюзивы</span></div>
     <div class="mod-tab" id="nav-match" onclick="showView('match')"><span data-i18n="nav.matches">🎯 Совпадения</span> <span id="match-badge" class="count" style="display:none;"></span></div>
@@ -1037,6 +1165,7 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
     <div id="lead-tabs-host" style="display:flex; align-items:center; gap:4px;"></div>
     <div class="mb-spacer"></div>
     <div class="mb-identity" id="mb-identity" data-i18n="top.notRegistered">Не зарегистрирован</div>
+    <div class="mb-fresh" id="mb-fresh" onclick="actionAgentUpdate()" title="Свежесть базара: сколько прошло с последнего нового сигнала. Клик — запросить у агента обновление сигналов и пересчёт совпадений."></div>
     <div class="mb-clock" id="mb-clock" title="Брокерский день: пн-пт 09:00–18:00 London"></div>
     <div class="mb-gear" onclick="openSettings()" data-i18n-title="top.gear" title="Настройки">⚙</div>
 </div>
@@ -2344,6 +2473,62 @@ function _hideTeamNewBadge(){
     if(b) b.remove();
 }
 // Hide badge when user manually scrolls to bottom.
+// ============================================================
+// Mobile mode bootstrap: on small viewports (≤720px wide) collapse
+// the whole app to the Команда tab only. Activated by adding the
+// `mobile-mode` body class — corresponding CSS in the head.
+// ============================================================
+function isMobileViewport(){
+    try { return window.matchMedia('(max-width: 720px)').matches; }
+    catch(_) { return (window.innerWidth || 9999) <= 720; }
+}
+function mobileInitIfNeeded(){
+    if(!isMobileViewport()) return;
+    document.body.classList.add('mobile-mode');
+    // Defer until showView is defined and team-mount-team exists.
+    var tryShow = function(){
+        try { if(typeof showView === 'function'){ mobileSwitchView('team'); return; } }
+        catch(_) {}
+        setTimeout(tryShow, 50);
+    };
+    tryShow();
+}
+
+// Mobile tab switch — toggles tab active state and per-view data attrs,
+// then delegates to showView for the actual content swap. Called directly
+// from the tabbar onclick handlers so timing is deterministic.
+function mobileSwitchView(name){
+    try {
+        var team = document.getElementById('view-team');
+        var match = document.getElementById('view-match');
+        if(team){
+            if(name === 'team'){
+                team.setAttribute('data-mobile-active','1');
+                team.removeAttribute('data-mobile-inactive');
+            } else {
+                team.removeAttribute('data-mobile-active');
+                team.setAttribute('data-mobile-inactive','1');
+            }
+        }
+        if(match){
+            if(name === 'match') match.setAttribute('data-mobile-active','1');
+            else match.removeAttribute('data-mobile-active');
+        }
+        var tt = document.getElementById('mtb-team');
+        var mt = document.getElementById('mtb-match');
+        if(tt) tt.classList.toggle('active', name === 'team');
+        if(mt) mt.classList.toggle('active', name === 'match');
+    } catch(_) {}
+    // Delegate to showView for content render — fall back to noop if not ready
+    try { if(typeof showView === 'function') showView(name); } catch(_) {}
+}
+document.addEventListener('DOMContentLoaded', mobileInitIfNeeded);
+window.addEventListener('resize', function(){
+    // Toggle mobile-mode live on resize / orientation change.
+    if(isMobileViewport()) document.body.classList.add('mobile-mode');
+    else document.body.classList.remove('mobile-mode');
+});
+
 document.addEventListener('DOMContentLoaded', function(){
     var s = document.getElementById('team-stream');
     if(!s) return;
@@ -5406,6 +5591,8 @@ async function refreshAll(){
         // Detect new matches → beep + toast. Wraps every refresh path
         // (auto-poll, manual button, post-publish, etc.).
         try { _afterRefreshNotify(); } catch(e) { /* never fail refresh on UI cue */ }
+        try { _tickFreshIndicator(); } catch(e) { /* indicator must never break refresh */ }
+        try { _maybeAutoAgentUpdate(); } catch(e) { /* one-shot, non-critical */ }
     })();
     try {
         return await state.refreshPromise;
@@ -7496,6 +7683,53 @@ setInterval(_tickBrokerClock, 1000);
 // sees it (otherwise it stays blank for up to a full second on cold open).
 window.addEventListener('DOMContentLoaded', _tickBrokerClock);
 
+// === bazaar freshness indicator (запрос Тимура 12.06) ===
+// Кольцо рядом с биржевым временем: сколько прошло с последнего НОВОГО
+// сигнала в базаре (max first_seen_at по загруженным данным). Тот же
+// ageRingSvg, что у сигналов: зелёный → жёлтый → красный. Клик — апдейт
+// агентом (сигналы + пересчёт совпадений).
+function _bazaarFreshTs(){
+    var newest = 0;
+    function take(ts){
+        if(!ts) return;
+        var t = Date.parse(ts);
+        if(!isNaN(t) && t > newest) newest = t;
+    }
+    ((state.signalsBrowse && state.signalsBrowse.cargo) || []).forEach(function(s){ take(s.first_seen_at); });
+    ((state.signalsBrowse && state.signalsBrowse.tonnage) || []).forEach(function(s){ take(s.first_seen_at); });
+    (state.bazaarPairs || []).forEach(function(p){
+        take(p.cargo_signal && p.cargo_signal.first_seen_at);
+        take(p.tonnage_signal && p.tonnage_signal.first_seen_at);
+    });
+    return newest || null;
+}
+
+function _tickFreshIndicator(){
+    var el = document.getElementById('mb-fresh');
+    if(!el) return;
+    var ts = _bazaarFreshTs();
+    if(!ts){
+        el.innerHTML = '<span style="color:var(--text3);">базар: —</span>';
+        return;
+    }
+    var ageMin = Math.max(0, Math.floor((Date.now() - ts) / 60000));
+    var label = ageMin < 60 ? (ageMin + 'м') : ((ageMin/60).toFixed(1) + 'ч');
+    el.innerHTML = ageRingSvg(new Date(ts).toISOString(), 14) + '<span>базар ' + label + '</span>';
+}
+setInterval(_tickFreshIndicator, 30000);
+window.addEventListener('DOMContentLoaded', _tickFreshIndicator);
+
+// Авто-запрос агенту при старте приложения — один раз за сессию, с
+// задержкой чтобы UI успел отрисоваться по кэшу/серверу.
+var _autoAgentUpdateDone = false;
+function _maybeAutoAgentUpdate(){
+    if(_autoAgentUpdateDone) return;
+    _autoAgentUpdateDone = true;
+    setTimeout(function(){
+        try { actionAgentUpdate(); } catch(e){ console.warn('auto agent update', e); }
+    }, 5000);
+}
+
 // === match audio cue ===
 // Track latest seen bxb-match count. When refresh brings in more, play a
 // short tone. Uses WebAudio so no asset is shipped. Honors document.hidden
@@ -8426,8 +8660,11 @@ async function actionDismissOwn(){
 
 async function actionAgentUpdate(){
     var btn = document.getElementById('p2-refresh');
-    if(btn.classList.contains('spinning')) return;  // debounce
-    btn.classList.add('spinning');
+    var fresh = document.getElementById('mb-fresh');
+    if(btn && btn.classList.contains('spinning')) return;  // debounce
+    if(fresh && fresh.classList.contains('updating')) return;
+    if(btn) btn.classList.add('spinning');
+    if(fresh) fresh.classList.add('updating');
     try {
         var r = await invoke('request_agent_update');
         var c = (r && r.cargo_inserted) || 0;
@@ -8435,13 +8672,15 @@ async function actionAgentUpdate(){
         var m = (r && r.matches_created) || 0;
         var msg = 'Агент обновил базар: +'+c+' cargo · +'+t+' tonnage · +'+m+' матчей';
         if(c===0 && t===0 && m===0) msg = 'Агент проверил: новых сигналов нет';
-        await refreshInbox();
+        await Promise.all([refreshInbox(), refreshBazaarPairs(), refreshSignalsBrowse()]);
         renderP0(); renderP1(); renderP2(); renderP3(); renderP4(); renderStatusBar();
+        _tickFreshIndicator();
         showToast(msg, 'success');
     } catch(e){
         showToast('Agent: '+e, 'error');
     } finally {
-        btn.classList.remove('spinning');
+        if(btn) btn.classList.remove('spinning');
+        if(fresh) fresh.classList.remove('updating');
     }
 }
 

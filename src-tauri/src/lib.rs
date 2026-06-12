@@ -65,11 +65,23 @@ pub struct Settings {
 
 impl Settings {
     fn config_path() -> PathBuf {
-        let dir = dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("skipi-broker");
-        std::fs::create_dir_all(&dir).ok();
-        dir.join("settings.json")
+        // Android: dirs::config_dir() returns None / "/.config" which is
+        // unreachable from a sandboxed app. Use the package's internal
+        // files dir directly so settings actually persist between launches.
+        #[cfg(target_os = "android")]
+        {
+            let dir = PathBuf::from("/data/data/app.skipi.broker/files/skipi-broker");
+            std::fs::create_dir_all(&dir).ok();
+            return dir.join("settings.json");
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let dir = dirs::config_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("skipi-broker");
+            std::fs::create_dir_all(&dir).ok();
+            dir.join("settings.json")
+        }
     }
 
     pub fn load() -> Self {
