@@ -632,9 +632,14 @@ async fn fetch_bazaar_cross_matches(
 /// the source for the "Совпадения" tab's col 2 so rows are actual pairs,
 /// not single signals with a "1 match" badge.
 #[tauri::command]
-async fn fetch_bazaar_pairs(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
+async fn fetch_bazaar_pairs(
+    state: tauri::State<'_, AppState>,
+    days: Option<u32>,
+) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
-    request_api(&state, s, reqwest::Method::GET, "/api/bazaar-pairs?limit=300".to_string(), None).await
+    let d = days.unwrap_or(2).clamp(1, 365);
+    let path = format!("/api/bazaar-pairs?limit=300&max_age_days={}", d);
+    request_api(&state, s, reqwest::Method::GET, path, None).await
 }
 
 /// Vessel DB lookup — full card (details, Skipi scores, managers,

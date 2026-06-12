@@ -5,18 +5,26 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.112';
+var APP_VERSION='0.1.113';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
     // Tauri 2 window title is separate from <title>. Push it via the
     // window API so the OS-level titlebar updates after auto-update.
+    // On Android there's no window titlebar AND the permission isn't
+    // granted by default — skip outright to avoid the "not allowed"
+    // unhandled rejection in logcat.
+    var isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent || '');
+    if(isMobile) return;
     try {
         if(window.__TAURI__ && window.__TAURI__.window){
             var w = window.__TAURI__.window.getCurrentWindow
                   ? window.__TAURI__.window.getCurrentWindow()
                   : (window.__TAURI__.window.getCurrent && window.__TAURI__.window.getCurrent());
-            if(w && w.setTitle) w.setTitle(t);
+            if(w && w.setTitle){
+                var p = w.setTitle(t);
+                if(p && typeof p.catch === 'function') p.catch(function(){});
+            }
         }
     } catch(_){}
 }
@@ -440,7 +448,7 @@ body.mobile-mode .mobile-tabbar .mtb-tab:active {
        Col 3 (additional matches) is hidden in v1. */
     body.mobile-mode #view-match .columns {
         display:grid !important;
-        grid-template-rows:var(--mobile-split, 50%) 8px 1fr;
+        grid-template-rows:var(--mobile-split, 50%) 18px 1fr;
         grid-template-columns:1fr 1fr;
         grid-template-areas:
             "list     list"
@@ -454,32 +462,36 @@ body.mobile-mode .mobile-tabbar .mtb-tab:active {
     }
     body.mobile-mode #view-match .mobile-row-splitter {
         grid-area:rowsplit;
-        background:var(--surface2, #1f2230);
+        background:rgba(108,92,231,0.18);
         cursor:row-resize;
         touch-action:none;
         position:relative;
-        border-top:1px solid var(--border, #2a2e3a);
-        border-bottom:1px solid var(--border, #2a2e3a);
+        border-top:1px solid var(--accent, #6c5ce7);
+        border-bottom:1px solid var(--accent, #6c5ce7);
     }
-    /* Grab indicator */
+    /* Grab indicator — big, bright, hard to miss */
     body.mobile-mode #view-match .mobile-row-splitter::before {
         content:'';
         position:absolute;
         left:50%; top:50%;
-        width:48px; height:4px;
-        margin:-2px 0 0 -24px;
-        background:var(--text3, #555a6b);
-        border-radius:2px;
+        width:72px; height:6px;
+        transform:translate(-50%, -50%);
+        background:#cfc8ff;
+        border-radius:3px;
         pointer-events:none;
+        box-shadow:0 0 0 1px rgba(0,0,0,0.25);
     }
     /* Extra hit area outside the visible 8px bar */
     body.mobile-mode #view-match .mobile-row-splitter::after {
         content:'';
         position:absolute;
-        inset:-10px 0;
+        inset:-12px 0;
+    }
+    body.mobile-mode #view-match .mobile-row-splitter.dragging {
+        background:rgba(108,92,231,0.34);
     }
     body.mobile-mode #view-match .mobile-row-splitter.dragging::before {
-        background:var(--accent, #6c5ce7);
+        background:#fff;
     }
     body.mobile-mode #view-match .col {
         flex:none !important;
@@ -1367,6 +1379,16 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
                         <option value="eaf">East Africa</option>
                         <option value="me">Middle East</option>
                         <option value="americas">Americas</option>
+                    </select>
+                    <select id="pairs-sort" class="pairs-region-sel" onchange="renderSignalsFeed()" title="Порядок пар в списке">
+                        <option value="score">сорт: score</option>
+                        <option value="new">сначала новые</option>
+                        <option value="old">сначала старые</option>
+                    </select>
+                    <select id="pairs-age" class="pairs-region-sel" onchange="refreshBazaarPairs().then(renderSignalsFeed)" title="Какой давности пары показывать">
+                        <option value="1">24 часа</option>
+                        <option value="2" selected>2 дня</option>
+                        <option value="7">неделя</option>
                     </select>
                     <span class="p2-refresh" id="p2-refresh" title="Запросить апдейт у агента — подтянуть свежие сигналы из mbox/ShipNext и пересчитать совпадения." onclick="actionAgentUpdate()">🔄</span>
                     <span class="p2-refresh" title="Опубликовать новую циркуляцию" onclick="openPublishModal()">＋</span>
@@ -2635,14 +2657,18 @@ function mobileInitIfNeeded(){
 // Returns true once the splitter is in place. Idempotent.
 function setupMobileMatchSplitter(){
     var container = document.querySelector('#view-match > .columns');
-    if(!container) return false;
-    if(container.querySelector('.mobile-row-splitter')) return true;
+    if(!container){ console.log('[splitter] container not found'); return false; }
+    if(container.querySelector('.mobile-row-splitter')){
+        console.log('[splitter] already present');
+        return true;
+    }
 
     var splitter = document.createElement('div');
     splitter.className = 'mobile-row-splitter';
     splitter.setAttribute('role','separator');
     splitter.setAttribute('aria-orientation','horizontal');
     container.appendChild(splitter);
+    console.log('[splitter] INJECTED, children=' + container.children.length);
 
     // Restore last position
     try {
@@ -2685,6 +2711,33 @@ function setupMobileMatchSplitter(){
     splitter.addEventListener('pointerup', onUp);
     splitter.addEventListener('pointercancel', onUp);
     splitter.addEventListener('lostpointercapture', onUp);
+    // Touch fallback for WebViews that don't emit pointer events for touch
+    function touchDown(e){
+        dragging = true;
+        splitter.classList.add('dragging');
+        e.preventDefault();
+    }
+    function touchMove(e){
+        if(!dragging) return;
+        var t = e.touches && e.touches[0];
+        if(!t) return;
+        var pct = pctFromY(t.clientY);
+        container.style.setProperty('--mobile-split', pct + '%');
+        e.preventDefault();
+    }
+    function touchUp(e){
+        if(!dragging) return;
+        dragging = false;
+        splitter.classList.remove('dragging');
+        try {
+            var v = container.style.getPropertyValue('--mobile-split');
+            if(v) localStorage.setItem('mobile-match-split-pct', parseFloat(v));
+        } catch(_) {}
+    }
+    splitter.addEventListener('touchstart', touchDown, {passive:false});
+    splitter.addEventListener('touchmove', touchMove, {passive:false});
+    splitter.addEventListener('touchend', touchUp);
+    splitter.addEventListener('touchcancel', touchUp);
     // Double-tap → reset to 50%
     splitter.addEventListener('dblclick', function(){
         container.style.setProperty('--mobile-split', '50%');
@@ -2698,6 +2751,9 @@ function setupMobileMatchSplitter(){
 // from the tabbar onclick handlers so timing is deterministic.
 function mobileSwitchView(name){
     try {
+        if(name === 'match'){
+            try { setupMobileMatchSplitter(); } catch(_) {}
+        }
         var team = document.getElementById('view-team');
         var match = document.getElementById('view-match');
         if(team){
@@ -7110,7 +7166,8 @@ function renderMatchBadge(){
 async function refreshBazaarPairs(){
     if(!state.settings.broker_id){ state.bazaarPairs = []; return; }
     try {
-        var rows = await invoke('fetch_bazaar_pairs');
+        var days = parseInt((document.getElementById('pairs-age') || {}).value || '2', 10);
+        var rows = await invoke('fetch_bazaar_pairs', { days: days });
         state.bazaarPairs = _dedupePairs(Array.isArray(rows) ? rows : []);
     } catch(e){
         state.bazaarPairs = [];
@@ -7195,6 +7252,20 @@ function renderSignalsFeed(){
         pairs = pairs.filter(function(p){
             return _signalsRegionMatch(p.cargo_signal || {}, region)
                 || _signalsRegionMatch(p.tonnage_signal || {}, region);
+        });
+    }
+    // Сортировка (запрос Андрея 12.06): score (сервер уже так отдаёт) либо
+    // по свежести пары — created_at пары, fallback на свежесть сигналов.
+    var sortMode = (document.getElementById('pairs-sort') || {}).value || 'score';
+    if(sortMode !== 'score'){
+        var freshKey = function(p){
+            var t = p.created_at ? Date.parse(p.created_at) : NaN;
+            if(!isNaN(t)) return t;
+            var c = (p.cargo_signal || {}).first_seen_at, v = (p.tonnage_signal || {}).first_seen_at;
+            return Math.max(c ? Date.parse(c) : 0, v ? Date.parse(v) : 0);
+        };
+        pairs = pairs.slice().sort(function(a, b){
+            return sortMode === 'new' ? freshKey(b) - freshKey(a) : freshKey(a) - freshKey(b);
         });
     }
     if(count) count.textContent = pairs.length;
