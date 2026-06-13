@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.113';
+var APP_VERSION='0.1.114';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -235,7 +235,10 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .team-members { width:190px; flex:0 0 190px; border:1px solid var(--border); border-radius:6px;
     padding:10px 8px; overflow-y:auto; background:var(--surface); }
 .team-members .tm-head { font-size:10px; color:var(--text3); text-transform:uppercase;
-    letter-spacing:0.4px; margin:0 4px 8px; }
+    letter-spacing:0.4px; margin:0 4px 8px; display:flex; align-items:center; justify-content:space-between; gap:6px; }
+.team-members .tm-head .tm-chev { font-size:12px; line-height:1; transition:transform .15s ease; opacity:.7; }
+.team-members.collapsed .tm-head .tm-chev { transform:rotate(-90deg); }
+.team-members.collapsed .tm-list { display:none; }
 .tm-row { display:flex; align-items:center; gap:8px; padding:6px 6px; border-radius:4px; font-size:12px; }
 .tm-row .tm-name { color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
 .tm-row.offline .tm-name { color:var(--text2); }
@@ -556,6 +559,13 @@ body.mobile-mode .mobile-tabbar .mtb-tab:active {
     body.mobile-mode .team-fullscreen-wrap,
     body.mobile-mode .team-mount,
     body.mobile-mode #team-block { flex:1; min-height:0; display:flex; flex-direction:column; }
+
+    /* Online list collapses to header-only on mobile. Tap header to expand. */
+    body.mobile-mode .team-members { width:auto; flex:0 0 auto; max-height:38vh; padding:6px 8px; }
+    body.mobile-mode .team-members .tm-head { cursor:pointer; user-select:none; margin:2px 4px;
+        padding:6px 4px; font-size:11px; }
+    body.mobile-mode .team-members.collapsed { max-height:32px; overflow:hidden; padding:4px 8px; }
+    body.mobile-mode .team-members .tm-list { max-height:calc(38vh - 36px); overflow-y:auto; }
 
     /* Make composer touch-friendly */
     body.mobile-mode .team-composer { gap:6px; padding:8px; }
@@ -2438,7 +2448,16 @@ function renderTeamMembers(){
         if(a.online !== b.online) return a.online ? -1 : 1;
         return a.ageS - b.ageS;
     });
-    el.innerHTML = '<div class="tm-head">Команда · онлайн ' + items.filter(function(x){ return x.online; }).length + '</div>'
+    var isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent || '');
+    var stored = null;
+    try { stored = localStorage.getItem('team-members-collapsed'); } catch(_){}
+    var collapsed = stored == null ? isMobile : stored === '1';
+    if(collapsed) el.classList.add('collapsed'); else el.classList.remove('collapsed');
+    el.innerHTML = '<div class="tm-head" id="tm-head-toggle">'
+            + '<span>Команда · онлайн ' + items.filter(function(x){ return x.online; }).length + '</span>'
+            + '<span class="tm-chev">⌄</span>'
+        + '</div>'
+        + '<div class="tm-list">'
         + items.map(function(x){
             var ago = x.online ? 'сейчас'
                 : x.ageS < 3600 ? Math.floor(x.ageS/60) + 'м'
@@ -2449,7 +2468,16 @@ function renderTeamMembers(){
                 + '<span class="tm-name">' + esc(x.m.nickname) + '</span>'
                 + '<span class="tm-ago">' + esc(ago) + '</span>'
                 + '</div>';
-        }).join('');
+        }).join('')
+        + '</div>';
+    var head = el.querySelector('#tm-head-toggle');
+    if(head){
+        head.onclick = function(){
+            var nowCollapsed = !el.classList.contains('collapsed');
+            el.classList.toggle('collapsed', nowCollapsed);
+            try { localStorage.setItem('team-members-collapsed', nowCollapsed ? '1' : '0'); } catch(_){}
+        };
+    }
 }
 
 async function teamPollOnce(initial){
