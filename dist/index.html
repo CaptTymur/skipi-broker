@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.114';
+var APP_VERSION='0.1.119';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -173,9 +173,12 @@ document.addEventListener('DOMContentLoaded', function(){
 :root, [data-theme="dark"] {
     --bg:#1e1e1e; --surface:#252525; --surface2:#2d2d2d; --surface3:#333;
     --text:#dcddde; --text2:#888; --text3:#666;
-    --accent:#7c6ff7; --accent-bg:rgba(124,111,247,0.15); --accent-bg2:rgba(124,111,247,0.3);
+    --accent:#004564; --accent-bg:rgba(0,69,100,0.22); --accent-bg2:rgba(0,69,100,0.42);
+    /* Lighter petrol for accent-as-TEXT on dark surfaces (badges, links) —
+       #004564 itself is too dark to read as text on the dark theme. */
+    --accent-text:#5fa6c8;
     --border:#333; --hover:rgba(255,255,255,0.05);
-    --green:#4ec970; --red:#e55561; --yellow:#e2b93d; --orange:#d89b65; --blue:#5b9be0;
+    --green:#4ec970; --red:#e55561; --yellow:#e2b93d; --orange:#d89b65; --blue:#004564;
     --statusbar:#1a1a1a;
     --font-ui:-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
     --font-mono:"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
@@ -184,16 +187,17 @@ document.addEventListener('DOMContentLoaded', function(){
 [data-theme="light"] {
     --bg:#fff; --surface:#f6f6f6; --surface2:#eee; --surface3:#e0e0e0;
     --text:#1e1e1e; --text2:#666; --text3:#999;
-    --accent:#6c5ce7; --accent-bg:rgba(108,92,231,0.1); --accent-bg2:rgba(108,92,231,0.2);
+    --accent:#004564; --accent-bg:rgba(0,69,100,0.1); --accent-bg2:rgba(0,69,100,0.2);
+    --accent-text:#004564;  /* on light theme the deep petrol reads fine as text */
     --border:#ddd; --hover:rgba(0,0,0,0.04);
-    --green:#27ae60; --red:#e74c3c; --yellow:#f39c12; --orange:#e67e22; --blue:#2980b9;
+    --green:#27ae60; --red:#e74c3c; --yellow:#f39c12; --orange:#e67e22; --blue:#004564;
     --statusbar:#f0f0f0;
 }
 body { background:var(--bg); color:var(--text); font-family:var(--font-ui);
     font-size:var(--font-size-ui); height:100vh; display:flex; flex-direction:column; overflow:hidden; }
 ::selection { background:var(--accent-bg2); }
 input, select, button, textarea { font-family:var(--font-ui); font-size:var(--font-size-ui); color:inherit; }
-a { color:var(--accent); text-decoration:none; cursor:pointer; }
+a { color:var(--accent-text); text-decoration:none; cursor:pointer; }
 a:hover { text-decoration:underline; }
 code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px var(--font-mono); }
 
@@ -243,6 +247,9 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .tm-row .tm-name { color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
 .tm-row.offline .tm-name { color:var(--text2); }
 .tm-row .tm-ago { font-size:10px; color:var(--text3); white-space:nowrap; }
+.tm-row { cursor:pointer; }
+.tm-row.target-active { background:var(--accent-bg); box-shadow:inset 2px 0 0 var(--accent); }
+.tm-row .tm-tag { font-size:9px; color:var(--accent-text); margin-left:2px; }
 .tm-dot { position:relative; width:14px; height:14px; flex:0 0 14px; }
 .tm-dot .core { position:absolute; top:50%; left:50%; width:8px; height:8px; margin:-4px 0 0 -4px;
     border-radius:50%; background:#2ea043; box-shadow:0 0 8px rgba(46,160,67,.8); }
@@ -293,13 +300,14 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 /* Listing rows (P1, P2) */
 .row { padding:10px 14px; border-bottom:1px solid var(--border); cursor:pointer; }
 .row:hover { background:var(--hover); }
-.row.active { background:rgba(70,130,180,.18); border-left:3px solid var(--accent); padding-left:11px; }
-.row.active:hover { background:rgba(70,130,180,.26); }
+.row.active { background:rgba(0,69,100,.18); border-left:3px solid var(--accent); padding-left:11px; }
+.row.active:hover { background:rgba(0,69,100,.26); }
 .row .r-top { display:flex; align-items:center; gap:6px; margin-bottom:4px; }
 .row .r-icon { font-size:14px; opacity:.85; }
-.row .r-title { flex:1; font-size:13px; font-weight:600; color:var(--text);
+.row .r-title { flex:1; min-width:0; font-size:13px; font-weight:600; color:var(--text);
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.row .r-score { font-size:11px; padding:1px 6px; border-radius:8px; background:var(--accent-bg2); color:var(--accent); font-weight:600; }
+.row .r-score { flex-shrink:0; white-space:nowrap; font-size:11px; padding:1px 6px; border-radius:8px; background:var(--accent-bg2); color:var(--accent-text); font-weight:600; }
+.row .r-meta { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .row .r-age { display:inline-flex; align-items:center; gap:4px; font-size:11px;
     color:var(--text3); white-space:nowrap; font-variant-numeric:tabular-nums; }
 .row .r-dismiss { font-size:14px; color:var(--text3); cursor:pointer; padding:1px 6px;
@@ -309,7 +317,7 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .row .r-meta b { color:var(--text); font-weight:600; }
 .row .r-tag { display:inline-block; padding:0 5px; border-radius:3px; font-size:10px;
     background:var(--surface2); color:var(--text2); }
-.row .r-tag.bazaar { background:rgba(91,155,224,.2); color:var(--blue); }
+.row .r-tag.bazaar { background:rgba(0,69,100,.2); color:var(--accent-text); }
 .row .r-tag.own { background:rgba(78,201,112,.18); color:var(--green); }
 .row .r-tag.urgent { background:rgba(229,85,97,.2); color:var(--red); }
 
@@ -359,7 +367,7 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .lead2-card .l2-vessel { font-size:11px; color:var(--text2); line-height:1.35; }
 .lead2-card .l2-vessel b { color:var(--text); font-weight:500; }
 /* 🚢 Vessel card — клик по имени судна где угодно открывает карточку из базы */
-.vessel-link { color:var(--accent); cursor:pointer; text-decoration:none; border-bottom:1px dotted var(--accent); }
+.vessel-link { color:var(--accent-text); cursor:pointer; text-decoration:none; border-bottom:1px dotted var(--accent); }
 .vessel-link:hover { opacity:0.8; }
 .pairs-region-sel { font-size:10px; background:var(--surface); color:var(--text2); border:1px solid var(--border); border-radius:3px; padding:1px 3px; max-width:110px; }
 .vc-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px 18px; margin:8px 0; }
@@ -376,7 +384,7 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .vc-pick-row:hover { border-color:var(--accent); }
 .vc-warn { background:rgba(220,80,80,0.12); border:1px solid rgba(220,80,80,0.4); border-radius:4px; padding:6px 9px; font-size:11px; margin:8px 0; }
 .lead2-card .l2-meta { font-size:10px; color:var(--text3); display:flex; gap:8px; }
-.lead2-card .l2-meta .score { color:var(--accent); font-weight:600; }
+.lead2-card .l2-meta .score { color:var(--accent-text); font-weight:600; }
 /* Mini SVG route preview: 240x90 px world strip with two dots and a dashed line. */
 .lead2-mini { height:90px; background:#0a1320; border-radius:4px; overflow:hidden; position:relative;
     border:1px solid var(--border); }
@@ -401,29 +409,78 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
    Currently supports two views: Команда (chat) and Совпадения (bxb pairs).
    ============================================================ */
 
-/* Mobile tabbar — hidden by default; only renders on body.mobile-mode */
-.mobile-tabbar { display:none; }
-body.mobile-mode .mobile-tabbar {
-    display:flex; gap:0;
+/* Mobile top bar + bottom module rail — Seafarer pattern. Hidden by
+   default; only render on body.mobile-mode. Both bars are position:fixed
+   so #app simply fills the gap between them (see media query below). */
+.mobile-topbar, .mobile-bottom-rail-wrap { display:none; }
+body.mobile-mode .mobile-topbar {
+    display:flex; align-items:center; gap:10px;
+    position:fixed; top:0; left:0; right:0; z-index:60;
+    height:calc(var(--m-top-inset) + var(--mtop-h));
+    padding:var(--m-top-inset) 12px 0;
     background:var(--surface, #1a1d26);
     border-bottom:1px solid var(--border, #2a2e3a);
-    height:48px;
-    flex-shrink:0;
+    box-sizing:border-box;
 }
-body.mobile-mode .mobile-tabbar .mtb-tab {
-    flex:1; display:flex; align-items:center; justify-content:center;
-    font-size:14px; font-weight:600; color:var(--text2, #9aa);
-    cursor:pointer; user-select:none;
-    border-bottom:2px solid transparent;
-    transition:color 0.15s, border-color 0.15s, background 0.15s;
+body.mobile-mode .mobile-topbar .mtop-home,
+body.mobile-mode .mobile-topbar .mtop-gear {
+    width:40px; height:40px; flex:0 0 auto;
+    display:flex; align-items:center; justify-content:center;
+    border-radius:8px; border:1px solid var(--border, #2a2e3a);
+    background:var(--bg, #0f1117); color:var(--text, #e6e6e6);
+    font-size:21px; line-height:1; cursor:pointer; user-select:none;
 }
-body.mobile-mode .mobile-tabbar .mtb-tab.active {
-    color:var(--accent, #6c5ce7);
-    border-bottom-color:var(--accent, #6c5ce7);
-    background:rgba(108,92,231,0.08);
+body.mobile-mode .mobile-topbar .mtop-home:active,
+body.mobile-mode .mobile-topbar .mtop-gear:active { transform:translateY(1px); }
+body.mobile-mode .mobile-topbar .mtop-home.active {
+    border-color:var(--accent, #004564); background:var(--accent, #004564); color:#fff;
 }
-body.mobile-mode .mobile-tabbar .mtb-tab:active {
-    background:rgba(108,92,231,0.16);
+body.mobile-mode .mobile-topbar .mtop-brand {
+    flex:1; min-width:0; font-size:16px; font-weight:800; color:var(--text, #e6e6e6);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+
+/* Bottom module rail — horizontally scrollable, scroll-snap, edge hints */
+body.mobile-mode .mobile-bottom-rail-wrap {
+    display:block; position:fixed; bottom:0; left:0; right:0; z-index:60;
+    height:calc(var(--mrail-h) + var(--m-bot-inset));
+    padding-bottom:var(--m-bot-inset);
+    background:var(--surface, #1a1d26);
+    border-top:1px solid var(--border, #2a2e3a);
+    box-sizing:border-box;
+}
+body.mobile-mode .mobile-bottom-rail-wrap::after {
+    content:'\203a'; position:absolute; top:0; right:0; width:26px;
+    height:var(--mrail-h); display:flex; align-items:center; justify-content:center;
+    color:var(--accent, #004564); font-size:22px; font-weight:900; pointer-events:none;
+    background:linear-gradient(to left, var(--surface, #1a1d26) 30%, transparent);
+    opacity:0; transition:opacity .16s ease;
+}
+body.mobile-mode .mobile-bottom-rail-wrap.has-more::after { opacity:1; }
+body.mobile-mode .mobile-bottom-rail {
+    display:flex; gap:6px; height:var(--mrail-h); align-items:stretch;
+    overflow-x:auto; overflow-y:hidden; padding:7px 26px 7px 8px;
+    scrollbar-width:none; scroll-snap-type:x proximity; box-sizing:border-box;
+}
+body.mobile-mode .mobile-bottom-rail::-webkit-scrollbar { display:none; }
+body.mobile-mode .mrail-btn {
+    flex:0 0 78px; border:1px solid transparent; border-radius:9px;
+    background:transparent; color:var(--text2, #9aa); font-size:10px; font-weight:800;
+    display:flex; flex-direction:column; gap:3px; align-items:center; justify-content:center;
+    cursor:pointer; user-select:none; scroll-snap-align:start; position:relative;
+    transition:color .15s, background .15s, border-color .15s;
+}
+body.mobile-mode .mrail-btn span { font-size:19px; line-height:1; }
+body.mobile-mode .mrail-btn.active {
+    color:#fff; background:var(--accent, #004564);
+    border-color:var(--accent, #004564);
+}
+body.mobile-mode .mrail-btn:active { background:rgba(0,69,100,0.30); }
+body.mobile-mode .mrail-badge {
+    position:absolute; top:4px; right:14px;
+    font-size:9px; font-weight:700; line-height:1; min-width:15px; height:15px;
+    padding:0 4px; border-radius:8px; background:var(--accent, #004564); color:#fff;
+    display:inline-flex; align-items:center; justify-content:center;
 }
 @media (max-width: 720px) {
     body.mobile-mode .modules-bar,
@@ -438,9 +495,30 @@ body.mobile-mode .mobile-tabbar .mtb-tab:active {
        JS toggles display via showView(); here we just provide defaults. */
     body.mobile-mode .view-pane { display:none !important; }
     body.mobile-mode #view-team[data-mobile-active="1"],
-    body.mobile-mode #view-match[data-mobile-active="1"] { display:flex !important; }
-    /* Initial state: team is the active mobile view */
-    body.mobile-mode #view-team:not([data-mobile-inactive="1"]) { display:flex !important; }
+    body.mobile-mode #view-match[data-mobile-active="1"],
+    body.mobile-mode #view-cases[data-mobile-active="1"],
+    body.mobile-mode #view-ex[data-mobile-active="1"] { display:flex !important; }
+    /* Initial state: Совпадения is the active mobile view (home) */
+    body.mobile-mode #view-match:not([data-mobile-inactive="1"]) { display:flex !important; }
+
+    /* ----- view-cases (📂 Дела) mobile layout (2026-06-13) -----
+       Single-column card list; desk-mode tab hidden (desktop-only); meta
+       grid drops to 2 cols; touch-friendly toolbar + back button. */
+    body.mobile-mode #view-cases { flex-direction:column; min-height:0; }
+    body.mobile-mode #view-cases .cases-list-view { min-height:0; }
+    body.mobile-mode #view-cases .cases-toolbar { height:auto; min-height:42px; padding:8px 12px; gap:8px; flex-wrap:wrap; flex-shrink:0; }
+    body.mobile-mode #view-cases .cases-mode-tab { font-size:12px; padding:5px 10px; }
+    /* Деск-режим — оконный, на телефоне прячем переключатель (только Список). */
+    body.mobile-mode #view-cases #cases-mode-desk { display:none; }
+    body.mobile-mode #view-cases .cases-list-view { grid-template-columns:minmax(0,1fr); padding:10px; gap:10px; }
+    body.mobile-mode #view-cases .case-card { padding:12px 14px; min-width:0; overflow:hidden; }
+    body.mobile-mode #view-cases .case-card .cc-timeline,
+    body.mobile-mode #view-cases .case-card .cc-owners,
+    body.mobile-mode #view-cases .case-card .cc-type { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    body.mobile-mode #view-cases .case-card .cc-head { font-size:14px; }
+    body.mobile-mode #view-cases .cases-back-btn { font-size:13px; padding:7px 12px; }
+    body.mobile-mode #view-cases .case-detail-panel .cd-meta { grid-template-columns:1fr 1fr; }
+    body.mobile-mode #view-cases .btn.btn-accent { font-size:13px !important; padding:7px 12px !important; }
 
     /* ----- view-match mobile layout (2026-06-12) -----
        3-row grid with a draggable horizontal splitter between list and details:
@@ -465,12 +543,12 @@ body.mobile-mode .mobile-tabbar .mtb-tab:active {
     }
     body.mobile-mode #view-match .mobile-row-splitter {
         grid-area:rowsplit;
-        background:rgba(108,92,231,0.18);
+        background:rgba(0,69,100,0.18);
         cursor:row-resize;
         touch-action:none;
         position:relative;
-        border-top:1px solid var(--accent, #6c5ce7);
-        border-bottom:1px solid var(--accent, #6c5ce7);
+        border-top:1px solid var(--accent, #004564);
+        border-bottom:1px solid var(--accent, #004564);
     }
     /* Grab indicator — big, bright, hard to miss */
     body.mobile-mode #view-match .mobile-row-splitter::before {
@@ -479,7 +557,7 @@ body.mobile-mode .mobile-tabbar .mtb-tab:active {
         left:50%; top:50%;
         width:72px; height:6px;
         transform:translate(-50%, -50%);
-        background:#cfc8ff;
+        background:#9ecbe0;
         border-radius:3px;
         pointer-events:none;
         box-shadow:0 0 0 1px rgba(0,0,0,0.25);
@@ -491,7 +569,7 @@ body.mobile-mode .mobile-tabbar .mtb-tab:active {
         inset:-12px 0;
     }
     body.mobile-mode #view-match .mobile-row-splitter.dragging {
-        background:rgba(108,92,231,0.34);
+        background:rgba(0,69,100,0.34);
     }
     body.mobile-mode #view-match .mobile-row-splitter.dragging::before {
         background:#fff;
@@ -529,6 +607,25 @@ body.mobile-mode .mobile-tabbar .mtb-tab:active {
     body.mobile-mode #view-match .splitter { display:none !important; }
     /* Hide bottom strip (team chat) on view-match in mobile — Команда is its own tab */
     body.mobile-mode #view-match .bottom-strip { display:none !important; }
+
+    /* ----- view-ex (📋 Эксклюзивы) mobile layout (2026-06-13) -----
+       Desktop is a 4-column board + team strip. On a phone we stack the
+       columns vertically and let the whole pane scroll; the team strip is
+       hidden (Команда is its own rail module). */
+    body.mobile-mode #view-ex { flex-direction:column; overflow:hidden; }
+    body.mobile-mode #view-ex .columns {
+        flex-direction:column !important; overflow-y:auto; overflow-x:hidden;
+        gap:0; padding:0; min-height:0; flex:1;
+    }
+    body.mobile-mode #view-ex .col {
+        flex:none !important; width:100% !important; max-width:none !important;
+        min-width:0; min-height:240px; border-right:none;
+        border-bottom:1px solid var(--border, #2a2e3a); display:flex; flex-direction:column;
+    }
+    body.mobile-mode #view-ex .col-body { overflow-y:auto; flex:1; min-height:0; }
+    body.mobile-mode #view-ex .col-head { font-size:13px; padding:8px 12px; flex-shrink:0; }
+    body.mobile-mode #view-ex .splitter { display:none !important; }
+    body.mobile-mode #view-ex .bottom-strip { display:none !important; }
     /* Compact col-head for narrow tiles */
     body.mobile-mode #view-match .col-head {
         flex-wrap:wrap; gap:6px;
@@ -540,19 +637,26 @@ body.mobile-mode .mobile-tabbar .mtb-tab:active {
     body.mobile-mode #view-match .col:nth-child(1) .col-head,
     body.mobile-mode #view-match .col:nth-child(4) .col-head { font-size:11px; padding:4px 8px; }
 
-    /* Reserve top inset for Android status bar (clock / cutout / notch).
-       env(safe-area-inset-top) often returns 0 on Tauri-Android by default
-       (window flags don't request edge-to-edge), so we hardcode 48px as a
-       conservative fallback that covers Pixel-class devices. */
+    /* Layout insets. env(safe-area-inset-top) often returns 0 on
+       Tauri-Android (no edge-to-edge flags), so we hardcode 48px top as a
+       conservative fallback for Pixel-class status bars. The top bar and
+       bottom rail are position:fixed (out of flow); body is a 100vh flex
+       column, so .app (flex:1) would fill the whole viewport and hide its
+       top/bottom behind the bars — we inset it with margins to sit exactly
+       in the gap between them. NB: the element is class="app", NOT id. */
     body.mobile-mode {
-        padding-top:max(48px, env(safe-area-inset-top, 48px));
-        padding-bottom:max(0px, env(safe-area-inset-bottom, 0px));
+        --m-top-inset: max(48px, env(safe-area-inset-top, 48px));
+        --m-bot-inset: max(0px, env(safe-area-inset-bottom, 0px));
+        --mtop-h: 50px;   /* top bar content height (below status inset) */
+        --mrail-h: 64px;  /* bottom module rail height (above safe inset) */
+        padding:0;
         box-sizing:border-box;
         min-height:100vh;
     }
-    body.mobile-mode #app {
-        height:calc(100vh - max(48px, env(safe-area-inset-top, 48px)));
-        box-sizing:border-box;
+    body.mobile-mode .app {
+        margin-top: calc(var(--m-top-inset) + var(--mtop-h));
+        margin-bottom: calc(var(--mrail-h) + var(--m-bot-inset));
+        min-height:0;
     }
 
     /* Team chat takes the full viewport */
@@ -583,13 +687,32 @@ body.mobile-mode .mobile-tabbar .mtb-tab:active {
     body.mobile-mode #team-block .col-head { font-size:14px; padding:10px 12px; }
     body.mobile-mode .team-msg { font-size:13px; max-width:92%; }
     body.mobile-mode .team-stream { padding:8px; }
+
+    /* Modals (incl. ⚙ Настройки) go full-screen on mobile and sit ABOVE the
+       fixed top bar / bottom rail (which are z-index:60). */
+    body.mobile-mode .modal-overlay { z-index:200; padding:0; align-items:stretch; justify-content:stretch; }
+    body.mobile-mode .modal-overlay .modal {
+        width:100%; max-width:100%; max-height:100%; height:100%;
+        border:none; border-radius:0;
+        padding-top:var(--m-top-inset); padding-bottom:var(--m-bot-inset); box-sizing:border-box;
+    }
+    /* Settings two-column layout stacks: nav becomes a scrollable row on top */
+    body.mobile-mode .set-layout { flex-direction:column; min-height:0; }
+    body.mobile-mode .set-nav { width:100%; flex:0 0 auto; display:flex; gap:4px;
+        overflow-x:auto; overflow-y:hidden; border-right:none; border-bottom:1px solid var(--border); padding:8px 10px; white-space:nowrap; }
+    body.mobile-mode .set-body { flex:1; min-height:0; overflow-y:auto; }
+    /* Long-press copy hint on team messages */
+    body.mobile-mode .team-msg { -webkit-touch-callout:none; }
+    /* Touch-friendly context menu (Ответить / Копировать) */
+    body.mobile-mode .team-ctx-menu { font-size:14px; min-width:180px; }
+    body.mobile-mode .team-ctx-menu .item { padding:12px 16px; }
 }
 .team-fullscreen-wrap { flex:1; display:flex; flex-direction:row; gap:10px; max-width:1100px; width:100%;
     margin:0 auto; padding:14px 20px; min-height:0; }
 .team-fullscreen-wrap > .team-mount { flex:1; min-height:0; border:1px solid var(--border); border-radius:6px; }
 /* LLM bubble: lives inside the same team-stream, distinct from human msgs */
-.team-msg.ai-llm { align-self:flex-start; background:rgba(108,92,231,.18); border:1px solid rgba(108,92,231,.5); max-width:88%; }
-.team-msg.ai-llm .nick { color:#a895ff; }
+.team-msg.ai-llm { align-self:flex-start; background:rgba(0,69,100,.18); border:1px solid rgba(0,69,100,.5); max-width:88%; }
+.team-msg.ai-llm .nick { color:#5fa6c8; }
 
 /* Визуализатор: filter sidebar (left) + map (right) */
 .viz-sidebar { display:flex; flex-direction:column; width:280px; min-width:240px; max-width:340px;
@@ -622,32 +745,32 @@ body.mobile-mode .mobile-tabbar .mtb-tab:active {
 .viz-tl-strip {
     position:absolute; left:12px; right:12px; bottom:12px; z-index:600;
     display:flex; align-items:center; gap:8px;
-    background:rgba(20,28,40,.94); border:1px solid rgba(124,111,247,.55);
+    background:rgba(20,28,40,.94); border:1px solid rgba(0,69,100,.55);
     border-radius:6px; padding:8px 12px;
     box-shadow:0 4px 14px rgba(0,0,0,.5);
 }
-[data-theme="light"] .viz-tl-strip { background:rgba(255,255,255,.96); border-color:rgba(124,111,247,.4); }
+[data-theme="light"] .viz-tl-strip { background:rgba(255,255,255,.96); border-color:rgba(0,69,100,.4); }
 .viz-tl-btn {
-    background:transparent; border:1px solid rgba(124,111,247,.5);
+    background:transparent; border:1px solid rgba(0,69,100,.5);
     color:var(--text); padding:4px 10px; border-radius:4px;
     cursor:pointer; font-size:13px; font-weight:600; min-width:32px;
 }
-.viz-tl-btn:hover { background:rgba(124,111,247,.15); }
-.viz-tl-play { background:rgba(124,111,247,.25); }
+.viz-tl-btn:hover { background:rgba(0,69,100,.15); }
+.viz-tl-play { background:rgba(0,69,100,.25); }
 .viz-tl-play.playing { background:#e55561; border-color:#e55561; color:#fff; }
 .viz-tl-meta { min-width:130px; line-height:1.1; }
 .viz-tl-date { font-size:13px; font-weight:700; color:var(--text); }
 .viz-tl-counts { font-size:10px; color:var(--text3); }
-.viz-tl-slider { flex:1; min-width:120px; cursor:pointer; accent-color:#7c6ff7; }
+.viz-tl-slider { flex:1; min-width:120px; cursor:pointer; accent-color:#004564; }
 .viz-mode-tab { padding:3px 8px; border-radius:3px; cursor:pointer; font-size:11px;
     color:var(--text2); border:1px solid transparent; user-select:none; }
 .viz-mode-tab:hover { background:var(--surface2); color:var(--text); }
 .viz-mode-tab.active { background:var(--surface2); color:var(--text); border-color:var(--accent); }
 .viz-pulse { position:relative; width:14px; height:14px; }
 .viz-pulse .core { position:absolute; top:50%; left:50%; width:8px; height:8px; margin:-4px 0 0 -4px;
-    border-radius:50%; background:#7c6ff7; box-shadow:0 0 8px #7c6ff7, 0 0 16px rgba(124,111,247,.6); }
+    border-radius:50%; background:#004564; box-shadow:0 0 8px #004564, 0 0 16px rgba(0,69,100,.6); }
 .viz-pulse .ring { position:absolute; top:50%; left:50%; width:8px; height:8px; margin:-4px 0 0 -4px;
-    border-radius:50%; border:1.5px solid #7c6ff7; opacity:.7; animation:vizPulse 1.8s ease-out infinite; }
+    border-radius:50%; border:1.5px solid #004564; opacity:.7; animation:vizPulse 1.8s ease-out infinite; }
 .viz-pulse.hot .core { background:#e2b93d; box-shadow:0 0 10px #e2b93d, 0 0 20px rgba(226,185,61,.7); }
 .viz-pulse.hot .ring { border-color:#e2b93d; animation-duration:1.2s; }
 @keyframes vizPulse {
@@ -655,12 +778,12 @@ body.mobile-mode .mobile-tabbar .mtb-tab:active {
     100% { transform:scale(3.5); opacity:0; }
 }
 /* Cargo arrow marker (origin dot) tooltip styling */
-.leaflet-tooltip.viz-cargo-label { background:rgba(20,28,40,.95); color:#dcddde; border:1px solid rgba(124,111,247,.6);
+.leaflet-tooltip.viz-cargo-label { background:rgba(20,28,40,.95); color:#dcddde; border:1px solid rgba(0,69,100,.6);
     box-shadow:0 2px 8px rgba(0,0,0,.6); padding:4px 7px; border-radius:3px; font-size:10px;
     font-family:var(--font-ui); white-space:nowrap; }
 [data-theme="light"] .leaflet-tooltip.viz-cargo-label { background:rgba(255,255,255,.95); color:#1e1e1e; }
 .leaflet-tooltip.viz-cargo-label::before { display:none; }
-.leaflet-tooltip.viz-cargo-label .vz-badge { display:inline-block; background:#7c6ff7; color:#fff;
+.leaflet-tooltip.viz-cargo-label .vz-badge { display:inline-block; background:#004564; color:#fff;
     padding:1px 5px; border-radius:8px; font-size:9px; font-weight:600; margin-left:4px; }
 
 /* Counterpart behavioral flags — rendered as inline SVG badges next
@@ -758,7 +881,7 @@ body.mobile-mode .mobile-tabbar .mtb-tab:active {
     font-family:var(--font-ui); white-space:nowrap; }
 .leaflet-tooltip.lead-label.cargo-load { border-left:3px solid #4ec970; }
 .leaflet-tooltip.lead-label.cargo-disch { border-left:3px solid #e55561; }
-.leaflet-tooltip.lead-label.vessel-open { border-left:3px solid #5b9be0; }
+.leaflet-tooltip.lead-label.vessel-open { border-left:3px solid #004564; }
 .leaflet-tooltip.lead-label::before { display:none; }
 .leaflet-tooltip-top.lead-label:before { display:none; }
 .team-mount { display:flex; flex-direction:column; min-height:140px; flex:1.0 1 0; border-top:1px solid var(--border); overflow:hidden; }
@@ -783,9 +906,9 @@ body.dragging-split.col-resize { cursor:col-resize; }
 .r-top .r-score { font-size:10px; color:var(--text3); white-space:nowrap; }
 .match-card { padding:10px 12px; border-bottom:1px solid var(--border); cursor:pointer; }
 .match-card:hover { background:var(--hover); }
-.match-card.active { background:rgba(70,130,180,.18); border-left:2px solid var(--accent); padding-left:10px; }
-.match-card.pinned { background:linear-gradient(90deg, var(--accent-bg, rgba(70,130,180,.12)) 0%, transparent 60%); }
-.match-card.pinned.active { background:linear-gradient(90deg, rgba(70,130,180,.28) 0%, rgba(70,130,180,.12) 100%); }
+.match-card.active { background:rgba(0,69,100,.18); border-left:2px solid var(--accent); padding-left:10px; }
+.match-card.pinned { background:linear-gradient(90deg, var(--accent-bg, rgba(0,69,100,.12)) 0%, transparent 60%); }
+.match-card.pinned.active { background:linear-gradient(90deg, rgba(0,69,100,.28) 0%, rgba(0,69,100,.12) 100%); }
 .mc-head { display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:3px; }
 .mc-title { font-size:12px; font-weight:600; color:var(--text); }
 .mc-score { font-size:11px; color:var(--text3); white-space:nowrap; }
@@ -805,8 +928,8 @@ body.dragging-split.col-resize { cursor:col-resize; }
 
 /* Update banner — slim bar above modules-bar */
 .update-banner { display:flex; align-items:center; gap:12px; padding:7px 14px;
-    background:linear-gradient(90deg, rgba(70,130,180,.18), rgba(70,130,180,.06));
-    border-bottom:1px solid rgba(70,130,180,.4); font-size:12px; color:var(--text); }
+    background:linear-gradient(90deg, rgba(0,69,100,.18), rgba(0,69,100,.06));
+    border-bottom:1px solid rgba(0,69,100,.4); font-size:12px; color:var(--text); }
 .update-banner .ub-msg { flex:1; }
 .update-banner button { padding:4px 12px; font-size:11px; background:var(--accent);
     color:#fff; border:none; border-radius:4px; cursor:pointer; }
@@ -829,7 +952,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
 .team-empty { color:var(--text3); font-size:11px; text-align:center; padding:18px 12px; line-height:1.5; }
 .team-msg { display:flex; flex-direction:column; max-width:88%; padding:5px 9px; border-radius:7px;
     background:var(--surface); border:1px solid var(--border); }
-.team-msg.mine { align-self:flex-end; background:rgba(70,130,180,.18); border-color:rgba(70,130,180,.4); }
+.team-msg.mine { align-self:flex-end; background:rgba(0,69,100,.18); border-color:rgba(0,69,100,.4); }
 .team-msg-meta { font-size:9px; color:var(--text3); margin-bottom:1px; display:flex; gap:6px; }
 .team-msg-meta .nick { color:var(--text2); font-weight:600; }
 .team-msg-body { font-size:11px; line-height:1.4; white-space:pre-wrap; word-break:break-word; }
@@ -841,7 +964,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
 .team-ctx-menu .item:hover { background:var(--hover); color:var(--accent); }
 /* Quoted reply block — both above composer (pending) and inline in rendered message. */
 .team-reply-quote { padding:4px 8px 5px 10px; margin-bottom:4px; border-left:3px solid var(--accent);
-    background:rgba(124,111,247,.10); border-radius:0 4px 4px 0; font-size:10px; color:var(--text2); line-height:1.35; }
+    background:rgba(0,69,100,.10); border-radius:0 4px 4px 0; font-size:10px; color:var(--text2); line-height:1.35; }
 .team-reply-quote .nick { color:var(--accent); font-weight:600; }
 .team-reply-quote .snippet { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px; display:inline-block; vertical-align:bottom; margin-left:4px; }
 /* Pending reply preview row (above composer, sibling of attach-thumbs). */
@@ -871,7 +994,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
 .team-event .te-nick { color:var(--text2); font-style:normal; font-weight:600; }
 .team-event .te-time { color:var(--text3); margin-left:4px; opacity:.7; }
 .team-event.update-event { font-size:11px; color:var(--text); font-style:normal;
-    background:rgba(70,130,180,.18); border:1px solid rgba(70,130,180,.4);
+    background:rgba(0,69,100,.18); border:1px solid rgba(0,69,100,.4);
     border-radius:6px; padding:6px 10px; margin:4px 8px; line-height:1.5; }
 .team-event.update-event b { color:var(--accent); }
 .team-target-row { display:flex; align-items:center; gap:6px; padding:5px 10px 0;
@@ -881,7 +1004,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
     background:var(--surface2); color:var(--text2); border:1px solid var(--border); font-size:11px; }
 .tt-pill:hover { color:var(--text); }
 .tt-pill.active { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
-.tt-pill#tt-llm.active { background:rgba(108,92,231,.85); border-color:rgba(108,92,231,1); }
+.tt-pill#tt-llm.active { background:rgba(0,69,100,.85); border-color:rgba(0,69,100,1); }
 .tt-hint { color:var(--text3); font-size:10px; margin-left:auto; }
 .team-composer { display:flex; gap:6px; padding:6px 8px; border-top:1px solid var(--border); flex-shrink:0; }
 .team-composer textarea { flex:1; resize:none; min-height:30px; max-height:80px; padding:5px 7px;
@@ -919,10 +1042,10 @@ body.dragging-split.col-resize { cursor:col-resize; }
 .mch-tab.active { background:var(--surface2); color:var(--text); border-color:var(--accent); }
 .mch-tab .mch-n { color:var(--text3); font-size:10px; margin-left:2px; }
 .mch-pill { display:inline-block; font-size:9px; padding:0 4px; border-radius:3px;
-    background:rgba(124,111,247,0.12); color:var(--accent); margin-right:4px; }
+    background:rgba(0,69,100,0.12); color:var(--accent); margin-right:4px; }
 .mch-pill-drybulk { background:rgba(78,201,112,0.12); color:var(--green); }
-.mch-pill-info    { background:rgba(91,155,224,0.12); color:var(--blue); }
-.mch-pill-broker  { background:rgba(124,111,247,0.12); color:var(--accent); }
+.mch-pill-info    { background:rgba(0,69,100,0.12); color:var(--accent-text); }
+.mch-pill-broker  { background:rgba(0,69,100,0.12); color:var(--accent); }
 .compose-from-row { padding:8px 12px; background:var(--surface); border:1px solid var(--border);
     border-radius:3px; font-size:11px; color:var(--text2); margin-bottom:10px;
     display:flex; align-items:center; gap:8px; }
@@ -1031,10 +1154,10 @@ body.dragging-split.col-resize { cursor:col-resize; }
 .case-card .cc-head { display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--text); }
 .case-card .cc-status { font-size:9px; padding:1px 5px; border-radius:3px;
     background:var(--surface2); color:var(--text3); font-weight:500; text-transform:uppercase; }
-.case-card .cc-status.status-lead { background:rgba(91,155,224,.15); color:var(--blue); }
+.case-card .cc-status.status-lead { background:rgba(0,69,100,.15); color:var(--accent-text); }
 .case-card .cc-status.status-negotiating { background:rgba(226,185,61,.15); color:var(--yellow); }
 .case-card .cc-status.status-fixed { background:rgba(78,201,112,.15); color:var(--green); }
-.case-card .cc-status.status-postfix { background:rgba(124,111,247,.15); color:var(--accent); }
+.case-card .cc-status.status-postfix { background:rgba(0,69,100,.15); color:var(--accent-text); }
 .case-card .cc-status.status-closed { background:rgba(102,102,102,.2); color:var(--text3); }
 .case-card .cc-status.status-dropped { background:rgba(229,85,97,.15); color:var(--red); }
 .case-card .cc-type { font-size:10px; color:var(--text3); }
@@ -1101,7 +1224,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
     border-left:3px solid var(--accent); font-size:11px; color:var(--text); }
 .case-detail-panel .cd-event.kind-status  { border-left-color:var(--yellow); }
 .case-detail-panel .cd-event.kind-file    { border-left-color:var(--green); }
-.case-detail-panel .cd-event.kind-llm     { border-left-color:var(--blue); }
+.case-detail-panel .cd-event.kind-llm     { border-left-color:var(--accent-text); }
 .case-detail-panel .cd-event.kind-note    { border-left-color:var(--accent); }
 .case-detail-panel .cd-event .cde-meta { font-size:9px; color:var(--text3); margin-bottom:2px; display:flex; gap:6px; }
 .case-detail-panel .cd-event .cde-body { white-space:pre-wrap; word-break:break-word; }
@@ -1148,7 +1271,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
     background:var(--bg); font-size:11px; }
 .ctx-history .cm { padding:6px 10px; border-radius:4px; background:var(--surface); border:1px solid var(--border);
     word-break:break-word; }
-.ctx-history .cm.llm   { background:rgba(124,111,247,.07); border-color:rgba(124,111,247,.25); }
+.ctx-history .cm.llm   { background:rgba(0,69,100,.07); border-color:rgba(0,69,100,.25); }
 .ctx-history .cm.me    { background:rgba(78,201,112,.08);  border-color:rgba(78,201,112,.25); }
 .ctx-history .cm-meta  { font-size:9px; color:var(--text3); margin-bottom:2px; display:flex; gap:6px; }
 .ctx-history .cm-from  { font-weight:600; color:var(--text2); }
@@ -1208,7 +1331,7 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
                 margin-bottom:14px; box-sizing:border-box;"
             onkeydown="if(event.key==='Enter') _authGateSubmit();" />
         <button id="auth-gate-btn" onclick="_authGateSubmit()"
-            style="width:100%; padding:10px; background:var(--accent, #7c6ff7); color:#fff;
+            style="width:100%; padding:10px; background:var(--accent, #004564); color:#fff;
                 border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:13px;">
             Войти
         </button>
@@ -1246,11 +1369,24 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
 </div>
 <div id="ctx-chat-restore" class="ctx-chat-restore" onclick="showCtxBar()">💬 спросить LLM</div>
 
-<!-- Mobile-only top tab bar (visible only on body.mobile-mode). Switches
-     between the two mobile-supported views: Команда and Совпадения. -->
-<div class="mobile-tabbar" id="mobile-tabbar">
-    <div class="mtb-tab active" id="mtb-team" onclick="mobileSwitchView('team')">💬 Команда</div>
-    <div class="mtb-tab" id="mtb-match" onclick="mobileSwitchView('match')">🔗 Совпадения</div>
+<!-- Mobile-only top bar (visible only on body.mobile-mode). Matches the
+     Skipi Seafarer pattern: home button (left) + brand + settings gear
+     (right). Home → Совпадения. -->
+<div class="mobile-topbar" id="mobile-topbar">
+    <button class="mtop-home" id="mtop-home" type="button" onclick="mobileSwitchView('match')" title="Домой — Совпадения" aria-label="Домой">&#8962;</button>
+    <div class="mtop-brand">Skipi Broker</div>
+    <button class="mtop-gear" type="button" onclick="openSettings()" title="Настройки" aria-label="Настройки">&#9881;</button>
+</div>
+
+<!-- Mobile-only bottom module rail (visible only on body.mobile-mode).
+     Horizontally scrollable like the Seafarer app. Core 4 modules. -->
+<div class="mobile-bottom-rail-wrap" id="mobile-bottom-rail-wrap">
+    <div class="mobile-bottom-rail" id="mobile-bottom-rail" onscroll="mobileUpdateRailHint()">
+        <button class="mrail-btn" id="mrail-team" type="button" onclick="mobileSwitchView('team')"><span>&#128172;</span>Команда</button>
+        <button class="mrail-btn active" id="mrail-match" type="button" onclick="mobileSwitchView('match')"><span>&#127919;</span>Совпадения</button>
+        <button class="mrail-btn" id="mrail-cases" type="button" onclick="mobileSwitchView('cases')"><span>&#128194;</span>Дела<span id="mrail-cases-badge" class="mrail-badge" style="display:none;"></span></button>
+        <button class="mrail-btn" id="mrail-ex" type="button" onclick="mobileSwitchView('ex')"><span>&#128203;</span>Эксклюзивы</button>
+    </div>
 </div>
 
 <div class="modules-bar">
@@ -1329,14 +1465,6 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
                                 <input id="team-name" placeholder="Ваше имя" oninput="onTeamNameInput()" onblur="saveTeamNameInline()">
                             </div>
                             <div class="team-stream" id="team-stream"></div>
-                            <div class="team-target-row">
-                                <span class="tt-label">Кому:</span>
-                                <span class="tt-pill active" id="tt-ai" onclick="setTeamTarget('ai')">🤖 AI Assistant</span>
-                                <span class="tt-pill" id="tt-tm0" onclick="setTeamTarget('tm0')">👤 <span class="tt-name">Тимур</span></span>
-                                <span class="tt-pill" id="tt-tm1" onclick="setTeamTarget('tm1')">👤 <span class="tt-name">Виктория</span></span>
-                                <span class="tt-pill" id="tt-tm2" onclick="setTeamTarget('tm2')">👤 <span class="tt-name">Alex</span></span>
-                                <span class="tt-hint" id="tt-hint">по умолчанию AI Assistant — я подгружаю контекст из открытого модуля</span>
-                            </div>
                             <div class="team-pending-reply" id="team-pending-reply">
                                 <span class="label">↩</span>
                                 <span class="nick" id="team-pending-reply-nick"></span>
@@ -1688,7 +1816,7 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
         <div class="viz-map-wrap">
             <div id="viz-map"></div>
             <div id="viz-empty-hint" style="display:none; position:absolute; top:12px; right:12px;
-                background:rgba(20,28,40,.92); color:#dcddde; border:1px solid rgba(124,111,247,.5);
+                background:rgba(20,28,40,.92); color:#dcddde; border:1px solid rgba(0,69,100,.5);
                 border-radius:4px; padding:8px 12px; font-size:11px; line-height:1.4; z-index:500;
                 box-shadow:0 4px 12px rgba(0,0,0,.5); max-width:240px;"></div>
             <div id="viz-timeline-strip" class="viz-tl-strip" style="display:none;">
@@ -2463,9 +2591,17 @@ function renderTeamMembers(){
                 : x.ageS < 3600 ? Math.floor(x.ageS/60) + 'м'
                 : x.ageS < 86400 ? Math.floor(x.ageS/3600) + 'ч'
                 : Math.floor(x.ageS/86400) + 'д';
-            return '<div class="tm-row ' + (x.online ? 'online' : 'offline') + '" title="' + esc(x.m.nickname) + (x.m.app_version ? ' · v' + esc(x.m.app_version) : '') + '">'
+            var nick = x.m.nickname || '';
+            var isBot = /Брокер-LLM|AI Assistant|🤖/i.test(nick);
+            var tgt = (state.team && state.team.sendTarget) || 'ai';
+            var isActive = isBot ? (tgt === 'ai') : (tgt === nick);
+            var nm = nick.replace(/'/g, "\\'");
+            return '<div class="tm-row ' + (x.online ? 'online' : 'offline') + (isActive ? ' target-active' : '')
+                    + '" title="Писать ' + esc(nick) + (x.m.app_version ? ' · v' + esc(x.m.app_version) : '') + '"'
+                    + ' onclick="selectTeamTargetFromPanel(\'' + esc(nm) + '\', ' + (isBot ? 'true' : 'false') + ')">'
                 + '<div class="tm-dot' + (x.online ? '' : ' off') + '"><div class="ring"></div><div class="core"></div></div>'
-                + '<span class="tm-name">' + esc(x.m.nickname) + '</span>'
+                + '<span class="tm-name">' + esc(nick) + '</span>'
+                + (isBot ? '<span class="tm-tag">AI</span>' : '')
                 + '<span class="tm-ago">' + esc(ago) + '</span>'
                 + '</div>';
         }).join('')
@@ -2590,7 +2726,7 @@ function renderTeamStream(){
         var isMine = (m.sender_nickname === mine);
         var isAi = (m.sender_nickname || '').startsWith('🤖');
         var cls = 'team-msg' + (isAi ? ' ai-llm' : (isMine ? ' mine' : ''));
-        html += '<div class="'+cls+'" oncontextmenu="_onTeamMsgContextMenu(event,\''+esc(m.id)+'\')">'
+        html += '<div class="'+cls+'" data-msgid="'+esc(m.id)+'" oncontextmenu="_onTeamMsgContextMenu(event,\''+esc(m.id)+'\')">'
               + '<div class="team-msg-meta"><span class="nick">'+esc(m.sender_nickname||'anon')+'</span><span>'+esc(_fmtTime(m.created_at))+'</span></div>'
               + '<div class="team-msg-body">'+_renderTeamBody(m.body||'')+'</div>'
               + '</div>';
@@ -2642,7 +2778,7 @@ function _showTeamNewBadge(){
         _hideTeamNewBadge();
     };
     badge.style.cssText = 'position:absolute; right:14px; bottom:80px; z-index:10; '
-        + 'background:var(--accent, #7c6ff7); color:#fff; border:none; '
+        + 'background:var(--accent, #004564); color:#fff; border:none; '
         + 'padding:8px 14px; border-radius:16px; cursor:pointer; '
         + 'font-size:12px; font-weight:600; box-shadow:0 4px 12px rgba(0,0,0,0.3);';
     bar.style.position = bar.style.position || 'relative';
@@ -2665,9 +2801,9 @@ function isMobileViewport(){
 function mobileInitIfNeeded(){
     if(!isMobileViewport()) return;
     document.body.classList.add('mobile-mode');
-    // Defer until showView is defined and team-mount-team exists.
+    // Defer until showView is defined. Home view = Совпадения.
     var tryShow = function(){
-        try { if(typeof showView === 'function'){ mobileSwitchView('team'); return; } }
+        try { if(typeof showView === 'function'){ mobileSwitchView('match'); return; } }
         catch(_) {}
         setTimeout(tryShow, 50);
     };
@@ -2678,6 +2814,51 @@ function mobileInitIfNeeded(){
         setTimeout(trySplit, 100);
     };
     trySplit();
+    try { mobileUpdateRailHint(); } catch(_) {}
+    try { _setupTeamLongPress(); } catch(_) {}
+}
+
+// Long-press a team message (touch) → opens the message context menu
+// (Ответить / 📋 Копировать). Delegated on document so it survives
+// team-block migration and stream re-renders. Attached once.
+var _teamLongPressArmed = false;
+function _setupTeamLongPress(){
+    if(_teamLongPressArmed) return;
+    _teamLongPressArmed = true;
+    var timer = null, sx = 0, sy = 0, target = null;
+    var clear = function(){ if(timer){ clearTimeout(timer); timer = null; } target = null; };
+    document.addEventListener('touchstart', function(e){
+        var t = e.target && e.target.closest ? e.target.closest('.team-msg[data-msgid]') : null;
+        if(!t) return;
+        var touch = e.touches && e.touches[0];
+        sx = touch ? touch.clientX : 0; sy = touch ? touch.clientY : 0;
+        target = t;
+        clearTimeout(timer);
+        timer = setTimeout(function(){
+            if(!target) return;
+            var id = target.getAttribute('data-msgid');
+            try { if(navigator.vibrate) navigator.vibrate(12); } catch(_){}
+            _onTeamMsgContextMenu({ clientX: sx, clientY: sy, preventDefault:function(){}, stopPropagation:function(){} }, id);
+            target = null;
+        }, 480);
+    }, { passive: true });
+    document.addEventListener('touchmove', function(e){
+        if(!timer) return;
+        var touch = e.touches && e.touches[0];
+        if(!touch) return;
+        if(Math.abs(touch.clientX - sx) > 10 || Math.abs(touch.clientY - sy) > 10) clear();
+    }, { passive: true });
+    document.addEventListener('touchend', clear, { passive: true });
+    document.addEventListener('touchcancel', clear, { passive: true });
+}
+
+// Show/hide the «more modules ›» edge hint based on rail scroll position.
+function mobileUpdateRailHint(){
+    var wrap = document.getElementById('mobile-bottom-rail-wrap');
+    var rail = document.getElementById('mobile-bottom-rail');
+    if(!wrap || !rail) return;
+    var more = (rail.scrollLeft + rail.clientWidth) < (rail.scrollWidth - 4);
+    wrap.classList.toggle('has-more', more);
 }
 
 // Insert a draggable splitter between the pairs list (top half) and
@@ -2777,33 +2958,60 @@ function setupMobileMatchSplitter(){
 // Mobile tab switch — toggles tab active state and per-view data attrs,
 // then delegates to showView for the actual content swap. Called directly
 // from the tabbar onclick handlers so timing is deterministic.
+// Core-4 mobile rail: view-pane id + rail-button id per logical name.
+var MOBILE_VIEWS = {
+    team:  { pane:'view-team',  btn:'mrail-team'  },
+    match: { pane:'view-match', btn:'mrail-match' },
+    cases: { pane:'view-cases', btn:'mrail-cases' },
+    ex:    { pane:'view-ex',    btn:'mrail-ex'    },
+};
 function mobileSwitchView(name){
+    if(!MOBILE_VIEWS[name]) return;
     try {
         if(name === 'match'){
             try { setupMobileMatchSplitter(); } catch(_) {}
         }
-        var team = document.getElementById('view-team');
-        var match = document.getElementById('view-match');
-        if(team){
-            if(name === 'team'){
-                team.setAttribute('data-mobile-active','1');
-                team.removeAttribute('data-mobile-inactive');
+        // Toggle each mobile view-pane's data-attrs. The home view (match)
+        // carries an extra data-mobile-inactive flag because its CSS default
+        // is "shown" (so the very first paint has content before JS runs).
+        Object.keys(MOBILE_VIEWS).forEach(function(key){
+            var el = document.getElementById(MOBILE_VIEWS[key].pane);
+            if(!el) return;
+            if(key === name){
+                el.setAttribute('data-mobile-active','1');
+                el.removeAttribute('data-mobile-inactive');
             } else {
-                team.removeAttribute('data-mobile-active');
-                team.setAttribute('data-mobile-inactive','1');
+                el.removeAttribute('data-mobile-active');
+                if(key === 'match') el.setAttribute('data-mobile-inactive','1');
             }
-        }
-        if(match){
-            if(name === 'match') match.setAttribute('data-mobile-active','1');
-            else match.removeAttribute('data-mobile-active');
-        }
-        var tt = document.getElementById('mtb-team');
-        var mt = document.getElementById('mtb-match');
-        if(tt) tt.classList.toggle('active', name === 'team');
-        if(mt) mt.classList.toggle('active', name === 'match');
+        });
+        // Toggle rail-button active state.
+        Object.keys(MOBILE_VIEWS).forEach(function(key){
+            var btn = document.getElementById(MOBILE_VIEWS[key].btn);
+            if(btn) btn.classList.toggle('active', key === name);
+        });
+        // Home button (⌂) is "active" only when on its target view (Совпадения).
+        var home = document.getElementById('mtop-home');
+        if(home) home.classList.toggle('active', name === 'match');
     } catch(_) {}
     // Delegate to showView for content render — fall back to noop if not ready
     try { if(typeof showView === 'function') showView(name); } catch(_) {}
+    // Refresh the Дела badge count after any switch.
+    try { mobileUpdateCasesBadge(); } catch(_) {}
+}
+
+// Mirror the desktop cases-badge count onto the mobile Дела rail button.
+function mobileUpdateCasesBadge(){
+    var badge = document.getElementById('mrail-cases-badge');
+    if(!badge) return;
+    var n = 0;
+    try {
+        var all = (typeof _getCases === 'function') ? _getCases() : [];
+        // Count active (non-closed/dropped) cases — the "open work" figure.
+        n = all.filter(function(c){ return c.status !== 'closed' && c.status !== 'dropped'; }).length;
+    } catch(_) { n = 0; }
+    if(n > 0){ badge.textContent = n; badge.style.display = ''; }
+    else { badge.style.display = 'none'; }
 }
 document.addEventListener('DOMContentLoaded', mobileInitIfNeeded);
 window.addEventListener('resize', function(){
@@ -3031,27 +3239,63 @@ function _renderTeamBody(body){
 // the server stays text-only and other clients render the quote in-band.
 
 function _onTeamMsgContextMenu(ev, msgId){
-    ev.preventDefault();
-    ev.stopPropagation();
+    if(ev){ try { ev.preventDefault(); ev.stopPropagation(); } catch(_){} }
     var msg = (state.team.messages || []).filter(function(m){ return m.id === msgId; })[0];
     if(!msg) return;
     _closeTeamCtxMenu();
     var menu = document.createElement('div');
     menu.className = 'team-ctx-menu';
     menu.id = 'team-ctx-menu';
-    menu.innerHTML = '<div class="item" onclick="_chooseReplyTo(\''+esc(msgId)+'\')">↩ Ответить</div>';
+    menu.innerHTML = '<div class="item" onclick="_chooseReplyTo(\''+esc(msgId)+'\')">↩ Ответить</div>'
+                   + '<div class="item" onclick="_copyTeamMsg(\''+esc(msgId)+'\')">📋 Копировать</div>';
     document.body.appendChild(menu);
-    // Position near click point but clamp inside the viewport.
-    var x = ev.clientX, y = ev.clientY;
+    // Position near the pointer/touch point but clamp inside the viewport.
+    var px = (ev && ev.clientX != null) ? ev.clientX
+           : (ev && ev.changedTouches && ev.changedTouches[0]) ? ev.changedTouches[0].clientX
+           : Math.round(window.innerWidth / 2);
+    var py = (ev && ev.clientY != null) ? ev.clientY
+           : (ev && ev.changedTouches && ev.changedTouches[0]) ? ev.changedTouches[0].clientY
+           : Math.round(window.innerHeight / 2);
     var rect = menu.getBoundingClientRect();
-    if(x + rect.width  > window.innerWidth)  x = window.innerWidth  - rect.width  - 6;
-    if(y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 6;
-    menu.style.left = x + 'px';
-    menu.style.top  = y + 'px';
-    // Close on any outside click.
+    if(px + rect.width  > window.innerWidth)  px = window.innerWidth  - rect.width  - 6;
+    if(py + rect.height > window.innerHeight) py = window.innerHeight - rect.height - 6;
+    if(px < 6) px = 6; if(py < 6) py = 6;
+    menu.style.left = px + 'px';
+    menu.style.top  = py + 'px';
+    // Close on any outside click/touch.
     setTimeout(function(){
         document.addEventListener('mousedown', _closeTeamCtxMenu, { once: true });
+        document.addEventListener('touchstart', _closeTeamCtxMenu, { once: true });
     }, 0);
+}
+
+// Copy the clean text of a team message to the clipboard (strips the
+// КОНТЕКСТ blob, [модуль:…] prefix and [img:…] tokens for readable text).
+function _copyTeamMsg(msgId){
+    _closeTeamCtxMenu();
+    var msg = (state.team.messages || []).filter(function(m){ return m.id === msgId; })[0];
+    if(!msg){ return; }
+    var body = msg.body || '';
+    var ctxIdx = body.indexOf('\n\n--- КОНТЕКСТ');
+    if(ctxIdx > -1) body = body.substring(0, ctxIdx);
+    body = body.replace(/^\[модуль:[^\]]+\]\s*/, '').replace(/\[img:[^\]]+\]/g, '').trim();
+    var done = function(ok){
+        try { showToast(ok ? '📋 Скопировано' : 'Не удалось скопировать', ok ? 'ok' : 'error'); } catch(_){}
+    };
+    try {
+        if(navigator.clipboard && navigator.clipboard.writeText){
+            navigator.clipboard.writeText(body).then(function(){ done(true); }, function(){ _copyFallback(body, done); });
+        } else { _copyFallback(body, done); }
+    } catch(_) { _copyFallback(body, done); }
+}
+function _copyFallback(text, done){
+    try {
+        var ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.focus(); ta.select();
+        var ok = document.execCommand('copy');
+        ta.remove(); done(ok);
+    } catch(_) { done(false); }
 }
 
 function _closeTeamCtxMenu(){
@@ -3204,7 +3448,7 @@ function _miniRouteSvg(loadCoord, dischCoord){
     parts.push('<rect x="0" y="0" width="'+w+'" height="'+h+'" fill="transparent"/>');
     if(p1 && p2){
         parts.push('<line x1="'+p1[0]+'" y1="'+p1[1]+'" x2="'+p2[0]+'" y2="'+p2[1]+'"'
-            + ' stroke="#7c6ff7" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.7"/>');
+            + ' stroke="#004564" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.7"/>');
     }
     if(p1){
         parts.push('<circle cx="'+p1[0]+'" cy="'+p1[1]+'" r="5" fill="#4ec970" stroke="#fff" stroke-width="1.2"/>');
@@ -3808,6 +4052,8 @@ function _renderCasesBadge(){
     var open = _getCases().filter(function(c){ return c.status !== 'closed' && c.status !== 'dropped'; }).length;
     if(el){ if(open > 0){ el.textContent = open; el.style.display = ''; } else el.style.display = 'none'; }
     if(inline) inline.textContent = _getCases().length;
+    // Keep the mobile Дела tab badge in lockstep.
+    try { mobileUpdateCasesBadge(); } catch(_) {}
 }
 
 function createEmptyCase(){
@@ -3912,7 +4158,7 @@ function removeCaseWatchEmail(caseId, email){
 function _renderWatchedEmails(c){
     var watched = c.watched_emails || [];
     var chips = watched.map(function(e){
-        return '<span style="display:inline-flex; align-items:center; gap:4px; background:rgba(124,111,247,.12); border:1px solid rgba(124,111,247,.35); padding:2px 8px; border-radius:10px; font-size:10px; color:var(--text); margin-right:5px; margin-bottom:4px;">'
+        return '<span style="display:inline-flex; align-items:center; gap:4px; background:rgba(0,69,100,.12); border:1px solid rgba(0,69,100,.35); padding:2px 8px; border-radius:10px; font-size:10px; color:var(--text); margin-right:5px; margin-bottom:4px;">'
             + '👁 ' + esc(e)
             + ' <span style="cursor:pointer; color:var(--text3); font-weight:700;" title="Перестать следить" onclick="event.stopPropagation(); removeCaseWatchEmail(\''+esc(c.id)+'\',\''+esc(e)+'\')">×</span>'
             + '</span>';
@@ -4349,7 +4595,7 @@ function customConfirm(opts){
             + '<button id="cc-cancel" style="padding:8px 16px; background:transparent; color:var(--text, #fff); '
                 + 'border:1px solid var(--border, #2a3240); border-radius:6px; cursor:pointer; font-size:12px; font-weight:600;">'
                 + esc(cancelLabel) + '</button>'
-            + '<button id="cc-ok" style="padding:8px 16px; background:'+(dangerous?'#e55561':'var(--accent, #7c6ff7)')+'; color:#fff; '
+            + '<button id="cc-ok" style="padding:8px 16px; background:'+(dangerous?'#e55561':'var(--accent, #004564)')+'; color:#fff; '
                 + 'border:none; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600;">'
                 + esc(okLabel) + '</button>'
           + '</div>';
@@ -4554,6 +4800,24 @@ function _teamMemberLabel(slot){
     if(slot === 'tm2') return s.team_member_2_name || 'Alex';
     return '';
 }
+// Addressee is now chosen by clicking a member in the side panel
+// (the old bottom "Кому:" pill row was removed — redundant with the panel).
+// Bot row => AI Assistant (LLM); a person => message addressed to them.
+function selectTeamTargetFromPanel(nick, isBot){
+    state.team.sendTarget = isBot ? 'ai' : nick;
+    var ta = document.getElementById('team-input');
+    var btn = document.getElementById('team-send-btn');
+    if(isBot){
+        if(ta) ta.placeholder = 'Вопрос AI Assistant (видно всей команде)…';
+        if(btn) btn.textContent = '🤖 ▶';
+    } else {
+        if(ta) ta.placeholder = 'Сообщение для ' + nick + ' (видно всей команде)…';
+        if(btn) btn.textContent = '▶';
+    }
+    try { renderTeamMembers(); } catch(_){}
+    if(ta) ta.focus();
+}
+
 function setTeamTarget(tgt){
     if(tgt !== 'ai' && tgt !== 'tm0' && tgt !== 'tm1' && tgt !== 'tm2') tgt = 'ai';
     state.team.sendTarget = tgt;
@@ -4587,9 +4851,12 @@ async function teamSendRouted(){
     if(tgt === 'ai'){
         return teamSendWithLlm();
     }
-    // Team-member-targeted: prepend addressee tag so chat history makes
-    // sense ("To Виктория: ...") without changing the server schema.
-    return teamSend('@' + _teamMemberLabel(tgt) + ': ');
+    // Legacy fixed slots (tm0/1/2) still map through _teamMemberLabel;
+    // panel-selected targets are the raw nickname string.
+    var who = (tgt === 'tm0' || tgt === 'tm1' || tgt === 'tm2') ? _teamMemberLabel(tgt) : tgt;
+    // Member-targeted: prepend addressee tag so history reads "@Name: ..."
+    // without a server schema change (and the bridge skips LLM on these).
+    return teamSend('@' + who + ': ');
 }
 
 // Capture the current module context so the LLM doesn't need a separate
@@ -4970,7 +5237,7 @@ function _renderLeadMap(m, ports){
         if(!coord) return;
         var color = kind === 'cargo_load' ? '#4ec970'
                   : kind === 'cargo_disch' ? '#e55561'
-                  : '#5b9be0';
+                  : '#004564';
         var icon = L.divIcon({
             className: 'lead-marker',
             html: '<div style="width:18px; height:18px; border-radius:50%; background:'+color+'; border:3px solid white; box-shadow:0 0 0 1px '+color+'; opacity:.95"></div>',
@@ -5002,7 +5269,7 @@ function _renderLeadMap(m, ports){
     if(coordLoad) line.push(coordLoad);
     if(coordDisch) line.push(coordDisch);
     if(line.length >= 2){
-        L.polyline(line, { color:'#5b9be0', weight:2, opacity:0.5, dashArray:'6 6' }).addTo(map);
+        L.polyline(line, { color:'#004564', weight:2, opacity:0.5, dashArray:'6 6' }).addTo(map);
     }
 
     if(bounds.length >= 2){
@@ -5229,7 +5496,7 @@ function _tlRedraw(){
             if(!openC) return;
             nTonn++;
             var marker = L.circleMarker(openC, {
-                radius: 5, color: '#5b9be0', weight: 2, fillColor: '#5b9be0', fillOpacity: 0.55,
+                radius: 5, color: '#004564', weight: 2, fillColor: '#004564', fillOpacity: 0.55,
             });
             var tip = (v.vessel_name || v.vessel_type || 'tonnage')
                     + (v.dwt ? ' · ' + v.dwt + 'DWT' : '')
@@ -5264,11 +5531,11 @@ function _flowColor(cargo){
     // steel products — orange
     if(/steel|hrc|crc|rebar|billet|wire|pig\s?iron|coil|plate|slab|beam|pipe|tube|girder/.test(c)) return '#d89b65';
     // fertilizers — purple
-    if(/urea|npk|dap|map|potash|sulph|sulf|fertil|ammonium|nitrate|phosphate|kcl|nitrogen|amms/.test(c)) return '#7c6ff7';
+    if(/urea|npk|dap|map|potash|sulph|sulf|fertil|ammonium|nitrate|phosphate|kcl|nitrogen|amms/.test(c)) return '#004564';
     // cement / clinker — light grey
     if(/cement|clinker|gypsum|lime|chalk/.test(c)) return '#9aa0a6';
     // bagged / project / container — blue
-    if(/big[\s-]?bag|bag\b|project|container|crate|pallet|woodpulp|paper/.test(c)) return '#5b9be0';
+    if(/big[\s-]?bag|bag\b|project|container|crate|pallet|woodpulp|paper/.test(c)) return '#004564';
     // wood / logs / lumber — brown
     if(/wood|log|lumber|timber|pulp/.test(c)) return '#8b5a3c';
     // scrap / metal scrap — dark red
@@ -5563,7 +5830,7 @@ function _vizRenderList(visible){
         var title = (s.cargo_type || s.title || '?').slice(0, 30);
         var meta = (s.quantity_mt ? s.quantity_mt+' MT · ' : '') + (s.load_port || '?')+' → '+(s.disch_port || '?');
         var nMatches = (s._vizMatches && s._vizMatches.length) || 0;
-        var badge = nMatches ? ' <span class="vz-badge" style="background:#7c6ff7;color:#fff;padding:0 5px;border-radius:8px;font-size:9px;">'+nMatches+'</span>' : '';
+        var badge = nMatches ? ' <span class="vz-badge" style="background:#004564;color:#fff;padding:0 5px;border-radius:8px;font-size:9px;">'+nMatches+'</span>' : '';
         return '<div class="viz-list-item" onclick="vizOpenSignalMatches(\''+esc(s.id)+'\')">'
              + '<div class="vli-title">'+esc(title)+badge+'</div>'
              + '<div class="vli-meta">'+esc(meta)+'</div>'
@@ -6290,7 +6557,7 @@ function renderMailList(){
         }
         var subj = esc((m.subject || '(no subject)').slice(0, 65));
         var dt = m.date_received ? esc(m.date_received.slice(0,16).replace('T',' ')) : '';
-        var unr = (isSent || m.is_read) ? '' : 'background:rgba(70,130,180,.08);';
+        var unr = (isSent || m.is_read) ? '' : 'background:rgba(0,69,100,.08);';
         var weight = (isSent || m.is_read) ? '400' : '600';
         var sel = state.mail.selectedId === m.id ? 'border-left:3px solid var(--accent);' : '';
         var flagSource = isSent ? (m.to || '') : m.from;
@@ -7056,6 +7323,23 @@ function showView(name){
             teamMount.appendChild(teamBlock);
         }
     }
+    // Открытие 💬 Команды всегда показывает последнее сообщение (Тимур
+    // 2026-06-13). Migration/visibility toggling resets scrollHeight, so
+    // defer past layout and force-pin to bottom; also clear the unread badge
+    // since the user is now looking at the newest messages.
+    if(name === 'team'){
+        var _pinTeamBottom = function(){
+            var s = document.getElementById('team-stream');
+            if(!s) return;
+            s.scrollTop = s.scrollHeight;
+            state.team.lastSeenTs = state.team.lastTs;
+            state.team.unread = 0;
+            try { _hideTeamNewBadge(); } catch(_) {}
+            try { renderTeamUnread(); } catch(_) {}
+        };
+        requestAnimationFrame(function(){ _pinTeamBottom(); requestAnimationFrame(_pinTeamBottom); });
+        setTimeout(_pinTeamBottom, 80);
+    }
     // First entry to Сигналы: lazy-load the active signal lists.
     if(name === 'signals' && !state.signalsBrowse.loaded){
         refreshSignalsBrowse();
@@ -7150,7 +7434,9 @@ function showView(name){
         // (so col 2 shows something the user can investigate). Then kick
         // off the bazaar × bazaar fetch via selectSignal so col 3 + col 4
         // fill in once the network round-trip lands.
-        var groups = _groupBazaarBySignal();
+        // NB: _groupBazaarBySignal was never defined (dead ref since ≤v0.1.114)
+        // — guard so opening Совпадения doesn't throw; auto-select is a no-op.
+        var groups = (typeof _groupBazaarBySignal === 'function') ? _groupBazaarBySignal() : [];
         if(groups.length > 0){
             selectSignal(groups[0].kind, groups[0].sig.id);
         }
@@ -7254,18 +7540,22 @@ function _dedupePairs(pairs){
 
 function _signalLabel(sig, kind){
     if(!sig) return '?';
-    if(sig.title) return truncate(sig.title, 38);
+    // Prefer the PARSED commercial label (cargo·route·qty / vessel·dwt·open)
+    // over the raw email subject — a broker scans the deal, not the subject.
+    // Fall back to title only when no structured fields were extracted.
     if(kind === 'cargo'){
         var parts = [];
         if(sig.cargo_type) parts.push(sig.cargo_type);
         if(sig.quantity_mt) parts.push(sig.quantity_mt+'mt');
         if(sig.load_port || sig.disch_port) parts.push((sig.load_port||'?')+'→'+(sig.disch_port||'?'));
-        return truncate(parts.join(' ') || '?', 38);
+        if(parts.length) return truncate(parts.join(' '), 42);
+        return truncate(sig.title || '?', 42);
     }
-    var v = sig.vessel_name || sig.vessel_type || '?';
-    if(sig.dwt) v += ' '+sig.dwt+'DWT';
-    if(sig.open_port) v += ' @ '+sig.open_port;
-    return truncate(v, 38);
+    var v = sig.vessel_name || sig.vessel_type || '';
+    if(v && sig.dwt) v += ' '+sig.dwt+'DWT';
+    if(v && sig.open_port) v += ' @ '+sig.open_port;
+    if(v) return truncate(v, 42);
+    return truncate(sig.title || '?', 42);
 }
 
 function renderSignalsFeed(){
@@ -7314,8 +7604,11 @@ function renderSignalsFeed(){
         var ageMin = freshTs ? Math.floor((Date.now() - Date.parse(freshTs)) / 60000) : null;
         var ageLabel = ageMin == null ? '' : (ageMin < 60 ? (ageMin + 'м') : (Math.floor(ageMin / 60) + 'ч'));
         var sel = (selKey === p.id);
-        var reasonsList = Array.isArray(p.reasons) ? p.reasons.slice(0, 3).join(' · ')
-                       : (p.reasons && typeof p.reasons === 'object' ? Object.keys(p.reasons).slice(0,3).join(' · ') : '');
+        // Meta line = useful breadcrumb (who's the counterparty), NOT raw
+        // score-component keys (age_penalty/confidence/… are internal debug).
+        var rsn = (p.reasons && typeof p.reasons === 'object' && !Array.isArray(p.reasons)) ? p.reasons : {};
+        var contact = rsn.contact_name || rsn.contact_company
+                   || (c.posted_by_name || '') || (t.posted_by_name || '');
         return '<div class="row '+(sel?'active':'')+'" onclick="selectBazaarPair(\''+esc(p.id)+'\')">'
             + '<div class="r-top">'
             + '<span class="r-title">📦 '+esc(cLabel)+'</span>'
@@ -7325,7 +7618,7 @@ function renderSignalsFeed(){
             + '<span class="r-title">🚢 '+esc(tLabel)+'</span>'
             + '<span class="r-score">score '+Number(p.score||0)+'</span>'
             + '</div>'
-            + (reasonsList ? '<div class="r-meta">'+esc(reasonsList)+'</div>' : '')
+            + (contact ? '<div class="r-meta">👤 '+esc(truncate(String(contact), 40))+'</div>' : '')
             + '</div>';
     }).join('');
 }
@@ -8062,6 +8355,7 @@ async function _importCaseSeeds(){
     if(added > 0){
         _persistCases();
         if(state.view === 'cases'){ try { renderCasesView(); } catch(_){} }
+        else { try { _renderCasesBadge(); } catch(_){} }  // keep mobile/desktop badge fresh off-view
         showToast('📂 Новых дел от ассистента: ' + added, 'ok');
     }
 }
@@ -8228,7 +8522,7 @@ function renderP0(){
         : (d.vessel_name || ('IMO '+d.vessel_imo)));
     var tag = kind==='cargo'
         ? '<span class="r-tag" style="background:rgba(229,153,57,.2); color:#e29a39;">📦 cargo</span>'
-        : '<span class="r-tag" style="background:rgba(91,155,224,.2); color:var(--blue);">🚢 tonnage</span>';
+        : '<span class="r-tag" style="background:rgba(0,69,100,.2); color:var(--accent-text);">🚢 tonnage</span>';
 
     ageEl.innerHTML = ageRingSvg(d.published_at, 14);
 
