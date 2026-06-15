@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="ru" data-theme="dark">
+<html lang="ru" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.120';
+var APP_VERSION='0.1.121';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -2492,7 +2492,7 @@ function rowAgeTimestamp(type, data){
 
 // ---------- Theme ----------
 function applyTheme(){
-    var t = localStorage.getItem('skipi-broker-theme') || 'dark';
+    var t = localStorage.getItem('skipi-broker-theme') || 'light';
     var resolved = (t==='system')
         ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
         : t;
@@ -9823,7 +9823,7 @@ function renderSettingsBody(){
             // Server URL — спрятан в About вкладке как технический инфо
             '<div class="sub" style="margin-top:24px; font-size:10px; color:var(--text3);">Сервер: '+esc(s.server_url||'https://api.skipi.app')+'</div>';
     } else if(t==='appearance'){
-        var cur = localStorage.getItem('skipi-broker-theme') || 'dark';
+        var cur = localStorage.getItem('skipi-broker-theme') || 'light';
         body.innerHTML = '<h3>Внешний вид</h3><div class="sub">Тема интерфейса.</div>'+
             '<div style="margin-bottom:14px;"><label style="font-size:11px; color:var(--text2);">Тема</label><br>'+
                 ['dark','light','system'].map(function(x){
