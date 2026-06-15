@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.122';
+var APP_VERSION='0.1.123';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -7506,19 +7506,24 @@ function showView(name){
         if(pairsEmpty)                  promises.push(refreshBazaarPairs());
         if(inboxEmpty)                  promises.push(refreshInbox());
         if(!state.signalsBrowse.loaded) promises.push(refreshSignalsBrowse());
+        // Physical-device WebView (Pixel 7, aarch64) often composites the
+        // canvas map BLANK on first reveal even though the geojson + markers
+        // are present — invalidateSize alone doesn't repaint the canvas
+        // renderer (preferCanvas:true). Re-running renderVizMap after a
+        // settle window forces the contours + signal dots to paint. We do
+        // this on BOTH first-build and repeat visits since the creation-time
+        // cascade proved insufficient on real hardware (Тимур 2026-06-15).
+        var _vizRepaint = function(){
+            if(!(state.viz && state.viz.map)) return;
+            try { state.viz.map.invalidateSize(); } catch(_){}
+            try { renderVizMap(); } catch(_){}
+        };
         if(promises.length){
             Promise.all(promises).then(function(){ setTimeout(renderVizMap, 50); });
         } else {
             setTimeout(renderVizMap, 50);
         }
-        // If the map was already built on a previous visit, it may have
-        // been hidden when the container had 0×0 — force a resize cascade
-        // so it picks up real dimensions now that view-viz is visible.
-        if(state.viz && state.viz.map){
-            [50, 200, 500].forEach(function(d){
-                setTimeout(function(){ try { state.viz.map.invalidateSize(); } catch(_){} }, d);
-            });
-        }
+        [200, 500, 1000, 1800].forEach(function(d){ setTimeout(_vizRepaint, d); });
     }
 
     // Auto-select sensible defaults the first time each view opens so
