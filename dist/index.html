@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.124';
+var APP_VERSION='0.1.125';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -6624,6 +6624,29 @@ function switchMailChannel(ch){
     renderMailList();
 }
 
+// Company mailbox filter (запрос Виктории 17.06): show only mail
+// addressed to our single company address. Stored in localStorage.
+var _COMPANY_EMAIL_DEFAULT = 'drybulk@montlinechartering.com';
+function _companyEmail(){
+    try {
+        var v = localStorage.getItem('skipi-company-email');
+        return (v == null || v === '') ? _COMPANY_EMAIL_DEFAULT : v;
+    } catch(_){ return _COMPANY_EMAIL_DEFAULT; }
+}
+function saveCompanyEmail(){
+    var el = document.getElementById('set-company-email');
+    var v = el ? (el.value || '').trim() : '';
+    try { localStorage.setItem('skipi-company-email', v); } catch(_){}
+    showToast(v ? ('Компанейский email: ' + v) : 'Фильтр почты снят', 'ok');
+    try { renderMailList(); } catch(_){}
+}
+// True if message is addressed to the company mailbox (To or Cc).
+function _mailToCompany(m, addr){
+    if(!addr) return true;
+    var hay = ((m.to || '') + ' ' + (m.cc || '')).toLowerCase();
+    return hay.indexOf(addr.toLowerCase()) !== -1;
+}
+
 function renderMailList(){
     var body = document.getElementById('mail-list-body');
     var count = document.getElementById('mail-count');
@@ -6641,6 +6664,12 @@ function renderMailList(){
     });
     var ch = state.mail.channel || 'all';
     var msgs = ch === 'all' ? allMsgs.slice() : allMsgs.filter(function(m){ return (m.channel || 'broker') === ch; });
+    // Company-mailbox filter — only mail addressed to us (INBOX only; SENT
+    // is our own outbound so it's left intact).
+    var _coAddr = _companyEmail();
+    if(_coAddr && state.mail.folder !== 'SENT'){
+        msgs = msgs.filter(function(m){ return _mailToCompany(m, _coAddr); });
+    }
     // Sort newest-first so свежие письма всегда сверху, независимо от
     // того в каком порядке API их вернул.
     msgs.sort(function(a, b){
@@ -9903,6 +9932,15 @@ function renderSettingsBody(){
                 '<button class="btn btn-accent" onclick="saveProfileCombined()">Сохранить</button>'+
                 '<button class="btn btn-outline" onclick="registerBroker()">'+(s.broker_id?'Перерегистрировать на сервере':'Зарегистрировать на сервере')+'</button>'+
             '</div>'+
+
+            // ── 3. Компанейская почта (фильтр входящих) ────────────
+            '<hr style="margin:22px 0; border:none; border-top:1px solid var(--border);">'+
+            '<h3>📧 Компанейская почта</h3>'+
+            '<div class="sub">В модуле Почта показываются только письма, адресованные этому ящику (в To/Cc). Массовые рассылки, где вас нет в прямых адресатах, скрываются.</div>'+
+            '<div class="field-grid" style="margin-top:10px;">'+
+                '<div class="field full"><label>Компанейский email</label><input id="set-company-email" value="'+esc(_companyEmail())+'" placeholder="drybulk@montlinechartering.com" style="font-family:monospace;"></div>'+
+            '</div>'+
+            '<div style="margin-top:10px;"><button class="btn btn-accent" onclick="saveCompanyEmail()">Сохранить</button></div>'+
 
             // Server URL — спрятан в About вкладке как технический инфо
             '<div class="sub" style="margin-top:24px; font-size:10px; color:var(--text3);">Сервер: '+esc(s.server_url||'https://api.skipi.app')+'</div>';
