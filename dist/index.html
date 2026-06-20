@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.126';
+var APP_VERSION='0.1.127';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -1377,24 +1377,70 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
     <div style="background:var(--bg, #1a1f28); border:1px solid var(--border, #2a3240);
         border-radius:12px; max-width:480px; width:100%; padding:32px;
         box-shadow:0 20px 60px rgba(0,0,0,0.5);">
-        <div style="font-size:18px; font-weight:700; color:var(--text, #fff); margin-bottom:8px;">🔐 Авторизация Skipi Broker</div>
-        <div style="font-size:12px; color:var(--text2, #aab); margin-bottom:20px; line-height:1.5;">
-            Введи токен авторизации команды (broker_id), чтобы открыть приложение.<br>
-            Токен ты получаешь от руководителя команды.
+        <div style="font-size:18px; font-weight:700; color:var(--text, #fff); margin-bottom:8px;">⚓ Skipi Broker</div>
+
+        <!-- Pane: choice (first run — pick admin or join) -->
+        <div id="auth-pane-choice">
+            <div style="font-size:12px; color:var(--text2,#aab); margin-bottom:18px; line-height:1.5;">
+                Первый запуск. Кто ты?
+            </div>
+            <button onclick="_showAuthPane('create')"
+                style="display:block; width:100%; padding:13px; margin-bottom:10px; background:var(--accent,#004564); color:#fff; border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:13px; text-align:left;">
+                👑 Я администратор — создать команду
+                <div style="font-size:10px; font-weight:400; opacity:.85; margin-top:3px;">Первый месяц полный доступ бесплатно. Добавляешь членов команды.</div>
+            </button>
+            <button onclick="_showAuthPane('join')"
+                style="display:block; width:100%; padding:13px; background:var(--surface,#0f141c); color:var(--text,#fff); border:1px solid var(--border,#2a3240); border-radius:6px; font-weight:600; cursor:pointer; font-size:13px; text-align:left;">
+                🔗 Присоединиться к команде
+                <div style="font-size:10px; font-weight:400; opacity:.7; margin-top:3px;">У меня есть токен от руководителя.</div>
+            </button>
         </div>
-        <input id="auth-gate-input" type="text"
-            placeholder="например: 1d76abea-3c85-438c-82af-0bf3d8801651"
-            style="width:100%; padding:10px 12px; font-size:13px; font-family:monospace;
-                background:var(--surface, #0f141c); color:var(--text, #fff);
-                border:1px solid var(--border, #2a3240); border-radius:6px;
-                margin-bottom:14px; box-sizing:border-box;"
-            onkeydown="if(event.key==='Enter') _authGateSubmit();" />
-        <button id="auth-gate-btn" onclick="_authGateSubmit()"
-            style="width:100%; padding:10px; background:var(--accent, #004564); color:#fff;
-                border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:13px;">
-            Войти
-        </button>
-        <div id="auth-gate-err" style="margin-top:12px; font-size:11px; color:var(--text3, #788); min-height:14px;"></div>
+
+        <!-- Pane: create team (admin path) -->
+        <div id="auth-pane-create" style="display:none;">
+            <div style="font-size:12px; color:var(--text2,#aab); margin-bottom:14px; line-height:1.5;">
+                Создание команды — ты станешь администратором с пробным доступом на 30 дней.
+            </div>
+            <input id="auth-create-name" type="text" placeholder="Имя или компания"
+                style="width:100%; padding:10px 12px; font-size:13px; background:var(--surface,#0f141c); color:var(--text,#fff); border:1px solid var(--border,#2a3240); border-radius:6px; margin-bottom:10px; box-sizing:border-box;" />
+            <input id="auth-create-email" type="text" placeholder="Email (reply-to для сигналов)"
+                style="width:100%; padding:10px 12px; font-size:13px; background:var(--surface,#0f141c); color:var(--text,#fff); border:1px solid var(--border,#2a3240); border-radius:6px; margin-bottom:14px; box-sizing:border-box;" />
+            <button id="auth-create-btn" onclick="_authCreateTeam()"
+                style="width:100%; padding:10px; background:var(--accent,#004564); color:#fff; border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:13px;">Создать команду</button>
+            <div id="auth-create-err" style="margin-top:10px; font-size:11px; color:#e55561; min-height:14px;"></div>
+            <div onclick="_showAuthPane('choice')" style="margin-top:12px; font-size:11px; color:var(--text3,#788); cursor:pointer;">← назад</div>
+        </div>
+
+        <!-- Pane: created (show admin token to save) -->
+        <div id="auth-pane-created" style="display:none;">
+            <div style="font-size:13px; color:#4ec970; font-weight:600; margin-bottom:10px;">✅ Команда создана. Ты — администратор.</div>
+            <div style="font-size:11px; color:var(--text2,#aab); margin-bottom:6px;">Токен администратора — сохрани его:</div>
+            <div id="auth-created-token" style="font-family:monospace; font-size:12px; word-break:break-all; background:var(--surface,#0f141c); border:1px solid var(--border,#2a3240); border-radius:6px; padding:10px; color:var(--text,#fff); margin-bottom:8px;"></div>
+            <button onclick="_authCopyCreated()" style="font-size:11px; background:var(--surface,#0f141c); color:var(--text2,#aab); border:1px solid var(--border,#2a3240); border-radius:5px; padding:5px 10px; cursor:pointer; margin-bottom:12px;">📋 Скопировать</button>
+            <div style="font-size:10px; color:var(--text3,#788); margin-bottom:14px; line-height:1.5;">Этим токеном входишь сам и добавляешь членов команды (Настройки → Профиль и доступ). Не теряй его.</div>
+            <button onclick="_authEnterApp()" style="width:100%; padding:10px; background:var(--accent,#004564); color:#fff; border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:13px;">Войти в приложение →</button>
+        </div>
+
+        <!-- Pane: join (member / existing token) -->
+        <div id="auth-pane-join" style="display:none;">
+            <div style="font-size:12px; color:var(--text2, #aab); margin-bottom:14px; line-height:1.5;">
+                Введи токен команды (broker_id), полученный от руководителя.
+            </div>
+            <input id="auth-gate-input" type="text"
+                placeholder="например: 1d76abea-3c85-438c-82af-0bf3d8801651"
+                style="width:100%; padding:10px 12px; font-size:13px; font-family:monospace;
+                    background:var(--surface, #0f141c); color:var(--text, #fff);
+                    border:1px solid var(--border, #2a3240); border-radius:6px;
+                    margin-bottom:14px; box-sizing:border-box;"
+                onkeydown="if(event.key==='Enter') _authGateSubmit();" />
+            <button id="auth-gate-btn" onclick="_authGateSubmit()"
+                style="width:100%; padding:10px; background:var(--accent, #004564); color:#fff;
+                    border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:13px;">
+                Войти
+            </button>
+            <div id="auth-gate-err" style="margin-top:12px; font-size:11px; color:var(--text3, #788); min-height:14px;"></div>
+            <div onclick="_showAuthPane('choice')" style="margin-top:12px; font-size:11px; color:var(--text3,#788); cursor:pointer;">← назад</div>
+        </div>
         <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border, #2a3240);
             font-size:10px; color:var(--text3, #788); line-height:1.5;">
             Skipi Broker — closed beta. Токен валидируется на сервере при каждом запуске.
@@ -6189,16 +6235,56 @@ function _authGateMessage(){
     if(_authLastReason==='expired') return 'Триал команды истёк. Свяжись с руководителем для продления доступа.';
     return 'Токен не найден или отозван. Уточни у руководителя.';
 }
+// Fresh install (no stored token) → show the role choice ('choice').
+// A stored token that failed validation → show 'join' with the error.
+var _authFresh = true;
+function _showAuthPane(name){
+    ['choice','create','created','join'].forEach(function(p){
+        var el=document.getElementById('auth-pane-'+p);
+        if(el) el.style.display = (p===name)?'block':'none';
+    });
+    if(name==='join'){ setTimeout(function(){ var i=document.getElementById('auth-gate-input'); if(i) i.focus(); },60); }
+}
 function _authGateShow(){
     var el = document.getElementById('auth-gate-overlay');
-    if(el){ el.style.display = 'flex'; setTimeout(function(){
-        var inp = document.getElementById('auth-gate-input'); if(inp) inp.focus();
-    }, 80); }
+    if(!el) return;
+    el.style.display = 'flex';
+    _showAuthPane(_authFresh ? 'choice' : 'join');
 }
 function _authGateHide(){
     var el = document.getElementById('auth-gate-overlay');
     if(el) el.style.display = 'none';
 }
+// Admin onboarding: register a new broker → that broker_id IS the admin token.
+async function _authCreateTeam(){
+    var name=(document.getElementById('auth-create-name').value||'').trim();
+    var email=(document.getElementById('auth-create-email').value||'').trim();
+    var err=document.getElementById('auth-create-err');
+    var btn=document.getElementById('auth-create-btn');
+    if(!name || !email){ err.style.color='#e55561'; err.textContent='Укажи имя и email.'; return; }
+    err.style.color='var(--text3)'; err.textContent='Создаю команду…'; if(btn) btn.disabled=true;
+    var base=(state.settings && state.settings.server_url)||'https://api.skipi.app';
+    try {
+        var r=await fetch(base+'/api/brokers', { method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ display_name:name, contact_email:email }) });
+        if(!r.ok){ err.style.color='#e55561'; err.textContent='Ошибка сервера ('+r.status+'). Проверь интернет.'; if(btn) btn.disabled=false; return; }
+        var d=await r.json();
+        var bid=d.id;
+        state.settings=state.settings||{};
+        state.settings.broker_id=bid; state.settings.bearer_token=bid;
+        state.settings.display_name=name; state.settings.reply_to=email;
+        try { state.settings=await invoke('save_settings',{ incoming: state.settings }); } catch(_){}
+        try { await _authGateValidate(bid); } catch(_){}
+        var tk=document.getElementById('auth-created-token'); if(tk) tk.textContent=bid;
+        _showAuthPane('created');
+        if(btn) btn.disabled=false;
+    } catch(e){ err.style.color='#e55561'; err.textContent='Нет связи с сервером — проверь интернет.'; if(btn) btn.disabled=false; }
+}
+async function _authCopyCreated(){
+    var t=(document.getElementById('auth-created-token')||{}).textContent||'';
+    try { await navigator.clipboard.writeText(t); showToast('Токен скопирован','ok'); } catch(_){}
+}
+async function _authEnterApp(){ _authGateHide(); await _bootContinue(); }
 async function _authGateSubmit(){
     var inp = document.getElementById('auth-gate-input');
     var err = document.getElementById('auth-gate-err');
@@ -6257,6 +6343,7 @@ async function boot(){
     startAppDiagnostics();
     // Hard gate: validate stored broker_id against /api/brokers/{id}.
     // If revoked or absent — wipe and force user to re-enter.
+    var _hadStored = !!(state.settings && state.settings.broker_id);
     var validBid = await _authGateValidate(state.settings && state.settings.broker_id);
     if(!validBid){
         // Only wipe the stored token when the server says it is genuinely
@@ -6267,9 +6354,14 @@ async function boot(){
             try { state.settings = await invoke('save_settings', { incoming: state.settings }); } catch(_){}
             refreshIdentityBadge();
         }
+        // Fresh install (никогда не было токена) → экран выбора роли.
+        // Был токен, но не прошёл → экран ввода токена + сообщение об ошибке.
+        _authFresh = !_hadStored;
         _authGateShow();
-        var _ge=document.getElementById('auth-gate-err');
-        if(_ge){ _ge.style.color='#e55561'; _ge.textContent=_authGateMessage(); }
+        if(_hadStored){
+            var _ge=document.getElementById('auth-gate-err');
+            if(_ge){ _ge.style.color='#e55561'; _ge.textContent=_authGateMessage(); }
+        }
         return;
     }
     await _bootContinue();
