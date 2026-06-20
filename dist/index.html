@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker - United Seafarers</title>
 <script>
-var APP_VERSION='0.1.129';
+var APP_VERSION='0.1.130';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION+' - United Seafarers';
     document.title = t;
@@ -961,6 +961,12 @@ body.mobile-mode .mrail-badge {
 .splitter-v:hover, .splitter-v.dragging { opacity:1; background:var(--accent); }
 body.dragging-split { cursor:row-resize; user-select:none; }
 body.dragging-split.col-resize { cursor:col-resize; }
+/* AI assistant redesign (spec §4): team chat is no longer a persistent bottom
+   dock in the working views — it lives only on the «Команда» tab. Hiding the
+   bottom-strip + its splitter returns ~35% height to the working columns.
+   The team-block migrates to team-mount-team when the Команда tab opens. */
+#view-ex .bottom-strip, #view-match .bottom-strip,
+#view-ex > .splitter-h, #view-match > .splitter-h { display:none !important; }
 
 /* View-match: signal-feed rows + match cards in right column */
 .r-top { display:flex; justify-content:space-between; align-items:baseline; gap:6px; }
@@ -1366,8 +1372,21 @@ body.dragging-split.col-resize { cursor:col-resize; }
 .ctx-chat-bar input { flex:1; background:var(--bg); border:1px solid var(--border);
     color:var(--text); padding:5px 9px; border-radius:3px; font-size:11px; outline:none; }
 .ctx-chat-bar input:focus { border-color:var(--accent); }
-.ctx-chat-bar .ctx-info { font-size:10px; color:var(--text3); min-width:140px; max-width:240px;
-    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* Context chip — assistant accent (purple), distinct from team-chat neutral. */
+.ctx-chat-bar .ctx-info { font-size:11px; color:#3C3489; background:#EEEDFE;
+    border:1px solid #d9d6f7; border-radius:12px; padding:3px 10px; cursor:pointer;
+    max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; user-select:none; flex-shrink:0; }
+.ctx-chat-bar .ctx-info:hover { background:#e4e1fb; }
+.ctx-chat-bar .ctx-hint { font-size:10px; color:var(--text3); cursor:pointer; padding:0 2px;
+    border:1px solid var(--border); border-radius:4px; line-height:16px; padding:0 5px; user-select:none; }
+.ctx-chat-bar .ctx-hint:hover { color:var(--text2); }
+.ctx-suggest { display:none; gap:6px; flex-wrap:wrap; padding:6px 10px 0; }
+.ctx-suggest .ctx-sg { font-size:11px; color:#3C3489; background:#F4F3FE; border:1px solid #e0ddf8;
+    border-radius:12px; padding:3px 10px; cursor:pointer; user-select:none; }
+.ctx-suggest .ctx-sg:hover { background:#e9e7fc; }
+/* Inline «explain match» answer card (assistant accent). */
+.explain-card { margin-top:10px; padding:10px 12px; background:#F4F3FE; border:1px solid #e0ddf8; border-radius:8px; }
+.explain-card .explain-answer { font-size:12px; color:var(--text); white-space:pre-wrap; line-height:1.5; }
 .ctx-chat-bar .ctx-send { padding:5px 11px; font-size:11px; background:var(--accent); color:#fff;
     border:none; border-radius:3px; cursor:pointer; font-weight:600; }
 .ctx-chat-bar .ctx-send:disabled { opacity:.4; cursor:default; }
@@ -1483,18 +1502,16 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
     <div id="ctx-resize-handle" class="ctx-resize-handle" title="Тяни вверх/вниз — меняет высоту панели"></div>
     <!-- Recent chat history (visible when panel is tall enough). -->
     <div id="ctx-history" class="ctx-history" style="display:none;"></div>
+    <div class="ctx-suggest" id="ctx-suggest"></div>
     <div class="ctx-input-row">
-        <div class="ctx-mode">
-            <span class="ctx-mode-tab" id="ctx-mode-team" onclick="setCtxMode('team')" title="Сообщение в командный чат">💬 Команде</span>
-            <span class="ctx-mode-tab active" id="ctx-mode-llm" onclick="setCtxMode('llm')" title="Спросить LLM — контекст модуля прикрепится автоматически">🤖 ЛЛМ</span>
-        </div>
-        <span class="ctx-info" id="ctx-info">контекст готов</span>
-        <input type="text" id="ctx-input" placeholder="спроси LLM про то что видишь…" onkeydown="if(event.key==='Enter')sendCtxMessage()" autocomplete="off">
-        <button class="ctx-send" id="ctx-send-btn" onclick="sendCtxMessage()">▶</button>
+        <span class="ctx-info" id="ctx-info" onclick="toggleCtxExpand()" title="Контекст ассистента — кликни, чтобы раскрыть">◎ нет контекста</span>
+        <input type="text" id="ctx-input" placeholder="Спроси про то, что видишь…" onkeydown="if(event.key==='Enter')sendCtxMessage()" autocomplete="off">
+        <span class="ctx-hint" title="Ctrl+K — раскрыть/фокус" onclick="toggleCtxExpand()">⌘K</span>
+        <button class="ctx-send" id="ctx-send-btn" onclick="sendCtxMessage()" title="Спросить ассистента">↑</button>
         <span class="ctx-hide" title="Свернуть" onclick="hideCtxBar()">✕</span>
     </div>
 </div>
-<div id="ctx-chat-restore" class="ctx-chat-restore" onclick="showCtxBar()">💬 спросить LLM</div>
+<div id="ctx-chat-restore" class="ctx-chat-restore" onclick="showCtxBar()">✦ ассистент</div>
 
 <!-- Mobile-only top bar (visible only on body.mobile-mode). Matches the
      Skipi Seafarer pattern: home button (left) + brand + settings gear
@@ -3751,6 +3768,17 @@ function _ctxInitResize(){
         document.addEventListener('mousemove', move);
         document.addEventListener('mouseup', stop);
     });
+    // Hotkeys: ⌘K / Ctrl+K opens+focuses the assistant; Esc collapses it.
+    document.addEventListener('keydown', function(e){
+        if((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')){
+            e.preventDefault();
+            if(ctxState.hidden) showCtxBar();
+            if(!(ctxState.height > 90)) toggleCtxExpand();
+            else { var inp=document.getElementById('ctx-input'); if(inp) inp.focus(); }
+        } else if(e.key === 'Escape' && ctxState.height > 90){
+            toggleCtxExpand();
+        }
+    });
 }
 
 // Render the last N team chat messages inside the chat-strip history pane
@@ -3861,13 +3889,37 @@ function updateCtxBarVisibility(){
 function _refreshCtxInfo(){
     var el = document.getElementById('ctx-info');
     if(!el) return;
-    if(ctxState.mode === 'team'){
-        el.textContent = '(в командный чат)';
-        return;
+    var a = buildAssistantContext();
+    el.textContent = '◎ ' + (a.scope_label || 'нет контекста');
+    el.title = a.scope_label || '';
+    // Contextual suggestions — quick-fill chips, shown only when expanded.
+    var sg = document.getElementById('ctx-suggest');
+    if(sg){
+        var sugg = (a.suggestions || []).slice(0,4);
+        sg.innerHTML = sugg.map(function(s){
+            return '<span class="ctx-sg" onclick="_ctxAskSuggestion('+JSON.stringify(s)+')">'+esc(s)+'</span>';
+        }).join('');
+        sg.style.display = (ctxState.height > 90 && sugg.length) ? 'flex' : 'none';
     }
-    var ctx = getModuleContext();
-    el.textContent = ctx.summary || 'контекст пуст';
-    el.title = ctx.summary || '';
+}
+function _ctxAskSuggestion(s){
+    var inp = document.getElementById('ctx-input');
+    if(inp){ inp.value = s; }
+    sendCtxMessage();
+}
+// Expand the assistant into the tall «overlay» state (history + suggestions)
+// or collapse back to the thin bar. ⌘K / chip-click / hint toggle this.
+function toggleCtxExpand(){
+    var expanded = ctxState.height > 90;
+    if(expanded){
+        _ctxApplyHeight(46);
+    } else {
+        _ctxApplyHeight(Math.round(window.innerHeight * 0.45));
+        if(typeof renderCtxHistory === 'function') renderCtxHistory();
+        var inp = document.getElementById('ctx-input');
+        if(inp) setTimeout(function(){ inp.focus(); }, 40);
+    }
+    _refreshCtxInfo();
 }
 
 // Returns {module, summary, blob} for the current view.
@@ -3971,10 +4023,127 @@ function getModuleContext(){
             }
         }
     } catch(e) {
-        ctx.summary = 'контекст: ошибка';
-        ctx.blob = String(e);
+        // Never surface a silent «контекст: ошибка» in the bar — log it and
+        // degrade gracefully to an empty-but-valid context (spec §5).
+        try { if(typeof logError==='function') logError('getModuleContext', e); } catch(_){}
+        ctx.summary = 'нет контекста';
+        ctx.blob = '';
     }
     return ctx;
+}
+
+// Human-readable render of a bxb match_reasons object. Each key becomes a
+// «label: value» line instead of the raw [object Object] (spec §5 / BUG-1).
+function fmtMatchReasons(reasons){
+    if(!reasons || typeof reasons !== 'object') return '';
+    var labels = {
+        window:'окно/laycan', vessel_type:'тип судна', geography:'география',
+        quantity:'кол-во/DWT', age_penalty:'возраст', oldest_side_age_h:'возраст ст. стороны (ч)',
+        contact_bonus:'контакт', freshness_bonus:'свежесть', hot_pair:'горячая пара',
+        confidence:'уверенность', data_fill:'заполненность данных'
+    };
+    var out = [];
+    Object.keys(reasons).forEach(function(k){
+        var v = reasons[k];
+        if(v && typeof v === 'object'){
+            // e.g. data_fill {cargo:0.6, tonnage:0.8} → "cargo 0.6 · tonnage 0.8"
+            v = Object.keys(v).map(function(kk){ return kk+' '+v[kk]; }).join(' · ');
+        }
+        out.push((labels[k]||k)+': '+v);
+    });
+    return out.join('\n');
+}
+
+// Unified assistant context (spec §5). ALWAYS returns a valid object:
+// { scope_label, chips:[{type,label,id}], payload:{}, suggestions:[] }.
+// Built on top of getModuleContext (reuses its per-view payload) and adds
+// removable chips + context-aware suggestions. Never throws.
+function buildAssistantContext(){
+    var base, view = state.view || '';
+    try { base = getModuleContext(); } catch(_){ base = { module:view, summary:'нет контекста', blob:'' }; }
+    var ctx = {
+        scope_label: base.summary || 'нет контекста',
+        chips: [],
+        payload: {},
+        suggestions: ['Что здесь самое важное?']
+    };
+    try { ctx.payload = base.blob ? JSON.parse(base.blob) : {}; } catch(_){ ctx.payload = {}; }
+    try {
+        if(view === 'match'){
+            var p = (state.bazaarPairs || []).filter(function(x){ return x.id === state.selectedPair; })[0];
+            if(p){
+                var c = p.cargo_signal || {}, t = p.tonnage_signal || {};
+                ctx.scope_label = 'пара ' + (c.cargo_type||'?') + ' ↔ ' + (t.vessel_name||t.vessel_type||'?');
+                ctx.chips = [
+                    { type:'pair', label:'Пара: '+(c.cargo_type||'?')+' '+(c.quantity_mt||'')+' '+(c.load_port||'?')+'→'+(c.disch_port||'?'), id:p.id },
+                    { type:'vessel', label:'Судно: '+(t.vessel_name||t.vessel_type||'?')+(t.vessel_imo?' · IMO '+t.vessel_imo:''), id:t.vessel_imo||'' }
+                ];
+                if(p.score!=null) ctx.chips.push({ type:'score', label:'Score '+p.score, id:'score' });
+                ctx.payload.match_reasons_readable = fmtMatchReasons(p.reasons || (p.match&&p.match.reasons));
+                ctx.suggestions = ['Шанс довести сделку?','Красные флаги контрагента','Что уточнить у владельца?','Похожие пары'];
+            } else {
+                ctx.scope_label = 'вкладка Совпадения · ' + ((state.bazaarPairs||[]).length) + ' пар';
+                ctx.suggestions = ['Какие пары самые перспективные?','Где больше всего шансов?'];
+            }
+        } else if(view === 'signals'){
+            ctx.suggestions = ['Это дубль?','Кому это подойдёт?'];
+        } else if(view === 'partners'){
+            if(state.selectedPartner) ctx.chips = [{ type:'partner', label:'Контрагент: '+state.selectedPartner, id:state.selectedPartner }];
+            ctx.suggestions = ['Чем он рискован?','Как с ним работать?'];
+        } else if(view === 'ex'){
+            if(state.selectedListing) ctx.chips = [{ type:'listing', label:'Моё объявление', id:state.selectedListing.id }];
+            ctx.suggestions = ['Кому разослать?','Усилить текст объявления'];
+        } else if(view === 'mail'){
+            ctx.suggestions = ['Извлеки сигнал из письма','Набросай черновик ответа'];
+        } else if(view === 'cases'){
+            ctx.suggestions = ['Каков следующий шаг?','С чем подкатить?'];
+        }
+    } catch(e){ try { if(typeof logError==='function') logError('buildAssistantContext', e); } catch(_){} }
+    return ctx;
+}
+
+// Inline «Объяснить матч (AI)» (spec §3.3): asks the assistant to explain the
+// currently-selected match (why / chance / difficulty / what-to-clarify /
+// red-yellow flags) and renders the reply as a card right in the column.
+// Routing = the real backend (Claude Code bridge via send_team_message_with_llm):
+// we send, then watch the team stream for the LLM reply and surface it here.
+async function explainMatchAI(){
+    var card = document.getElementById('explain-match-card');
+    if(!card) return;
+    var a = buildAssistantContext();
+    var prompt = 'Объясни этот матч кратко и по делу, строго структурой:\n'
+        + '• Почему сматчилось (why)\n• Шанс довести сделку: низкий / средний / высокий\n'
+        + '• Сложность\n• Что уточнить у владельца\n• Красные / жёлтые флаги\n\n'
+        + 'Контекст (' + (a.scope_label||'') + '):\n'
+        + JSON.stringify(a.payload || {}, null, 2).slice(0, 5000);
+    card.style.display = 'block';
+    card.innerHTML = '<div class="sub" style="color:#3C3489;">✦ Спрашиваю ассистента…</div>';
+    var before = ((state.team && state.team.messages) || []).length;
+    try {
+        await invoke('send_team_message_with_llm', { body: prompt });
+    } catch(e){
+        card.innerHTML = '<div class="sub" style="color:#e55561;">Не удалось спросить: '+esc(String(e))+'</div>';
+        return;
+    }
+    var llmRe = /llm|агент|assistant|🤖/i, tries = 0;
+    var timer = setInterval(function(){
+        tries++;
+        try { if(typeof teamPollOnce === 'function') teamPollOnce(false); } catch(_){}
+        var msgs = (state.team && state.team.messages) || [];
+        for(var i = msgs.length - 1; i >= before; i--){
+            if(llmRe.test(msgs[i].sender_nickname || '')){
+                clearInterval(timer);
+                var b = (msgs[i].body || '');
+                card.innerHTML = '<div class="cm-meta" style="margin-bottom:4px;"><span class="cm-from" style="color:#3C3489;">✦ Ассистент</span></div>'
+                    + '<div class="explain-answer">'+esc(b)+'</div>';
+                return;
+            }
+        }
+        if(tries >= 40){ // ~2 min
+            clearInterval(timer);
+            card.innerHTML = '<div class="sub" style="color:#d4a017;">Ассистент не ответил за ~2 мин. Убедись, что AI-сессия (/loop broker) запущена — вопрос ушёл в чат «Команда».</div>';
+        }
+    }, 3000);
 }
 
 // Pending Q→A bindings: when the user asks the LLM in cases mode,
@@ -6502,6 +6671,10 @@ function renderActiveView(){
         renderBxbMatchesForSelectedSignal();
         renderOppositeSignalDetail();
     }
+    // Keep the assistant context chip + suggestions in sync with the current
+    // view AND selection (pair/signal). Without this the chip went stale on
+    // pair-select (showed «N пар» instead of «пара …»).
+    if(typeof _refreshCtxInfo === 'function') try { _refreshCtxInfo(); } catch(_){}
 }
 
 // ---------- View 🛒 Сигналы — browse all bazaar signals ----------
@@ -7632,11 +7805,11 @@ function showView(name){
     if(navMail) navMail.classList.toggle('active', name === 'mail');
     if(navTeam) navTeam.classList.toggle('active', name === 'team');
 
-    // team-block migrates between ex / match (corner) and team (full-screen).
-    if(name === 'ex' || name === 'match' || name === 'team'){
+    // Team chat now lives ONLY on the «Команда» tab (spec §4) — no corner dock
+    // in ex/match. Migrate the team-block into team-mount-team and keep it there.
+    if(name === 'team'){
         var teamBlock = document.getElementById('team-block');
-        var teamMountId = name === 'ex' ? 'team-mount-ex' : (name === 'match' ? 'team-mount-match' : 'team-mount-team');
-        var teamMount = document.getElementById(teamMountId);
+        var teamMount = document.getElementById('team-mount-team');
         if(teamBlock && teamMount && teamBlock.parentNode !== teamMount){
             teamMount.appendChild(teamBlock);
         }
@@ -8284,14 +8457,22 @@ function renderOppositeSignalDetail(){
         html += '<div class="raw-text" style="max-height:none;">'+esc(sig.description)+'</div>';
     }
 
-    // Reasons matcher fired.
+    // Reasons matcher fired. Nested objects (e.g. data_fill {cargo,tonnage})
+    // are rendered as «k v · k v» instead of the raw [object Object] (BUG-1).
     var reasons = m.reasons || {};
     var reasonRows = Object.keys(reasons).map(function(k){
-        return '<div class="detail-row"><span class="k">'+esc(k)+'</span><span class="v">'+esc(String(reasons[k]))+'</span></div>';
+        var v = reasons[k];
+        if(v && typeof v === 'object'){
+            v = Object.keys(v).map(function(kk){ return kk+' '+v[kk]; }).join(' · ');
+        }
+        return '<div class="detail-row"><span class="k">'+esc(k)+'</span><span class="v">'+esc(String(v))+'</span></div>';
     }).join('');
     if(reasonRows){
         html += '<h3 style="margin-bottom:6px; margin-top:14px;">Почему агент сматчил</h3>';
         html += '<div class="detail-block">'+reasonRows+'</div>';
+        // Inline «explain this match» (spec §3.3) — AI answer renders right here.
+        html += '<button class="btn btn-accent" style="margin-top:8px; background:#3C3489; border-color:#3C3489;" onclick="explainMatchAI()">✦ Объяснить матч (AI)</button>';
+        html += '<div id="explain-match-card" class="explain-card" style="display:none;"></div>';
     }
 
     // 📂 Завести дело — лиды и дела слиты в одну сущность 03.06 (per Тимур),
