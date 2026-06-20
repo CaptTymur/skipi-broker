@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker</title>
 <script>
-var APP_VERSION='0.1.125';
+var APP_VERSION='0.1.126';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION;
     document.title = t;
@@ -2116,6 +2116,7 @@ var state = {
     selectedMatch: null,     // { type:'own'|'bazaar', data:{...} }
     publish: { side:null },  // null | 'cargo' | 'tonnage'
     settingsTab: 'connection',
+    access: null,   // {role, team_id, team_name, days_left, active, expires} — from /api/broker-auth/validate
     view: 'ex',              // 'ex' = Эксклюзивы tab, 'match' = Совпадения tab
     selectedSignal: null,    // { kind:'cargo'|'tonnage', id:'...' } — driver of view-match col 2 selection
     bxbMatches: [],          // bazaar × bazaar matches for selectedSignal
@@ -6163,13 +6164,30 @@ async function doInstallUpdate(){
 // token). On every boot we verify the stored token against the server —
 // if the broker was revoked (deleted on the backend), we wipe it and
 // force re-auth. Required by Тимур after token rotation incident.
+// Reason from the last validation: 'ok' | 'invalid' | 'expired' | 'network'.
+// Lets the gate tell "no connection" apart from "revoked" (the offline-looks-
+// like-revoked bug) and show a dedicated trial-expired message.
+var _authLastReason = 'ok';
 async function _authGateValidate(bid){
-    if(!bid) return false;
-    if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bid)) return false;
+    if(!bid){ _authLastReason='invalid'; return false; }
+    if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bid)){ _authLastReason='invalid'; return false; }
+    var base = (state.settings && state.settings.server_url) || 'https://api.skipi.app';
     try {
-        var r = await fetch('https://api.skipi.app/api/brokers/' + encodeURIComponent(bid));
-        return r.ok;
-    } catch(_) { return false; }
+        var r = await fetch(base + '/api/broker-auth/validate?token=' + encodeURIComponent(bid));
+        if(!r.ok){ _authLastReason='network'; return false; }
+        var d = await r.json();
+        if(!d || !d.ok){ state.access=null; _authLastReason='invalid'; return false; }
+        state.access = { role:d.role, team_id:d.team_id, team_name:d.display_name,
+                         days_left:(d.days_left===undefined?null:d.days_left),
+                         active:!!d.active, expires:d.trial_expires_at||null };
+        if(!d.active){ _authLastReason='expired'; return false; }
+        _authLastReason='ok'; return true;
+    } catch(_) { _authLastReason='network'; return false; }
+}
+function _authGateMessage(){
+    if(_authLastReason==='network') return 'Нет связи с сервером — проверьте интернет и повторите.';
+    if(_authLastReason==='expired') return 'Триал команды истёк. Свяжись с руководителем для продления доступа.';
+    return 'Токен не найден или отозван. Уточни у руководителя.';
 }
 function _authGateShow(){
     var el = document.getElementById('auth-gate-overlay');
@@ -6199,7 +6217,7 @@ async function _authGateSubmit(){
     if(btn) btn.disabled = false;
     if(!ok){
         err.style.color = '#e55561';
-        err.textContent = 'Токен не найден или отозван. Уточни у руководителя.';
+        err.textContent = _authGateMessage();
         return;
     }
     state.settings = state.settings || {};
@@ -6211,6 +6229,14 @@ async function _authGateSubmit(){
 }
 async function _bootContinue(){
     refreshIdentityBadge();
+    // Trial countdown surfaces only in the last 15 days — first ~2 weeks stay
+    // distraction-free (Тимур 2026-06-20). ≤10 days adds a renewal nudge.
+    try {
+        if(state.access && state.access.active && state.access.days_left!==null && state.access.days_left<=15){
+            var _d=state.access.days_left;
+            showToast((_d<=10?'⚠ ':'')+'Пробный доступ: осталось '+_d+' дн.'+(_d<=10?' Свяжись с руководителем для продления.':''), _d<=10?'warn':'info');
+        }
+    } catch(_){}
     await refreshAll();
     startAutoRefresh();
     initTeamChat();
@@ -6233,12 +6259,17 @@ async function boot(){
     // If revoked or absent — wipe and force user to re-enter.
     var validBid = await _authGateValidate(state.settings && state.settings.broker_id);
     if(!validBid){
-        if(state.settings && state.settings.broker_id){
+        // Only wipe the stored token when the server says it is genuinely
+        // invalid/revoked — NOT on a network failure (offline must not look
+        // like "revoked") and NOT on an expired trial (keep token for renewal).
+        if(_authLastReason==='invalid' && state.settings && state.settings.broker_id){
             state.settings.broker_id = null;
             try { state.settings = await invoke('save_settings', { incoming: state.settings }); } catch(_){}
             refreshIdentityBadge();
         }
         _authGateShow();
+        var _ge=document.getElementById('auth-gate-err');
+        if(_ge){ _ge.style.color='#e55561'; _ge.textContent=_authGateMessage(); }
         return;
     }
     await _bootContinue();
@@ -9916,6 +9947,9 @@ function renderSettingsBody(){
                 : '<div class="sub" style="margin:8px 0 4px 0; color:#e55561;">Токен не введён</div>')+
             '<div style="margin-top:10px;"><button class="btn btn-accent" onclick="overrideBrokerId()">Использовать этот токен</button></div>'+
 
+            // ── 1b. Доступ команды: триал + (для owner) токены членов ──
+            _accessSectionHtml()+
+
             '<hr style="margin:22px 0; border:none; border-top:1px solid var(--border);">'+
 
             // ── 2. Профиль (имя + email) ───────────────────────────
@@ -9944,6 +9978,7 @@ function renderSettingsBody(){
 
             // Server URL — спрятан в About вкладке как технический инфо
             '<div class="sub" style="margin-top:24px; font-size:10px; color:var(--text3);">Сервер: '+esc(s.server_url||'https://api.skipi.app')+'</div>';
+        _afterProfileRender();
     } else if(t==='appearance'){
         var cur = localStorage.getItem('skipi-broker-theme') || 'light';
         body.innerHTML = '<h3>Внешний вид</h3><div class="sub">Тема интерфейса.</div>'+
@@ -9989,6 +10024,7 @@ async function registerBroker(){
             state.settings.bearer_token = state.settings.broker_id;
             try { state.settings = await invoke('save_settings', { incoming: state.settings }); } catch(_){}
         }
+        try { await _authGateValidate(state.settings.broker_id); } catch(_){}  // populate role/trial (fresh owner gets 30-day trial)
         refreshIdentityBadge();
         showToast('Зарегистрирован: '+state.settings.broker_id, 'ok');
         renderSettingsBody();
@@ -10022,11 +10058,96 @@ async function overrideBrokerId(){
     s.bearer_token = newId;
     try {
         state.settings = await invoke('save_settings', { incoming:s });
+        try { await _authGateValidate(newId); } catch(_){}  // populate role/trial for the access section
         refreshIdentityBadge();
         showToast('Использую team broker_id: '+newId.slice(0,8), 'ok');
         await refreshAll();
         renderSettingsBody();
     } catch(e){ showToast('Override: '+e, 'error'); }
+}
+
+// ---------- Team access: trial + member tokens (role-aware) ----------
+function _brokerBase(){ return (state.settings && state.settings.server_url) || 'https://api.skipi.app'; }
+
+function _accessSectionHtml(){
+    var a = state.access;
+    if(!a) return '';
+    var out = '';
+    // Trial status line
+    if(a.days_left===null || a.expires===null){
+        out += '<div class="sub" style="margin-top:8px;">Доступ команды: <b>без ограничения</b>.</div>';
+    } else {
+        var d = a.days_left;
+        var col = d<=10 ? '#e55561' : (d<=15 ? '#d4a017' : 'var(--text2)');
+        out += '<div class="sub" style="margin-top:8px; color:'+col+';">Пробный доступ: осталось <b>'+d+'</b> дн.'
+             + (d<=10 ? ' — свяжись с руководителем для продления.' : '') + '</div>';
+    }
+    if(a.role==='owner'){
+        out += '<hr style="margin:18px 0; border:none; border-top:1px solid var(--border);">'
+            + '<h3>👥 Токены команды</h3>'
+            + '<div class="sub">Создавай токены для членов команды и отзывай при необходимости. Член входит в приложение своим токеном.</div>'
+            + '<div id="team-tokens-list" style="margin-top:10px;"><div class="sub">Загрузка…</div></div>'
+            + '<div style="margin-top:10px;"><button class="btn btn-accent" onclick="createTeamToken()">➕ Создать токен члену</button></div>';
+    } else if(a.role==='member'){
+        out += '<div class="sub" style="margin-top:8px;">Ты — <b>член команды</b> «'+esc(a.team_name||'')+'». Токены выдаёт руководитель.</div>';
+    }
+    return out;
+}
+
+function _afterProfileRender(){
+    if(state.access && state.access.role==='owner') setTimeout(loadTeamTokens, 0);
+}
+
+async function loadTeamTokens(){
+    var box = document.getElementById('team-tokens-list');
+    if(!box || !state.access || state.access.role!=='owner') return;
+    try {
+        var r = await fetch(_brokerBase()+'/api/brokers/'+encodeURIComponent(state.access.team_id)+'/tokens',
+            { headers:{ 'Authorization':'Bearer '+state.settings.broker_id } });
+        if(!r.ok){ box.innerHTML='<div class="sub" style="color:#e55561;">Не удалось загрузить токены ('+r.status+').</div>'; return; }
+        var d = await r.json();
+        var toks = (d && d.tokens) || [];
+        if(!toks.length){ box.innerHTML='<div class="sub">Токенов пока нет.</div>'; return; }
+        box.innerHTML = toks.map(function(t){
+            var st = t.status==='active' ? '<span style="color:#4ec970;">активен</span>' : '<span style="color:#e55561;">отозван</span>';
+            var seen = t.last_seen_at ? (' · был '+new Date(t.last_seen_at).toLocaleDateString()) : ' · не входил';
+            var act = t.status==='active'
+                ? '<button class="btn btn-outline" style="padding:2px 8px; font-size:10px;" onclick="revokeTeamToken(\''+t.id+'\')">Отозвать</button>'
+                : '';
+            return '<div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--border);">'
+                 + '<div style="flex:1; min-width:0;"><div style="font-size:12px;">'+esc(t.label||'(без метки)')+' — '+st+'</div>'
+                 + '<div class="sub" style="font-family:monospace; font-size:10px; word-break:break-all;">'+esc(t.token)+seen+'</div></div>'
+                 + act + '</div>';
+        }).join('');
+    } catch(e){ box.innerHTML='<div class="sub" style="color:#e55561;">Ошибка сети.</div>'; }
+}
+
+async function createTeamToken(){
+    if(!state.access || state.access.role!=='owner') return;
+    var label = prompt('Имя/метка члена команды (например, «Андрей»):','');
+    if(label===null) return;
+    try {
+        var r = await fetch(_brokerBase()+'/api/brokers/'+encodeURIComponent(state.access.team_id)+'/tokens',
+            { method:'POST', headers:{ 'Authorization':'Bearer '+state.settings.broker_id, 'Content-Type':'application/json' },
+              body: JSON.stringify({ label: label }) });
+        if(!r.ok){ showToast('Не удалось создать токен ('+r.status+')','error'); return; }
+        var d = await r.json();
+        try { await navigator.clipboard.writeText(d.token); showToast('Токен создан и скопирован — передай члену команды','ok'); }
+        catch(_){ showToast('Токен создан: '+d.token,'ok'); }
+        await loadTeamTokens();
+    } catch(e){ showToast('Ошибка: '+e,'error'); }
+}
+
+async function revokeTeamToken(id){
+    if(!confirm('Отозвать этот токен? Член команды потеряет доступ при следующем запуске.')) return;
+    try {
+        var r = await fetch(_brokerBase()+'/api/brokers/tokens/'+encodeURIComponent(id)+'/status',
+            { method:'PATCH', headers:{ 'Authorization':'Bearer '+state.settings.broker_id, 'Content-Type':'application/json' },
+              body: JSON.stringify({ status:'revoked' }) });
+        if(!r.ok){ showToast('Не удалось отозвать ('+r.status+')','error'); return; }
+        showToast('Токен отозван','ok');
+        await loadTeamTokens();
+    } catch(e){ showToast('Ошибка: '+e,'error'); }
 }
 
 // ---------- Boot ----------
