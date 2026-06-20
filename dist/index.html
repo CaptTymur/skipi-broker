@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker - United Seafarers</title>
 <script>
-var APP_VERSION='0.1.128';
+var APP_VERSION='0.1.129';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION+' - United Seafarers';
     document.title = t;
@@ -294,6 +294,11 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 /* Soft placeholder for secondary panels — calmer than an instruction. */
 .col-empty-soft { padding:40px 22px; text-align:center; color:var(--text3); font-size:12px; line-height:1.5; }
 .col-empty-soft .ce-dot { font-size:22px; opacity:.35; display:block; margin-bottom:10px; }
+/* Circulate-by-email modal fields */
+.ce-lbl { display:block; font-size:11px; color:var(--text2); margin:10px 0 4px; }
+.circ-in, .circ-ta { width:100%; box-sizing:border-box; padding:9px 11px; font-size:13px;
+    background:var(--surface,#fff); color:var(--text); border:1px solid var(--border); border-radius:6px; font-family:inherit; }
+.circ-ta { resize:vertical; line-height:1.45; }
 
 /* Status bar (P5 / progress bar zone) */
 .statusbar { display:flex; align-items:center; gap:14px; height:24px; background:var(--statusbar);
@@ -322,6 +327,9 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .row .r-dismiss { font-size:14px; color:var(--text3); cursor:pointer; padding:1px 6px;
     user-select:none; line-height:1; border-radius:3px; }
 .row .r-dismiss:hover { color:var(--red); background:var(--surface2); }
+.row .r-circulate { font-size:13px; cursor:pointer; padding:1px 5px; user-select:none;
+    line-height:1; border-radius:3px; opacity:.6; }
+.row .r-circulate:hover { opacity:1; background:var(--surface2); }
 .row .r-meta { font-size:11px; color:var(--text2); display:flex; gap:8px; flex-wrap:wrap; }
 .row .r-meta b { color:var(--text); font-weight:600; }
 .row .r-tag { display:inline-block; padding:0 5px; border-radius:3px; font-size:10px;
@@ -8908,7 +8916,8 @@ function renderP0(){
     }
 
     html += '<div class="actions-row">';
-    html += '<button class="btn btn-accent" onclick="openEditModal()">✎ Редактировать</button>';
+    html += '<button class="btn btn-accent" onclick="openCirculateModal()">📧 Циркулировать по имейл</button>';
+    html += '<button class="btn btn-outline" onclick="openEditModal()">✎ Редактировать</button>';
     html += '<button class="btn btn-outline" onclick="actionCloseListing()">✕ Снять с базара</button>';
     html += '</div>';
     html += '</div>';
@@ -8987,6 +8996,7 @@ function renderP1(){
             +'<div class="r-top"><span class="r-icon">'+icon+'</span>'
             +'<span class="r-title">'+esc(truncate(title,38))+'</span>'
             +'<span class="r-age" title="опубликовано '+esc(fmtDate(d.published_at))+'">'+ringHtml+' '+esc(ageText)+'</span>'
+            +'<span class="r-circulate" title="Циркулировать по имейл" onclick="event.stopPropagation(); circulateListing(\''+r.kind+'\',\''+esc(d.id)+'\')">📧</span>'
             +'<span class="r-dismiss" title="Снять с базара" onclick="event.stopPropagation(); closeListingFromRow(\''+r.kind+'\',\''+esc(d.id)+'\')">✕</span>'
             +'</div>'
             +'<div class="r-meta">'+esc(meta)+'</div>'
@@ -9738,6 +9748,114 @@ function _publishDraftWireAutoSave(){
     });
 }
 var _publishDraftSaveTimer = null;
+
+// ---------- Circulate by email (.eml on desktop / share sheet on mobile) ----------
+var MAIL_LIST_KEY = 'skipi-broker-mail-list';
+function _mailListGet(){ try { return localStorage.getItem(MAIL_LIST_KEY) || ''; } catch(_){ return ''; } }
+function _mailListSet(v){ try { localStorage.setItem(MAIL_LIST_KEY, v||''); } catch(_){} }
+function _parseRecipients(text){
+    return (text||'').split(/[\s,;]+/).map(function(x){ return x.trim(); })
+        .filter(function(x){ return x && x.indexOf('@')>0; });
+}
+function composeCircular(d, kind){
+    var subj, L=[];
+    if(kind==='cargo'){
+        var route=(d.load_port||'?')+'/'+(d.disch_port||'?');
+        subj='CARGO: '+(d.quantity_mt?d.quantity_mt+'mt ':'')+(d.cargo_type||'')+' '+route;
+        L.push('Dear all,','','Pls find below open cargo — kindly propose suitable tonnage:','',
+            'Cargo: '+(d.cargo_type||'-')+(d.quantity_mt?', '+d.quantity_mt+' mt'+(d.quantity_tolerance_pct?' +/-'+d.quantity_tolerance_pct+'%':''):''),
+            'Load: '+(d.load_port||'-')+(d.load_country?' ('+d.load_country+')':''),
+            'Disch: '+(d.disch_port||'-')+(d.disch_country?' ('+d.disch_country+')':''),
+            'Laycan: '+fmtRange(d.laycan_from,d.laycan_to));
+        if(d.stowage_factor) L.push('SF: '+d.stowage_factor);
+    } else {
+        subj='TONNAGE: '+(d.vessel_name||('IMO '+(d.vessel_imo||'')))+(d.dwt?' '+d.dwt+'dwt':'')+' open '+(d.open_port||'?');
+        L.push('Dear all,','','Pls find below open tonnage — kindly propose suitable cargo:','',
+            'Vessel: '+(d.vessel_name||'-')+(d.vessel_imo?' (IMO '+d.vessel_imo+')':''),
+            'Type: '+(d.vessel_type||'-'),'DWT: '+(d.dwt||'-'),
+            'Open: '+(d.open_port||'-')+(d.open_country?' ('+d.open_country+')':''),
+            'Window: '+fmtRange(d.open_from,d.open_to));
+        if(d.commercial_manager) L.push('Comm. mgr: '+d.commercial_manager);
+    }
+    if(d.rate_indication) L.push('Rate: '+d.rate_indication);
+    L.push('','BRgds');
+    return { subject:subj, body:L.join('\n') };
+}
+// One-tap circulate straight from a listing card (works on mobile where the
+// detail's action buttons sit below a scroll).
+function circulateListing(kind, id){
+    state.selectedListing = { kind:kind, id:id };
+    try { if(typeof renderMyCirculationDetail==='function') renderMyCirculationDetail(); } catch(_){}
+    openCirculateModal();
+}
+function openCirculateModal(){
+    if(!state.selectedListing){ showToast('Сначала выбери циркуляцию.','error'); return; }
+    var sel=state.selectedListing;
+    var pool=sel.kind==='cargo'?state.myCargo:state.myTonnage;
+    var d=(pool||[]).filter(function(x){ return x.id===sel.id; })[0];
+    if(!d){ showToast('Циркуляция не найдена.','error'); return; }
+    var c=composeCircular(d, sel.kind);
+    var isMobile=document.body.classList.contains('mobile-mode');
+    closeCirculateModal();
+    var ov=document.createElement('div');
+    ov.id='circulate-overlay';
+    ov.style.cssText='position:fixed; inset:0; z-index:99998; background:rgba(10,15,25,.55); display:flex; align-items:center; justify-content:center; padding:20px;';
+    var sendBtn = isMobile
+        ? '<button class="btn btn-accent" onclick="doCirculateShare()">📤 Поделиться</button>'
+        : '<button class="btn btn-accent" onclick="doCirculateEml()">📧 Создать письмо (.eml)</button>';
+    var recipientsBlock = isMobile ? '' :
+        '<label class="ce-lbl">Список рассылки (по одному email на строку или через запятую)</label>'+
+        '<textarea id="circ-recipients" rows="4" class="circ-ta" placeholder="broker1@example.com&#10;broker2@example.com">'+esc(_mailListGet())+'</textarea>';
+    ov.innerHTML =
+        '<div style="background:var(--bg,#fff); border:1px solid var(--border); border-radius:12px; width:100%; max-width:560px; max-height:90vh; overflow:auto; padding:22px; box-shadow:0 20px 60px rgba(0,0,0,.4);">'+
+        '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">'+
+            '<div style="font-size:16px; font-weight:700; color:var(--text);">📧 Циркуляция по имейл</div>'+
+            '<span style="cursor:pointer; color:var(--text3); font-size:20px; line-height:1;" onclick="closeCirculateModal()">×</span></div>'+
+        '<div class="sub" style="margin-bottom:6px;">'+(isMobile
+            ? 'Откроется меню «Поделиться» — выбери почту/мессенджер и отправь.'
+            : 'Письмо откроется в твоём почтовом клиенте — проверь и отправь сам. Адресаты не видят друг друга (Bcc).')+'</div>'+
+        recipientsBlock+
+        '<label class="ce-lbl">Тема</label>'+
+        '<input id="circ-subject" class="circ-in" value="'+esc(c.subject)+'">'+
+        '<label class="ce-lbl">Текст</label>'+
+        '<textarea id="circ-body" rows="10" class="circ-ta">'+esc(c.body)+'</textarea>'+
+        '<div class="actions-row" style="margin-top:14px;">'+sendBtn+
+            '<button class="btn btn-outline" onclick="closeCirculateModal()">Отмена</button></div>'+
+        '</div>';
+    document.body.appendChild(ov);
+    ov.addEventListener('click', function(e){ if(e.target===ov) closeCirculateModal(); });
+}
+function closeCirculateModal(){ var ov=document.getElementById('circulate-overlay'); if(ov) ov.remove(); }
+async function doCirculateEml(){
+    var recoText=(document.getElementById('circ-recipients')||{}).value||'';
+    _mailListSet(recoText); // persist the list for next time
+    var reco=_parseRecipients(recoText);
+    if(!reco.length){ showToast('Добавь хотя бы один email в список рассылки.','error'); return; }
+    var subject=(document.getElementById('circ-subject')||{}).value||'';
+    var body=(document.getElementById('circ-body')||{}).value||'';
+    try {
+        await invoke('circulate_eml', { recipients:reco, subject:subject, body:body });
+        showToast('Письмо создано ('+reco.length+' получ.) — открой почтовый клиент и отправь.','ok');
+        closeCirculateModal();
+    } catch(e){ showToast('Ошибка: '+e,'error'); }
+}
+async function doCirculateShare(){
+    var subject=(document.getElementById('circ-subject')||{}).value||'';
+    var body=(document.getElementById('circ-body')||{}).value||'';
+    var text=body+'\n\n--\nSent via Skipi';
+    // Primary: Web Share API (true native share sheet) if the WebView exposes it.
+    if(navigator.share){
+        try { await navigator.share({ title:subject, text:text }); closeCirculateModal(); return; }
+        catch(e){ if(e && e.name==='AbortError') return; /* else fall through */ }
+    }
+    // Fallback (Android — navigator.share absent): hand a mailto: to the OS via
+    // the opener plugin so the mail app opens to circulate by email.
+    var mailto='mailto:?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(text);
+    try {
+        await invoke('plugin:opener|open_url', { url: mailto });
+        closeCirculateModal();
+    } catch(e){ showToast('Не удалось открыть почту/поделиться: '+e, 'error'); }
+}
 
 function openPublishModal(){
     // Restore an in-flight draft if there is one (form auto-save). Edit

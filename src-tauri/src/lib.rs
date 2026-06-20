@@ -1127,6 +1127,74 @@ fn generate_eml(
     Ok(path.to_string_lossy().to_string())
 }
 
+/// Compose a CIRCULAR .eml for an email blast: To = the broker themselves,
+/// Bcc = the whole recipient list (so recipients never see each other —
+/// the professional way to circulate a position). Writes + hands off to
+/// the OS mail client, same as generate_eml. The user reviews and sends.
+#[tauri::command]
+fn circulate_eml(
+    state: tauri::State<'_, AppState>,
+    recipients: Vec<String>,
+    subject: String,
+    body: String,
+) -> Result<String, String> {
+    let s = settings_snapshot(&state);
+    if s.reply_to.is_empty() {
+        return Err(
+            "Reply-to email not set — open Settings and configure your address first.".into(),
+        );
+    }
+    let bcc = recipients
+        .iter()
+        .map(|r| r.trim())
+        .filter(|r| !r.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ");
+    if bcc.is_empty() {
+        return Err("Список рассылки пуст — добавь хотя бы один email.".into());
+    }
+    let from_header = if s.display_name.is_empty() {
+        s.reply_to.clone()
+    } else {
+        format!("{} <{}>", s.display_name, s.reply_to)
+    };
+    let body_with_footer = format!("{}\n\n--\nSent via Skipi", body);
+    let eml = format!(
+        "Date: {date}\r\n\
+         From: {from}\r\n\
+         To: {to}\r\n\
+         Bcc: {bcc}\r\n\
+         Subject: {subject}\r\n\
+         MIME-Version: 1.0\r\n\
+         Content-Type: text/plain; charset=UTF-8\r\n\
+         Content-Transfer-Encoding: 8bit\r\n\
+         X-Skipi-Channel: eml-circular\r\n\
+         \r\n\
+         {body}\r\n",
+        date = rfc822_now(),
+        from = from_header,
+        to = s.reply_to,
+        bcc = bcc,
+        subject = subject,
+        body = body_with_footer,
+    );
+    let mut path = dirs::data_local_dir()
+        .or_else(dirs::home_dir)
+        .ok_or_else(|| "no writable home dir".to_string())?;
+    path.push("skipi-broker");
+    path.push("drafts");
+    std::fs::create_dir_all(&path).map_err(|e| format!("mkdir drafts: {e}"))?;
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    path.push(format!(
+        "skipi-circular-{}-{}.eml",
+        stamp,
+        uuid::Uuid::new_v4().simple()
+    ));
+    std::fs::write(&path, eml).map_err(|e| format!("write .eml: {e}"))?;
+    open_path_or_url(path.to_string_lossy().as_ref())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 /// Open WhatsApp with a pre-filled message via the whatsapp:// URL
 /// scheme. The user's authenticated WA Desktop / WA Web picks up the
 /// payload and the user hits Send themselves.
@@ -1407,7 +1475,10 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_log::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init());
+        .plugin(tauri_plugin_fs::init())
+        // opener: cross-platform — on Android it hands mailto:/https: to the
+        // OS Intent system (the mobile circulate-by-email path uses this).
+        .plugin(tauri_plugin_opener::init());
     // updater + process are desktop-only — Tauri mobile uses platform stores
     // for updates and has no process-relaunch concept on Android/iOS.
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -1463,6 +1534,7 @@ pub fn run() {
             send_team_message_with_llm,
             fetch_team_messages,
             generate_eml,
+            circulate_eml,
             open_whatsapp,
             open_wa_chat,
             open_external,

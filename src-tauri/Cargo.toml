@@ -1,6 +1,6 @@
 [package]
 name = "skipi-broker"
-version = "0.1.127"
+version = "0.1.129"
 description = "Skipi Broker - United Seafarers. Freight board client for cargo-tonnage matching"
 authors = ["Tymur Rudov"]
 license = "Proprietary"
@@ -22,6 +22,7 @@ tauri = { version = "2.10.3", features = [ "devtools"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
+tauri-plugin-opener = "2"
 # Cross-platform deps — reqwest/chrono/uuid/dirs/lettre work on android+ios via rustls
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
