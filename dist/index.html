@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Skipi Broker</title>
+<title>Skipi Broker - United Seafarers</title>
 <script>
-var APP_VERSION='0.1.127';
+var APP_VERSION='0.1.128';
 function updateTitlebar(){
-    var t = 'Skipi Broker '+APP_VERSION;
+    var t = 'Skipi Broker '+APP_VERSION+' - United Seafarers';
     document.title = t;
     // Tauri 2 window title is separate from <title>. Push it via the
     // window API so the OS-level titlebar updates after auto-update.
@@ -48,9 +48,9 @@ var UI_LANG_VALID=UI_LANG_OPTIONS.reduce(function(a,o){a[o[0]]=true;return a;},{
 // terminology in English mirrors Clarksons / SSY style.
 var UI_STRINGS={
     ru:{
-        'nav.exclusives':'📋 Эксклюзивы','nav.matches':'🎯 Совпадения','nav.signals':'🛒 Сигналы',
-        'nav.duplicates':'🔍 Дедупликатор','nav.counterparts':'🤝 Контрагенты',
-        'nav.map':'🗺 Визуализатор','nav.mail':'📧 Почта','nav.team':'💬 Команда',
+        'nav.exclusives':'📋 Эксклюзивы','nav.matches':'🎯 Совпадения','nav.signals':'🛒 Базар',
+        'nav.duplicates':'🔍 Дубли','nav.counterparts':'🤝 Контрагенты',
+        'nav.map':'🗺 Карта','nav.mail':'📧 Почта','nav.team':'💬 Команда',
         'top.notRegistered':'Не зарегистрирован','top.gear':'Настройки',
         'settings.title':'Настройки','settings.tab.general':'Общие','settings.tab.connection':'Подключение',
         'settings.tab.identity':'Профиль брокера','settings.tab.reply':'Reply-to',
@@ -285,6 +285,15 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .col-body { flex:1; overflow-y:auto; }
 .col-empty { padding:32px 18px; color:var(--text3); font-size:12px; line-height:1.5; text-align:center; }
 .col-empty .hint { display:block; margin-top:10px; color:var(--text2); }
+/* Strong empty state with a single primary action (first-run guidance). */
+.col-empty-cta { padding:40px 22px; text-align:center; }
+.col-empty-cta .ce-icon { font-size:34px; line-height:1; margin-bottom:14px; opacity:.9; }
+.col-empty-cta .ce-title { font-size:15px; font-weight:600; color:var(--text); margin-bottom:6px; }
+.col-empty-cta .ce-sub { font-size:12px; color:var(--text2); line-height:1.5; max-width:240px; margin:0 auto 16px; }
+.col-empty-cta .ce-btn { font-size:13px; padding:9px 18px; }
+/* Soft placeholder for secondary panels — calmer than an instruction. */
+.col-empty-soft { padding:40px 22px; text-align:center; color:var(--text3); font-size:12px; line-height:1.5; }
+.col-empty-soft .ce-dot { font-size:22px; opacity:.35; display:block; margin-bottom:10px; }
 
 /* Status bar (P5 / progress bar zone) */
 .statusbar { display:flex; align-items:center; gap:14px; height:24px; background:var(--statusbar);
@@ -350,7 +359,11 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 
 /* Tab view containers — only one visible at a time */
 .view-pane { flex:1; display:flex; overflow:hidden; }
-.view-match-stack { flex-direction:column; }
+/* Drill-down column views get a centered max-width so the 4-column board
+   doesn't stretch into sparse emptiness on ultrawide monitors. Bazaar/Map/
+   Counterparties stay full-width (they are .view-pane without this class). */
+.view-match-stack { flex-direction:column; max-width:1800px; width:100%; margin-left:auto; margin-right:auto; }
+body.mobile-mode .view-match-stack { max-width:none; }
 .view-lead-stack { flex-direction:column; }
 .view-signals-stack { flex-direction:column; }
 .view-viz-stack { flex-direction:row; }
@@ -1377,7 +1390,8 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
     <div style="background:var(--bg, #1a1f28); border:1px solid var(--border, #2a3240);
         border-radius:12px; max-width:480px; width:100%; padding:32px;
         box-shadow:0 20px 60px rgba(0,0,0,0.5);">
-        <div style="font-size:18px; font-weight:700; color:var(--text, #fff); margin-bottom:8px;">⚓ Skipi Broker</div>
+        <div style="font-size:18px; font-weight:700; color:var(--text, #fff); margin-bottom:4px;">⚓ Skipi Broker</div>
+        <div style="font-size:11px; color:var(--text2,#aab); margin-bottom:12px;">Skipi - United Seafarers</div>
 
         <!-- Pane: choice (first run — pick admin or join) -->
         <div id="auth-pane-choice">
@@ -1443,7 +1457,7 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
         </div>
         <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border, #2a3240);
             font-size:10px; color:var(--text3, #788); line-height:1.5;">
-            Skipi Broker — closed beta. Токен валидируется на сервере при каждом запуске.
+            Skipi - United Seafarers. Skipi Broker closed beta. Токен валидируется на сервере при каждом запуске.
             При смене токена руководителем старая копия приложения попросит ввести новый.
         </div>
     </div>
@@ -8064,7 +8078,7 @@ function renderSelectedMatchDetail(){
     }
     if(bodies.length === 0) return;
     if(!state.selectedMatch || state.selectedMatch.type !== 'bazaar'){
-        var emptyHtml = '<div class="col-empty">Выбери совпадение в соседней колонке чтобы увидеть оригинальное сообщение и контакты.</div>';
+        var emptyHtml = '<div class="col-empty-soft"><span class="ce-dot">📨</span>Выбери совпадение — здесь будет оригинал сообщения и контакты.</div>';
         bodies.forEach(function(b){ b.body.innerHTML = emptyHtml; if(b.meta) b.meta.textContent = ''; });
         return;
     }
@@ -8367,7 +8381,7 @@ function renderExMatchesForSelectedListing(){
     if(!body) return;
 
     if(!state.selectedListing){
-        body.innerHTML = '<div class="col-empty">Выбери эксклюзив в соседней колонке чтобы увидеть какие сигналы из базара ему подходят.</div>';
+        body.innerHTML = '<div class="col-empty-soft"><span class="ce-dot">🎯</span>Выбери циркуляцию слева — покажу подходящие сигналы из базара.</div>';
         if(count) count.textContent = '0';
         return;
     }
@@ -8805,7 +8819,7 @@ function renderP0(){
     var body = document.getElementById('p0-body');
     var ageEl = document.getElementById('p0-age');
     if(!state.selectedListing){
-        body.innerHTML = '<div class="col-empty">Выбери циркуляцию справа чтобы увидеть её детали тут.</div>';
+        body.innerHTML = '<div class="col-empty-soft"><span class="ce-dot">📋</span>Детали выбранной циркуляции появятся здесь.</div>';
         ageEl.innerHTML = '';
         return;
     }
@@ -8947,7 +8961,12 @@ function renderP1(){
     // currently 48h) as a fallback so dead listings don't accumulate forever.
     document.getElementById('p1-count').textContent = rows.length;
     if(rows.length===0){
-        body.innerHTML = '<div class="col-empty">Пока нет эксклюзивов.<span class="hint">Нажми <b>＋ Опубликовать</b> чтобы внести цирку­ляцию которая пришла на твой имейл.</span></div>';
+        body.innerHTML = '<div class="col-empty-cta">'+
+            '<div class="ce-icon">📦</div>'+
+            '<div class="ce-title">Опубликуй первую позицию</div>'+
+            '<div class="ce-sub">Внеси груз или судно из своей почты — Skipi найдёт совпадения в базаре.</div>'+
+            '<button class="btn btn-accent ce-btn" onclick="openPublishModal()">＋ Опубликовать</button>'+
+            '</div>';
         return;
     }
     // Freshest at the top.
@@ -10080,7 +10099,7 @@ function renderSettingsBody(){
                 }).join('')+
             '</div>';
     } else {
-        body.innerHTML = '<h3>О программе</h3><div class="sub">Skipi Broker</div>'+
+        body.innerHTML = '<h3>О программе</h3><div class="sub">Skipi - United Seafarers</div>'+
             '<div class="detail-block"><div class="detail-row"><span class="k">Версия</span><span class="v">'+APP_VERSION+'</span></div>'+
             '<div class="detail-row"><span class="k">Сервер</span><span class="v">'+esc(s.server_url||'—')+'</span></div></div>'+
             '<div style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap;">'+
