@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker - United Seafarers</title>
 <script>
-var APP_VERSION='0.1.133';
+var APP_VERSION='0.1.134';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION+' - United Seafarers';
     document.title = t;
@@ -6501,18 +6501,24 @@ var _authLastReason = 'ok';
 async function _authGateValidate(bid){
     if(!bid){ _authLastReason='invalid'; return false; }
     if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bid)){ _authLastReason='invalid'; return false; }
-    var base = (state.settings && state.settings.server_url) || 'https://api.skipi.app';
+    // C1: validate through the Rust two-base failover (RU bridge → origin), NOT a
+    // raw fetch to the (RF-blocked) origin — otherwise RF/iOS users lock out at
+    // the gate even though the Rust path would reach the server via api-ru.
     try {
-        var r = await fetch(base + '/api/broker-auth/validate?token=' + encodeURIComponent(bid));
-        if(!r.ok){ _authLastReason='network'; return false; }
-        var d = await r.json();
+        var d = await invoke('validate_broker_token', { token: bid });
         if(!d || !d.ok){ state.access=null; _authLastReason='invalid'; return false; }
         state.access = { role:d.role, team_id:d.team_id, team_name:d.display_name,
                          days_left:(d.days_left===undefined?null:d.days_left),
                          active:!!d.active, expires:d.trial_expires_at||null };
         if(!d.active){ _authLastReason='expired'; return false; }
         _authLastReason='ok'; return true;
-    } catch(_) { _authLastReason='network'; return false; }
+    } catch(e) {
+        // request_api threw — a genuine network failure (all bases unreachable) or
+        // a server HTTP error. Treat as «network» (transient): boot keeps the token
+        // for retry rather than wiping it. A real invalid/revoked token comes back
+        // as a 200 {ok:false} above, NOT here.
+        _authLastReason='network'; return false;
+    }
 }
 function _authGateMessage(){
     if(_authLastReason==='network') return 'Нет связи с сервером — проверьте интернет и повторите.';

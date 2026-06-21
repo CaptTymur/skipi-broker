@@ -283,6 +283,25 @@ fn settings_snapshot(state: &AppState) -> Settings {
     state.settings.lock().unwrap().clone()
 }
 
+/// Validate a broker token (owner broker_id OR member access token) through the
+/// two-base failover (RU bridge → origin). The auth gate previously hit the
+/// origin with a raw `fetch`, which is blocked on RF ISPs / iOS WKWebView →
+/// lock-out (BUG-C1). Routing it through `request_api` means RF/iOS users
+/// validate via the RU bridge. Public endpoint: the token goes in the query,
+/// not the bearer. Returns the server's validate JSON (200 `{ok:false}` for an
+/// unknown/revoked token, `{ok:true,active:false}` for an expired trial); `Err`
+/// only on a genuine network/HTTP failure — the JS caller maps these to the
+/// `invalid` / `expired` / `network` reasons.
+#[tauri::command]
+async fn validate_broker_token(
+    state: tauri::State<'_, AppState>,
+    token: String,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let path = format!("/api/broker-auth/validate?token={}", token.trim());
+    request_api(&state, s, reqwest::Method::GET, path, None).await
+}
+
 // ---------- Email (SMTP) ----------
 
 fn send_smtp_circular(
@@ -1495,6 +1514,7 @@ pub fn run() {
             get_settings,
             save_settings,
             register_broker,
+            validate_broker_token,
             publish_cargo,
             publish_tonnage,
             update_cargo,
