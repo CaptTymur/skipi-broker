@@ -5992,11 +5992,10 @@ async function renderVizFlows(){
     if(!state.viz || !state.viz.map) return;
     try { state.viz.layer.clearLayers(); } catch(_){}
     var days = (document.getElementById('viz-flow-days') || {}).value || 30;
-    var url = 'https://api.skipi.app/api/analytics/flows?days=' + days;
+    // T3a: via Rust failover (RU↔origin) so «Грузопотоки» загружаются и на РФ-сети.
     var rows = [];
     try {
-        var res = await fetch(url);
-        rows = await res.json();
+        rows = await invoke('fetch_analytics_flows', { days: parseInt(days, 10) || 30 });
     } catch(e){ console.warn('flows fetch failed', e); return; }
     if(!Array.isArray(rows)) rows = [];
     var maxSig = rows.reduce(function(m, r){ return Math.max(m, r.signals || 0); }, 1);
@@ -6998,10 +6997,8 @@ async function refreshMail(forcePoll){
             // Best-effort: pull signal conversion counts so list can show
             // ⚓/🚢 badges when an email was extracted into bazaar signal.
             try {
-                var sigRes = await fetch('https://api.skipi.app/api/mail/signal-counts?days=14');
-                if(sigRes.ok){
-                    state.mail.signalCounts = await sigRes.json() || {};
-                }
+                // T3a: via Rust failover (best-effort — badges only).
+                state.mail.signalCounts = await invoke('fetch_mail_signal_counts', { days: 14 }) || {};
             } catch(_){}
             // Watcher: check all cases for new replies from watched emails.
             if(typeof _checkCaseReplies === 'function'){
@@ -7181,11 +7178,8 @@ async function deleteCurrentMail(){
     if(!confirm('Удалить письмо из локального кэша?\n\n' + preview
         + '\n\nIMAP на Gmail не трогаем — там письмо останется.')) return;
     try {
-        var res = await fetch('https://api.skipi.app/api/mail/messages/' + encodeURIComponent(m.id), {
-            method: 'DELETE',
-            headers: { 'Authorization': 'Bearer ' + (state.settings.bearer_token || '') },
-        });
-        if(!res.ok) throw new Error('HTTP '+res.status);
+        // T3a: via Rust failover (RU↔origin), bearer injected by request_api.
+        await invoke('delete_mail_message', { messageId: m.id });
         showToast('🗑 Удалено', 'ok');
         // Drop from local cache + clear detail pane
         state.mail.messages = (state.mail.messages || []).filter(function(x){ return x.id !== m.id; });

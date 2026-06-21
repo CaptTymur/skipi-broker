@@ -580,6 +580,45 @@ async fn fetch_mail_message(
     request_api(&state, s, reqwest::Method::GET, path, None).await
 }
 
+/// Mail: delete one cached message (server-side cache only — IMAP untouched).
+/// T3a: was a raw `fetch(... DELETE)` to the origin → blocked on RF/iOS. Routed
+/// through the two-base failover. Mirrors `fetch_mail_message`'s raw-id path
+/// (mail ids are server-generated and URL-safe — the GET command above relies
+/// on the same, so behaviour is preserved). Bearer is injected by request_api.
+#[tauri::command]
+async fn delete_mail_message(
+    state: tauri::State<'_, AppState>,
+    message_id: String,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let path = format!("/api/mail/messages/{}", message_id);
+    request_api(&state, s, reqwest::Method::DELETE, path, None).await
+}
+
+/// Mail: per-channel signal-conversion counts for the ⚓/🚢 badges (T3a:
+/// was a raw `fetch` to origin without failover → empty badges on RF).
+#[tauri::command]
+async fn fetch_mail_signal_counts(
+    state: tauri::State<'_, AppState>,
+    days: i64,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let path = format!("/api/mail/signal-counts?days={}", days);
+    request_api(&state, s, reqwest::Method::GET, path, None).await
+}
+
+/// Analytics: aggregated cargo flows for the «Грузопотоки» map (T3a: was a raw
+/// `fetch` to origin → empty map on RF). Routed through the failover.
+#[tauri::command]
+async fn fetch_analytics_flows(
+    state: tauri::State<'_, AppState>,
+    days: i64,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let path = format!("/api/analytics/flows?days={}", days);
+    request_api(&state, s, reqwest::Method::GET, path, None).await
+}
+
 /// Mail: trigger immediate IMAP poll (refresh).
 #[tauri::command]
 async fn poll_mail(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
@@ -1539,6 +1578,9 @@ pub fn run() {
             fetch_counterpart_flags,
             fetch_mail_inbox,
             fetch_mail_message,
+            delete_mail_message,
+            fetch_mail_signal_counts,
+            fetch_analytics_flows,
             poll_mail,
             send_mail,
             fetch_matches,
