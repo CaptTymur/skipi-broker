@@ -6553,12 +6553,11 @@ async function _authCreateTeam(){
     var btn=document.getElementById('auth-create-btn');
     if(!name || !email){ err.style.color='#e55561'; err.textContent='Укажи имя и email.'; return; }
     err.style.color='var(--text3)'; err.textContent='Создаю команду…'; if(btn) btn.disabled=true;
-    var base=(state.settings && state.settings.server_url)||'https://api.skipi.app';
     try {
-        var r=await fetch(base+'/api/brokers', { method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ display_name:name, contact_email:email }) });
-        if(!r.ok){ err.style.color='#e55561'; err.textContent='Ошибка сервера ('+r.status+'). Проверь интернет.'; if(btn) btn.disabled=false; return; }
-        var d=await r.json();
+        // T3 (final): create the team through the Rust failover (RU↔origin), not a
+        // raw fetch to the (RF-blocked) origin — so RF/iOS users can register too.
+        // Reuses register_broker (POST /api/brokers via request_api).
+        var d=await invoke('register_broker', { displayName:name, contactEmail:email });
         var bid=d.id;
         state.settings=state.settings||{};
         state.settings.broker_id=bid; state.settings.bearer_token=bid;
@@ -6568,7 +6567,13 @@ async function _authCreateTeam(){
         var tk=document.getElementById('auth-created-token'); if(tk) tk.textContent=bid;
         _showAuthPane('created');
         if(btn) btn.disabled=false;
-    } catch(e){ err.style.color='#e55561'; err.textContent='Нет связи с сервером — проверь интернет.'; if(btn) btn.disabled=false; }
+    } catch(e){
+        err.style.color='#e55561';
+        // invoke throws for both HTTP errors and network failures — keep the two-case
+        // mapping: a server HTTP error vs «no connection».
+        err.textContent = /HTTP \d/.test(String(e)) ? 'Ошибка сервера. Проверь данные и повтори.' : 'Нет связи с сервером — проверь интернет.';
+        if(btn) btn.disabled=false;
+    }
 }
 async function _authCopyCreated(){
     var t=(document.getElementById('auth-created-token')||{}).textContent||'';
