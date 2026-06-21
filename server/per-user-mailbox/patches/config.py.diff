@@ -1,0 +1,15 @@
+--- app/config.py.bak.premailbox-20260621-220620	2026-06-21 22:06:20.856664058 +0200
++++ app/config.py	2026-06-21 22:14:06.771734298 +0200
+@@ -36,6 +36,12 @@
+         "IDENTITY_HASH_SECRET",
+         os.getenv("SERVER_SECRET", "skipi-dev-identity-hmac-secret"),
+     )
++    # Fernet key (urlsafe-b64, 32 bytes) used to encrypt per-user mailbox
++    # IMAP/SMTP passwords at rest. Held ONLY on the server, never shipped to
++    # the client. Empty = per-user mailbox credential storage is disabled
++    # (PUT /api/mail/mailbox will refuse to save). Generate with:
++    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
++    mailbox_secret_key: str = os.getenv("MAILBOX_SECRET_KEY", "").strip()
+ 
+ 
+ @lru_cache(maxsize=1)

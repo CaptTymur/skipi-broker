@@ -1,0 +1,27 @@
+--- app/models.py.bak.premailbox-20260621-220620	2026-06-21 22:06:20.848664178 +0200
++++ app/models.py	2026-06-21 22:14:10.772674970 +0200
+@@ -1642,6 +1642,24 @@
+     last_poll_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+     last_uid_by_folder: Mapped[Optional[dict]] = mapped_column(JSON)
+     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
++    # ---- Per-user mailbox (2026-06 feature) -------------------------------
++    # Owner of this mailbox. owner principal = brokers.id; member principal =
++    # broker_access_tokens.id. One mailbox per principal (unique).
++    principal_id: Mapped[Optional[str]] = mapped_column(String(36), index=True, unique=True, nullable=True)
++    principal_kind: Mapped[Optional[str]] = mapped_column(String(8))  # 'owner' | 'member'
++    # IMAP/SMTP login user (often == address; Gmail uses the real mailbox).
++    username: Mapped[Optional[str]] = mapped_column(String(240))
++    # Fernet-encrypted password. NEVER returned to the client, never logged.
++    secret_ciphertext: Mapped[Optional[str]] = mapped_column(Text)
++    imap_security: Mapped[Optional[str]] = mapped_column(String(10), default='ssl')   # 'ssl' | 'starttls'
++    smtp_security: Mapped[Optional[str]] = mapped_column(String(10), default='ssl')
++    reply_to: Mapped[Optional[str]] = mapped_column(String(240))
++    provider: Mapped[Optional[str]] = mapped_column(String(20))   # 'gmail' | 'workspace' | 'custom'
++    status: Mapped[Optional[str]] = mapped_column(String(16), default='active', index=True)  # active|error|disconnected
++    last_error: Mapped[Optional[str]] = mapped_column(Text)
++    # Privacy gate: when False (default for personal mailboxes) polled mail is
++    # NOT auto-extracted into the global bazaar. Legacy drybulk account = True.
++    extract_to_bazaar: Mapped[bool] = mapped_column(Boolean, default=False)
+ 
+ 
+ class MailMessage(Base):
