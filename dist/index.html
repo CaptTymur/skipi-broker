@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker - United Seafarers</title>
 <script>
-var APP_VERSION='0.1.130';
+var APP_VERSION='0.1.131';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION+' - United Seafarers';
     document.title = t;
@@ -50,10 +50,10 @@ var UI_STRINGS={
     ru:{
         'nav.exclusives':'📋 Эксклюзивы','nav.matches':'🎯 Совпадения','nav.signals':'🛒 Базар',
         'nav.duplicates':'🔍 Дубли','nav.counterparts':'🤝 Контрагенты',
-        'nav.map':'🗺 Карта','nav.mail':'📧 Почта','nav.team':'💬 Команда',
+        'nav.map':'🗺 Карта','nav.mail':'📧 Почта','nav.cases':'📂 Дела','nav.team':'💬 Команда',
         'top.notRegistered':'Не зарегистрирован','top.gear':'Настройки',
         'settings.title':'Настройки','settings.tab.general':'Общие','settings.tab.connection':'Подключение',
-        'settings.tab.identity':'Профиль брокера','settings.tab.reply':'Reply-to',
+        'settings.tab.identity':'Профиль брокера','settings.tab.reply':'Reply-to','settings.tab.profile':'Профиль и доступ',
         'settings.tab.appearance':'Внешний вид','settings.tab.about':'О программе',
         'settings.general.title':'Общие','settings.general.desc':'Основные настройки приложения.',
         'settings.lang.label':'Язык интерфейса',
@@ -62,10 +62,10 @@ var UI_STRINGS={
     en:{
         'nav.exclusives':'📋 Exclusives','nav.matches':'🎯 Matches','nav.signals':'🛒 Bazaar',
         'nav.duplicates':'🔍 Duplicates','nav.counterparts':'🤝 Counterparties',
-        'nav.map':'🗺 Map','nav.mail':'📧 Mail','nav.team':'💬 Desk',
+        'nav.map':'🗺 Map','nav.mail':'📧 Mail','nav.cases':'📂 Cases','nav.team':'💬 Desk',
         'top.notRegistered':'Not registered','top.gear':'Settings',
         'settings.title':'Settings','settings.tab.general':'General','settings.tab.connection':'Connection',
-        'settings.tab.identity':'Broker profile','settings.tab.reply':'Reply-to',
+        'settings.tab.identity':'Broker profile','settings.tab.reply':'Reply-to','settings.tab.profile':'Profile & access',
         'settings.tab.appearance':'Appearance','settings.tab.about':'About',
         'settings.general.title':'General','settings.general.desc':'Basic application settings.',
         'settings.lang.label':'Interface language',
@@ -444,6 +444,7 @@ body.mobile-mode .mobile-topbar {
     box-sizing:border-box;
 }
 body.mobile-mode .mobile-topbar .mtop-home,
+body.mobile-mode .mobile-topbar .mtop-assistant,
 body.mobile-mode .mobile-topbar .mtop-gear {
     width:40px; height:40px; flex:0 0 auto;
     display:flex; align-items:center; justify-content:center;
@@ -451,8 +452,20 @@ body.mobile-mode .mobile-topbar .mtop-gear {
     background:var(--bg, #0f1117); color:var(--text, #e6e6e6);
     font-size:21px; line-height:1; cursor:pointer; user-select:none;
 }
+/* Assistant entry on mobile — accent ✦, opens the full-screen overlay. */
+body.mobile-mode .mobile-topbar .mtop-assistant {
+    border-color:#3C3489; background:#3C3489; color:#fff; font-size:18px;
+}
 body.mobile-mode .mobile-topbar .mtop-home:active,
+body.mobile-mode .mobile-topbar .mtop-assistant:active,
 body.mobile-mode .mobile-topbar .mtop-gear:active { transform:translateY(1px); }
+/* Assistant overlay goes full-screen on phones (the 720px card is desktop-only). */
+body.mobile-mode #ctx-chat-bar:not(.hidden) {
+    left:0; right:0; top:0; bottom:0; transform:none;
+    width:100vw; max-width:100vw; max-height:100vh; height:100vh;
+    border-radius:0; border:none; padding-top:var(--m-top-inset, 0);
+}
+body.mobile-mode #ctx-chat-bar .ctx-history { min-height:0; }
 body.mobile-mode .mobile-topbar .mtop-home.active {
     border-color:var(--accent, #004564); background:var(--accent, #004564); color:#fff;
 }
@@ -508,7 +521,6 @@ body.mobile-mode .mrail-badge {
     body.mobile-mode .statusbar,
     body.mobile-mode #ctx-chat-host,
     body.mobile-mode #ctx-chat-restore,
-    body.mobile-mode .ctx-chat-bar,
     body.mobile-mode .ctx-chat-host,
     body.mobile-mode #update-banner-host { display:none !important; }
 
@@ -1344,17 +1356,22 @@ body.dragging-split.col-resize { cursor:col-resize; }
 /* Module chat-strip: fixed bottom bar in every module except 💬 Команда.
    Один input, два режима — «в команду» (обычное team-сообщение) или «спросить LLM»
    (тот же team chat, но с авто-приложенным контекстом того что брокер сейчас видит). */
-.ctx-chat-bar { position:fixed; left:0; right:0; bottom:0; z-index:90;
-    background:var(--surface); border-top:1px solid var(--border);
-    display:flex; flex-direction:column; font-size:11px;
-    box-shadow:0 -3px 10px rgba(0,0,0,.18);
-    height: 46px; max-height: 90vh; min-height: 40px; }
+/* AI assistant — Spotlight-style overlay (⌘K / ✦). Summoned, not persistent
+   furniture. Dim backdrop + centered focused card; Esc / backdrop-click close. */
+.ctx-backdrop { position:fixed; inset:0; z-index:95; background:rgba(0,0,0,.34); display:none; }
+.ctx-backdrop.show { display:block; }
+.ctx-chat-bar { position:fixed; left:50%; top:10vh; transform:translateX(-50%);
+    width:min(720px,92vw); max-height:74vh; z-index:96;
+    background:var(--surface); border:1px solid var(--border); border-radius:14px;
+    display:flex; flex-direction:column; font-size:12px; overflow:hidden;
+    box-shadow:0 24px 70px rgba(0,0,0,.45); }
 .ctx-chat-bar.hidden { display:none; }
-.ctx-resize-handle { height:6px; cursor:row-resize; background:transparent;
-    border-bottom:1px solid var(--border); transition: background .15s; flex-shrink:0; }
-.ctx-resize-handle:hover, .ctx-resize-handle.dragging { background:var(--accent); }
-.ctx-history { flex:1; overflow-y:auto; padding:8px 10px; display:flex; flex-direction:column; gap:5px;
-    background:var(--bg); font-size:11px; }
+.ctx-header { display:flex; align-items:center; gap:10px; padding:11px 14px;
+    border-bottom:1px solid var(--border); flex-shrink:0; }
+.ctx-header .ctx-title { font-size:13px; font-weight:700; color:#3C3489; letter-spacing:.2px; }
+.ctx-resize-handle { display:none; }
+.ctx-history { flex:1 1 auto; min-height:140px; overflow-y:auto; padding:10px 14px; display:flex; flex-direction:column; gap:6px;
+    background:var(--bg); font-size:12px; }
 .ctx-history .cm { padding:6px 10px; border-radius:4px; background:var(--surface); border:1px solid var(--border);
     word-break:break-word; }
 .ctx-history .cm.llm   { background:rgba(0,69,100,.07); border-color:rgba(0,69,100,.25); }
@@ -1363,45 +1380,44 @@ body.dragging-split.col-resize { cursor:col-resize; }
 .ctx-history .cm-from  { font-weight:600; color:var(--text2); }
 .ctx-history .cm-body  { white-space:pre-wrap; color:var(--text); }
 .ctx-history .cm-empty { color:var(--text3); text-align:center; padding:20px 10px; font-size:10px; }
-.ctx-input-row { display:flex; align-items:center; gap:6px; padding:6px 10px; flex-shrink:0; }
+.ctx-input-row { display:flex; align-items:center; gap:8px; padding:10px 14px; flex-shrink:0; border-top:1px solid var(--border); }
 .ctx-chat-bar .ctx-mode { display:inline-flex; gap:2px; }
 .ctx-chat-bar .ctx-mode-tab { padding:3px 7px; border-radius:3px; cursor:pointer;
     color:var(--text2); border:1px solid transparent; user-select:none; font-size:10px; }
 .ctx-chat-bar .ctx-mode-tab:hover { background:var(--surface2); color:var(--text); }
 .ctx-chat-bar .ctx-mode-tab.active { background:var(--surface2); color:var(--text); border-color:var(--accent); }
 .ctx-chat-bar input { flex:1; background:var(--bg); border:1px solid var(--border);
-    color:var(--text); padding:5px 9px; border-radius:3px; font-size:11px; outline:none; }
-.ctx-chat-bar input:focus { border-color:var(--accent); }
+    color:var(--text); padding:9px 12px; border-radius:8px; font-size:13px; outline:none; }
+.ctx-chat-bar input:focus { border-color:#3C3489; box-shadow:0 0 0 2px rgba(60,52,137,.15); }
 /* Context chip — assistant accent (purple), distinct from team-chat neutral. */
-.ctx-chat-bar .ctx-info { font-size:11px; color:#3C3489; background:#EEEDFE;
-    border:1px solid #d9d6f7; border-radius:12px; padding:3px 10px; cursor:pointer;
-    max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; user-select:none; flex-shrink:0; }
-.ctx-chat-bar .ctx-info:hover { background:#e4e1fb; }
+.ctx-chat-bar .ctx-info { flex:1; font-size:11px; color:#3C3489; background:#EEEDFE;
+    border:1px solid #d9d6f7; border-radius:12px; padding:4px 11px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; user-select:none; }
 .ctx-chat-bar .ctx-hint { font-size:10px; color:var(--text3); cursor:pointer; padding:0 2px;
     border:1px solid var(--border); border-radius:4px; line-height:16px; padding:0 5px; user-select:none; }
 .ctx-chat-bar .ctx-hint:hover { color:var(--text2); }
-.ctx-suggest { display:none; gap:6px; flex-wrap:wrap; padding:6px 10px 0; }
+.ctx-suggest { display:none; gap:6px; flex-wrap:wrap; padding:10px 14px 2px; flex-shrink:0; }
 .ctx-suggest .ctx-sg { font-size:11px; color:#3C3489; background:#F4F3FE; border:1px solid #e0ddf8;
     border-radius:12px; padding:3px 10px; cursor:pointer; user-select:none; }
 .ctx-suggest .ctx-sg:hover { background:#e9e7fc; }
 /* Inline «explain match» answer card (assistant accent). */
 .explain-card { margin-top:10px; padding:10px 12px; background:#F4F3FE; border:1px solid #e0ddf8; border-radius:8px; }
 .explain-card .explain-answer { font-size:12px; color:var(--text); white-space:pre-wrap; line-height:1.5; }
-.ctx-chat-bar .ctx-send { padding:5px 11px; font-size:11px; background:var(--accent); color:#fff;
-    border:none; border-radius:3px; cursor:pointer; font-weight:600; }
+.ctx-chat-bar .ctx-send { width:34px; height:34px; font-size:15px; background:#3C3489; color:#fff;
+    border:none; border-radius:8px; cursor:pointer; font-weight:600; flex-shrink:0; }
 .ctx-chat-bar .ctx-send:disabled { opacity:.4; cursor:default; }
-.ctx-chat-bar .ctx-hide { font-size:13px; color:var(--text3); cursor:pointer; padding:0 4px; }
+.ctx-chat-bar .ctx-hide { font-size:15px; color:var(--text3); cursor:pointer; padding:0 4px; flex-shrink:0; }
 .ctx-chat-bar .ctx-hide:hover { color:var(--text); }
-/* Restore-button when bar hidden — tiny pill bottom-right. */
-.ctx-chat-restore { position:fixed; right:14px; bottom:14px; z-index:91;
-    padding:4px 10px; font-size:10px; background:var(--surface); border:1px solid var(--border);
-    border-radius:14px; cursor:pointer; color:var(--text2); display:none; }
-.ctx-chat-restore.show { display:block; }
-.ctx-chat-restore:hover { color:var(--text); border-color:var(--accent); }
-/* Add bottom margin to main view container so the bar doesn't cover content.
-   The padding tracks the bar's actual height via a CSS var set by the resize
-   handler (ctx-bar-h, default 46px). */
-body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
+/* Single quiet entry point — floating ✦ orb, bottom-right, present in every
+   working module (hidden only on Desk, where the AI is a chat participant). */
+.ctx-chat-restore { position:fixed; right:18px; bottom:18px; z-index:94;
+    width:46px; height:46px; display:none; align-items:center; justify-content:center;
+    font-size:20px; background:#3C3489; color:#fff; border:none;
+    border-radius:50%; cursor:pointer; box-shadow:0 6px 18px rgba(60,52,137,.45); transition:transform .12s; }
+.ctx-chat-restore.show { display:flex; }
+.ctx-chat-restore:hover { transform:scale(1.08); }
+/* Assistant is now a floating overlay — it no longer steals column height,
+   so working views keep full height (no bottom padding reservation). */
 </style>
 <link rel="stylesheet" href="leaflet/leaflet.css">
 <script src="leaflet/leaflet.js"></script>
@@ -1493,24 +1509,26 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
 
 <div id="update-banner-host"></div>
 
-<!-- Context-aware chat bar — fixed on bottom in every module except 💬 Команда.
-     User types question; toggle picks "Команде" (raw team msg) or "ЛЛМ" (the same
-     team channel but with the current view's state attached as context blob so
-     the LLM agent can answer about what the broker is looking at). -->
-<div id="ctx-chat-bar" class="ctx-chat-bar hidden">
-    <!-- Drag handle at the top — resize the panel vertically (Тимур 04.06). -->
-    <div id="ctx-resize-handle" class="ctx-resize-handle" title="Тяни вверх/вниз — меняет высоту панели"></div>
-    <!-- Recent chat history (visible when panel is tall enough). -->
-    <div id="ctx-history" class="ctx-history" style="display:none;"></div>
+<!-- AI assistant — Spotlight-style overlay (spec: summon-only, not persistent
+     furniture). Opened by ⌘K or the floating ✦ orb; Esc / backdrop-click close.
+     Context header shows WHAT the question is about (the selected cargo/match/
+     counterparty). History shows assistant Q&A only — team chat lives in Desk. -->
+<div id="ctx-backdrop" class="ctx-backdrop" onclick="hideCtxBar()"></div>
+<div id="ctx-chat-bar" class="ctx-chat-bar hidden" role="dialog" aria-label="AI-ассистент">
+    <div id="ctx-resize-handle" class="ctx-resize-handle"></div>
+    <div class="ctx-header">
+        <span class="ctx-title">✦ Ассистент</span>
+        <span class="ctx-info" id="ctx-info" title="О чём именно речь — текущий контекст">◎ нет контекста</span>
+        <span class="ctx-hide" title="Закрыть (Esc)" onclick="hideCtxBar()">✕</span>
+    </div>
+    <div id="ctx-history" class="ctx-history"></div>
     <div class="ctx-suggest" id="ctx-suggest"></div>
     <div class="ctx-input-row">
-        <span class="ctx-info" id="ctx-info" onclick="toggleCtxExpand()" title="Контекст ассистента — кликни, чтобы раскрыть">◎ нет контекста</span>
         <input type="text" id="ctx-input" placeholder="Спроси про то, что видишь…" onkeydown="if(event.key==='Enter')sendCtxMessage()" autocomplete="off">
-        <span class="ctx-hint" title="Ctrl+K — раскрыть/фокус" onclick="toggleCtxExpand()">⌘K</span>
-        <button class="ctx-send" id="ctx-send-btn" onclick="sendCtxMessage()" title="Спросить ассистента">↑</button>
-        <span class="ctx-hide" title="Свернуть" onclick="hideCtxBar()">✕</span>
+        <button class="ctx-send" id="ctx-send-btn" onclick="sendCtxMessage()" title="Спросить (Enter)">↑</button>
     </div>
 </div>
+<button id="ctx-chat-restore" class="ctx-chat-restore" onclick="showCtxBar()" title="AI-ассистент · ⌘K" aria-label="Открыть AI-ассистента">✦</button>
 <div id="ctx-chat-restore" class="ctx-chat-restore" onclick="showCtxBar()">✦ ассистент</div>
 
 <!-- Mobile-only top bar (visible only on body.mobile-mode). Matches the
@@ -1519,6 +1537,7 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
 <div class="mobile-topbar" id="mobile-topbar">
     <button class="mtop-home" id="mtop-home" type="button" onclick="mobileSwitchView('match')" title="Домой — Совпадения" aria-label="Домой">&#8962;</button>
     <div class="mtop-brand">Skipi Broker</div>
+    <button class="mtop-assistant" id="mtop-assistant" type="button" onclick="showCtxBar()" title="AI-ассистент" aria-label="AI-ассистент">&#10022;</button>
     <button class="mtop-gear" type="button" onclick="openSettings()" title="Настройки" aria-label="Настройки">&#9881;</button>
 </div>
 
@@ -1543,8 +1562,8 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
     <div class="mod-tab" id="nav-partners" onclick="showView('partners')"><span data-i18n="nav.counterparts">🤝 Контрагенты</span> <span id="partners-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-viz" onclick="showView('viz')"><span data-i18n="nav.map">🗺 Визуализатор</span></div>
     <div class="mod-tab" id="nav-mail" onclick="showView('mail')"><span data-i18n="nav.mail">📧 Почта</span> <span id="mail-badge" class="count" style="display:none;"></span></div>
-    <div class="mod-tab" id="nav-cases" onclick="showView('cases')"><span>📂 Дела</span> <span id="cases-badge" class="count" style="display:none;"></span></div>
-    <div class="mod-tab" id="nav-team" onclick="showView('team')"><span data-i18n="nav.team">💬 Команда</span></div>
+    <div class="mod-tab" id="nav-cases" onclick="showView('cases')"><span data-i18n="nav.cases">📂 Дела</span> <span id="cases-badge" class="count" style="display:none;"></span></div>
+    <div class="mod-tab" id="nav-team" onclick="showView('team')"><span data-i18n="nav.team">💬 Команда</span> <span id="team-nav-badge" class="count" style="display:none;"></span></div>
     <div id="lead-tabs-host" style="display:flex; align-items:center; gap:4px;"></div>
     <div class="mb-spacer"></div>
     <div class="mb-identity" id="mb-identity" data-i18n="top.notRegistered">Не зарегистрирован</div>
@@ -2157,7 +2176,7 @@ body.ctx-bar-visible .view-pane { padding-bottom: var(--ctx-bar-h, 46px); }
 <div class="modal-overlay" id="settings-overlay" onclick="if(event.target===this)closeSettings();">
     <div class="modal set-modal">
         <div class="modal-head">
-            <h2>Настройки</h2>
+            <h2 data-i18n="settings.title">Настройки</h2>
             <div class="close-x" onclick="closeSettings()">×</div>
         </div>
         <div class="set-layout">
@@ -2842,9 +2861,16 @@ function _myNickname(){
 }
 
 function renderTeamUnread(){
+    var n = (state.team && state.team.unread) || 0;
     var el = document.getElementById('team-unread');
-    if(!el) return;
-    el.textContent = state.team.unread > 0 ? state.team.unread : '';
+    if(el) el.textContent = n > 0 ? n : '';
+    // Team chat now lives only on the Desk tab → surface unread there as a badge,
+    // since the working modules no longer show a team feed.
+    var nav = document.getElementById('team-nav-badge');
+    if(nav){
+        nav.textContent = n > 0 ? (n > 99 ? '99+' : n) : '';
+        nav.style.display = (n > 0 && state.view !== 'team') ? '' : 'none';
+    }
 }
 
 // Expand/collapse a collapsed run of system events in the team chat.
@@ -3725,58 +3751,21 @@ function showLeadOnMap(leadId){
 // either send it to the team or ask the LLM. When asking the LLM, the
 // current module's state is auto-attached as context so the agent can
 // reason about what the broker is actually looking at right now.
-var ctxState = { mode: 'llm', hidden: false, height: 46 };
+// Assistant overlay state. `hidden:true` by default — the assistant is summoned
+// (⌘K / ✦ orb), never persistent furniture. `mode` stays 'llm' (team chat → Desk).
+var ctxState = { mode: 'llm', hidden: true, height: 0 };
 
-// Resize logic: drag the handle on top of the chat-bar to grow/shrink.
-function _ctxApplyHeight(h){
-    var bar = document.getElementById('ctx-chat-bar');
-    if(!bar) return;
-    var min = 46, max = Math.round(window.innerHeight * 0.9);
-    h = Math.max(min, Math.min(max, h));
-    bar.style.height = h + 'px';
-    document.body.style.setProperty('--ctx-bar-h', h + 'px');
-    var hist = document.getElementById('ctx-history');
-    // Show history only when the panel is tall enough for it to make sense.
-    if(hist) hist.style.display = (h > 90) ? '' : 'none';
-    ctxState.height = h;
-    try { localStorage.setItem('skipi-broker-ctx-h', String(h)); } catch(_){}
-}
+// Overlay model — no resizing. Kept as a no-op so legacy callers don't throw.
+function _ctxApplyHeight(){ /* assistant is a fixed overlay now */ }
 function _ctxInitResize(){
-    try {
-        var saved = parseInt(localStorage.getItem('skipi-broker-ctx-h') || '0', 10);
-        if(saved > 46) _ctxApplyHeight(saved);
-        else _ctxApplyHeight(46);
-    } catch(_){ _ctxApplyHeight(46); }
-    var handle = document.getElementById('ctx-resize-handle');
-    if(!handle) return;
-    handle.addEventListener('mousedown', function(e){
-        e.preventDefault();
-        handle.classList.add('dragging');
-        var startY = e.clientY;
-        var startH = ctxState.height;
-        function move(ev){
-            // Dragging UP grows the panel; subtract dy from start.
-            var dy = startY - ev.clientY;
-            _ctxApplyHeight(startH + dy);
-            if(typeof renderCtxHistory === 'function') renderCtxHistory();
-        }
-        function stop(){
-            handle.classList.remove('dragging');
-            document.removeEventListener('mousemove', move);
-            document.removeEventListener('mouseup', stop);
-        }
-        document.addEventListener('mousemove', move);
-        document.addEventListener('mouseup', stop);
-    });
-    // Hotkeys: ⌘K / Ctrl+K opens+focuses the assistant; Esc collapses it.
+    // Global hotkeys: ⌘K / Ctrl+K toggles the assistant overlay; Esc closes it.
     document.addEventListener('keydown', function(e){
         if((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')){
             e.preventDefault();
-            if(ctxState.hidden) showCtxBar();
-            if(!(ctxState.height > 90)) toggleCtxExpand();
-            else { var inp=document.getElementById('ctx-input'); if(inp) inp.focus(); }
-        } else if(e.key === 'Escape' && ctxState.height > 90){
-            toggleCtxExpand();
+            if(ctxState.hidden) showCtxBar(); else hideCtxBar();
+        } else if(e.key === 'Escape' && !ctxState.hidden){
+            e.preventDefault();
+            hideCtxBar();
         }
     });
 }
@@ -3812,17 +3801,56 @@ function renderCtxHistory(){
         filtered = msgs.filter(function(_, i){ return keep[i]; });
     }
 
-    if(!filtered.length){
+    // Q&A pairs only: the assistant overlay shows ONLY exchanges that started
+    // HERE — a question sent via the assistant (body prefixed «[модуль: …]») and
+    // the LLM reply that followed it. Standalone Desk/team chatter and dev
+    // updates (even from «Брокер-LLM») are excluded — they live in Desk.
+    var qaKeep = {};
+    for(var qi = 0; qi < filtered.length; qi++){
+        if(!/^\s*\[модуль:/.test(filtered[qi].body || '')) continue;
+        qaKeep[qi] = true; // the broker's question
+        for(var qj = qi + 1; qj < filtered.length && qj <= qi + 6; qj++){
+            var byNick = filtered[qj].sender_nickname || '';
+            if(llmRe.test(byNick) && !(typeof _isBridgeServiceMsg === 'function' && _isBridgeServiceMsg(filtered[qj].body))){
+                qaKeep[qj] = true; // its first real (non-ACK) LLM reply
+                break;
+            }
+        }
+    }
+    filtered = filtered.filter(function(_, i){ return qaKeep[i]; });
+
+    // Optimistic echo: the broker's just-sent question is shown INSTANTLY (before
+    // the server round-trip lands it), so the assistant feels immediate. Cleared
+    // once the real message arrives in the stream, or after 90s.
+    var renderList = filtered.slice(-30);
+    var opt = state._ctxOptimistic;
+    if(opt && (Date.now() - opt.ts) < 90000){
+        var already = filtered.some(function(m){
+            var bb = (m.body || '').replace(/\n\n--- КОНТЕКСТ[\s\S]*$/, '').replace(/^\s*\[модуль:[^\]]+\]\s*/, '').trim();
+            return bb === (opt.q || '').trim();
+        });
+        if(already){ state._ctxOptimistic = null; }
+        else {
+            renderList = renderList.concat([{
+                sender_nickname: (state.session && state.session.nickname) || 'Брокер',
+                created_at: new Date(opt.ts).toISOString(),
+                body: '[модуль: ' + (state.view || '') + '] ' + opt.q,
+                _pending: true
+            }]);
+        }
+    } else if(opt){ state._ctxOptimistic = null; }
+
+    if(!renderList.length){
         host.innerHTML = '<div class="cm-empty">'
             + (activeCaseId
-                ? 'по этому делу ещё нет переписки — спроси ЛЛМ'
-                : 'пока пусто — спроси ЛЛМ или напиши команде')
+                ? 'по этому делу ещё нет вопросов — спроси ассистента'
+                : 'Спроси ассистента про то, что видишь на экране.')
             + '</div>';
         return;
     }
     // Tail of conversation, oldest at top so the input row sits below the
     // newest message and the broker reads naturally.
-    var tail = filtered.slice(-30);
+    var tail = renderList.slice(-30);
     var nick = (state.session && state.session.nickname) || 'Брокер';
     host.innerHTML = tail.map(function(m){
         var by = m.sender_nickname || '?';
@@ -3858,32 +3886,55 @@ function setCtxMode(mode){
     _refreshCtxInfo();
 }
 
+// Close the assistant overlay → only the floating ✦ orb remains (on non-Desk views).
 function hideCtxBar(){
     ctxState.hidden = true;
     var bar = document.getElementById('ctx-chat-bar');
-    var rest = document.getElementById('ctx-chat-restore');
+    var bd  = document.getElementById('ctx-backdrop');
     if(bar) bar.classList.add('hidden');
-    if(rest) rest.classList.add('show');
+    if(bd)  bd.classList.remove('show');
     document.body.classList.remove('ctx-bar-visible');
-}
-
-function showCtxBar(){
-    ctxState.hidden = false;
-    var rest = document.getElementById('ctx-chat-restore');
-    if(rest) rest.classList.remove('show');
     updateCtxBarVisibility();
 }
 
-function updateCtxBarVisibility(){
-    var bar = document.getElementById('ctx-chat-bar');
-    if(!bar) return;
-    var view = state.view;
-    // Hide in 💬 Команда (already a chat) and when user manually collapsed.
-    var shouldShow = view && view !== 'team' && !ctxState.hidden;
-    bar.classList.toggle('hidden', !shouldShow);
-    document.body.classList.toggle('ctx-bar-visible', shouldShow);
+// Open the assistant overlay — backdrop + focused card, context refreshed,
+// history (Q&A only) rendered, input focused. Not available on Desk (the AI
+// is already a chat participant there).
+function showCtxBar(){
+    if(state.view === 'team') return;
+    ctxState.hidden = false;
+    var bar  = document.getElementById('ctx-chat-bar');
+    var bd   = document.getElementById('ctx-backdrop');
+    var rest = document.getElementById('ctx-chat-restore');
+    if(rest) rest.classList.remove('show');
+    if(bd)  bd.classList.add('show');
+    if(bar) bar.classList.remove('hidden');
+    document.body.classList.add('ctx-bar-visible');
     _refreshCtxInfo();
-    if(shouldShow) renderCtxHistory();
+    renderCtxHistory();
+    // On mobile, DON'T auto-focus — that pops the keyboard over the context
+    // header. Let the user read the context + suggestions, then tap to type.
+    var inp = document.getElementById('ctx-input');
+    if(inp && !document.body.classList.contains('mobile-mode')) setTimeout(function(){ inp.focus(); }, 40);
+}
+
+// Called on every view switch. The overlay itself stays summon-only; this just
+// manages the ✦ orb (shown on working views, hidden on Desk) and refreshes the
+// overlay's context if it happens to be open.
+function updateCtxBarVisibility(){
+    var bar  = document.getElementById('ctx-chat-bar');
+    var bd   = document.getElementById('ctx-backdrop');
+    var rest = document.getElementById('ctx-chat-restore');
+    var onDesk = (state.view === 'team');
+    // Desk → no overlay, no orb (talk to the AI directly in the chat).
+    if(onDesk && !ctxState.hidden) hideCtxBar();
+    if(rest) rest.classList.toggle('show', !onDesk && ctxState.hidden);
+    if(!ctxState.hidden){
+        if(bd)  bd.classList.add('show');
+        if(bar) bar.classList.remove('hidden');
+        _refreshCtxInfo();
+        renderCtxHistory();
+    }
 }
 
 function _refreshCtxInfo(){
@@ -3892,14 +3943,14 @@ function _refreshCtxInfo(){
     var a = buildAssistantContext();
     el.textContent = '◎ ' + (a.scope_label || 'нет контекста');
     el.title = a.scope_label || '';
-    // Contextual suggestions — quick-fill chips, shown only when expanded.
+    // Contextual suggestions — always shown in the open overlay.
     var sg = document.getElementById('ctx-suggest');
     if(sg){
         var sugg = (a.suggestions || []).slice(0,4);
         sg.innerHTML = sugg.map(function(s){
             return '<span class="ctx-sg" onclick="_ctxAskSuggestion('+JSON.stringify(s)+')">'+esc(s)+'</span>';
         }).join('');
-        sg.style.display = (ctxState.height > 90 && sugg.length) ? 'flex' : 'none';
+        sg.style.display = sugg.length ? 'flex' : 'none';
     }
 }
 function _ctxAskSuggestion(s){
@@ -3907,19 +3958,12 @@ function _ctxAskSuggestion(s){
     if(inp){ inp.value = s; }
     sendCtxMessage();
 }
-// Expand the assistant into the tall «overlay» state (history + suggestions)
-// or collapse back to the thin bar. ⌘K / chip-click / hint toggle this.
+// Legacy alias — some callers used toggleCtxExpand; now it just opens the overlay.
 function toggleCtxExpand(){
-    var expanded = ctxState.height > 90;
-    if(expanded){
-        _ctxApplyHeight(46);
-    } else {
-        _ctxApplyHeight(Math.round(window.innerHeight * 0.45));
-        if(typeof renderCtxHistory === 'function') renderCtxHistory();
+    if(ctxState.hidden) showCtxBar(); else {
         var inp = document.getElementById('ctx-input');
-        if(inp) setTimeout(function(){ inp.focus(); }, 40);
+        if(inp) inp.focus();
     }
-    _refreshCtxInfo();
 }
 
 // Returns {module, summary, blob} for the current view.
@@ -4189,14 +4233,21 @@ async function sendCtxMessage(){
                     if(CASES_UI.activeId === caseScopedId) _renderCaseDetail();
                 }
             }
+            // Optimistic echo so the question shows in the overlay instantly,
+            // before the server round-trip lands it (renderCtxHistory reconciles).
+            state._ctxOptimistic = { q: text, ts: Date.now() };
+            inp.value = '';
+            if(typeof renderCtxHistory === 'function') renderCtxHistory();
             await invoke('send_team_message_with_llm', { body: body });
         } else {
             await invoke('send_team_message', { body: text });
+            inp.value = '';
         }
-        inp.value = '';
-        showToast(ctxState.mode === 'llm' ? 'Спросил ЛЛМ' : 'Отправлено команде', 'ok');
+        showToast(ctxState.mode === 'llm' ? 'Спросил ассистента' : 'Отправлено команде', 'ok');
         if(typeof refreshTeamChat === 'function') refreshTeamChat();
     } catch(e){
+        state._ctxOptimistic = null;
+        if(typeof renderCtxHistory === 'function') renderCtxHistory();
         showToast('Не отправилось: ' + e, 'error');
     } finally {
         btn.disabled = false;
@@ -7757,8 +7808,9 @@ function openSignalDetail(kind, id){
 function showView(name){
     if(name !== 'ex' && name !== 'match' && name !== 'signals' && name !== 'dedup' && name !== 'partners' && name !== 'viz' && name !== 'mail' && name !== 'team' && name !== 'leads2' && name !== 'cases') return;
     state.view = name;
-    // Hide the context chat bar in 💬 Команда — that's the canonical chat already.
+    // Manage the assistant orb + Desk unread badge for the new view.
     setTimeout(updateCtxBarVisibility, 0);
+    try { renderTeamUnread(); } catch(_){}
     // Tear down the focused-lead view if it's open — user is leaving it.
     if(state.activeLeadId){
         state.activeLeadId = null;
@@ -10308,7 +10360,7 @@ function closeSettings(){
 function renderSettingsNav(){
     var tabs = [
         {id:'general',    label:tr('settings.tab.general')},
-        {id:'profile',    label:'Профиль и доступ'},
+        {id:'profile',    label:tr('settings.tab.profile')},
         {id:'appearance', label:tr('settings.tab.appearance')},
         {id:'about',      label:tr('settings.tab.about')},
     ];
