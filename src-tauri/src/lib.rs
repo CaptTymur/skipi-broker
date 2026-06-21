@@ -146,14 +146,18 @@ static HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
 fn http_client() -> reqwest::blocking::Client {
     HTTP_CLIENT
         .get_or_init(|| {
-            reqwest::blocking::Client::builder()
+            let builder = reqwest::blocking::Client::builder()
                 // Short connect timeout so a blocked primary endpoint does not
                 // freeze the Trade Desk — failover to RU bridge kicks in fast.
                 .connect_timeout(std::time::Duration::from_secs(4))
-                .timeout(std::time::Duration::from_secs(12))
-                // Self-signed certs on dev / api.skipi.app:8443 fallback —
-                // accept invalid certs only when targeting a non-public host.
-                .danger_accept_invalid_certs(true)
+                .timeout(std::time::Duration::from_secs(12));
+            // T7 (security): accept invalid TLS certs ONLY in debug (dev / self-
+            // signed api.skipi.app:8443). Release validates certs — prod hosts
+            // (api.skipi.app, api-ru.skipi.app) have valid certificates, so this
+            // closes the MITM surface without breaking connectivity.
+            #[cfg(debug_assertions)]
+            let builder = builder.danger_accept_invalid_certs(true);
+            builder
                 .build()
                 .expect("build broker HTTP client")
         })

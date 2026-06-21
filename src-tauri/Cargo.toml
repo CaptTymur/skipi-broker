@@ -1,6 +1,6 @@
 [package]
 name = "skipi-broker"
-version = "0.1.134"
+version = "0.1.135"
 description = "Skipi Broker - United Seafarers. Freight board client for cargo-tonnage matching"
 authors = ["Tymur Rudov"]
 license = "Proprietary"
@@ -18,7 +18,9 @@ tauri-build = { version = "2.5.6", features = [] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
-tauri = { version = "2.10.3", features = [ "devtools"] }
+# T7 (security): no "devtools" feature → inspector stays in dev/debug builds
+# (Tauri enables it there automatically) but is NOT compiled into release.
+tauri = { version = "2.10.3", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
