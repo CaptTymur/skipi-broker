@@ -690,6 +690,79 @@ async fn send_mail(
     request_api(&state, s, reqwest::Method::POST, "/api/mail/send".to_string(), Some(body_json)).await
 }
 
+// ---------- Per-user mailbox (Connect Email) ----------
+// Each principal connects their OWN IMAP/SMTP mailbox. Credentials go to the
+// server encrypted; the password is write-only (never read back). All routed
+// through request_api's RU↔origin failover so RF/iOS users work too.
+#[tauri::command]
+async fn get_mailbox_status(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    request_api(&state, s, reqwest::Method::GET, "/api/mail/mailbox".to_string(), None).await
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn save_mailbox_config(
+    state: tauri::State<'_, AppState>,
+    address: String,
+    provider: Option<String>,
+    imap_host: String,
+    imap_port: Option<i64>,
+    smtp_host: String,
+    smtp_port: Option<i64>,
+    username: Option<String>,
+    password: Option<String>,
+    from_name: Option<String>,
+    reply_to: Option<String>,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let mut body = serde_json::json!({
+        "address": address,
+        "imap_host": imap_host,
+        "smtp_host": smtp_host,
+    });
+    if let Some(v) = provider { body["provider"] = JsonValue::String(v); }
+    if let Some(v) = imap_port { body["imap_port"] = JsonValue::from(v); }
+    if let Some(v) = smtp_port { body["smtp_port"] = JsonValue::from(v); }
+    if let Some(v) = username { body["username"] = JsonValue::String(v); }
+    // Password is write-only: only send it when the user typed one.
+    if let Some(v) = password { if !v.is_empty() { body["password"] = JsonValue::String(v); } }
+    if let Some(v) = from_name { body["from_name"] = JsonValue::String(v); }
+    if let Some(v) = reply_to { body["reply_to"] = JsonValue::String(v); }
+    request_api(&state, s, reqwest::Method::PUT, "/api/mail/mailbox".to_string(), Some(body)).await
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn test_mailbox(
+    state: tauri::State<'_, AppState>,
+    address: String,
+    imap_host: String,
+    imap_port: Option<i64>,
+    smtp_host: String,
+    smtp_port: Option<i64>,
+    username: Option<String>,
+    password: Option<String>,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let mut body = serde_json::json!({
+        "address": address,
+        "imap_host": imap_host,
+        "smtp_host": smtp_host,
+    });
+    if let Some(v) = imap_port { body["imap_port"] = JsonValue::from(v); }
+    if let Some(v) = smtp_port { body["smtp_port"] = JsonValue::from(v); }
+    if let Some(v) = username { body["username"] = JsonValue::String(v); }
+    if let Some(v) = password { body["password"] = JsonValue::String(v); }
+    request_api(&state, s, reqwest::Method::POST, "/api/mail/mailbox/test".to_string(), Some(body)).await
+}
+
+#[tauri::command]
+async fn disconnect_mailbox(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    request_api(&state, s, reqwest::Method::DELETE, "/api/mail/mailbox".to_string(), None).await
+}
+
 /// Counterpart behavioral flags map (domain → list of flags).
 /// Server computes auto-flags from bazaar dedup + counterpart CRM
 /// (spammer / multi-persona / sanctions exposure / wa-first etc.)
@@ -1629,6 +1702,10 @@ pub fn run() {
             fetch_analytics_flows,
             poll_mail,
             send_mail,
+            get_mailbox_status,
+            save_mailbox_config,
+            test_mailbox,
+            disconnect_mailbox,
             fetch_matches,
             fetch_matches_inbox,
             engage_listing,
