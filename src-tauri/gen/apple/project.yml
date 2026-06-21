@@ -53,6 +53,7 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         CFBundleShortVersionString: 0.1.130
         CFBundleVersion: "0.1.130"
+        ITSAppUsesNonExemptEncryption: false
     entitlements:
       path: skipi-broker_iOS/skipi-broker_iOS.entitlements
     scheme:
