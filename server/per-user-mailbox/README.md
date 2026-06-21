@@ -9,6 +9,17 @@ backend is deployed by `scp` + service restart and tracked here instead of
 committed on the server. Every edited server file has a timestamped
 `*.bak.premailbox-<ts>` backup beside it for rollback.
 
+## Deployment facts
+- **Deployed:** 2026-06-22, server backups stamped `*.bak.premailbox-20260621-220620`
+  (server TZ UTC+2); migration applied + `skipi-server` restarted same session.
+- **Migration revision:** `e4b2f9a1c7d6` (down_revision `7d2b1f9c4a6e`). `alembic current` = head.
+- **New runtime dependency:** `cryptography==49.0.0` (installed into `/opt/skipi-server/.venv`).
+- **.env variables required (names only — NO values in git):**
+  - `MAILBOX_SECRET_KEY` — urlsafe-b64 Fernet key (32 bytes). Generate with
+    `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+    Already set on the live server; `.env` backed up to `.env.bak.premailbox-*`.
+    **Back this key up** — losing it makes stored mailbox passwords undecryptable.
+
 ## What changed (deployed 2026-06-22)
 
 New files (full copies here):
@@ -51,7 +62,7 @@ the principal and operate **only** on that principal's `account_id`; no mailbox 
   `.env.bak.premailbox-*`). **Back this key up** — losing it makes all stored
   passwords undecryptable (users must re-enter).
 - `cryptography==49.0.0` installed into `/opt/skipi-server/.venv`.
-- Passwords stored as Fernet ciphertext (`gAAAAA…`); never logged, never returned.
+- Passwords stored as Fernet ciphertext (opaque urlsafe token); never logged, never returned.
 
 ## Privacy
 - Per-user mailboxes default `extract_to_bazaar=false` → polled personal mail is
