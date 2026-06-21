@@ -1397,8 +1397,9 @@ async fn request_agent_update(state: tauri::State<'_, AppState>) -> Result<JsonV
                 .map_err(|e| format!("spawn agent (prod) failed: {e}"))
         } else {
             // Local dev — push to whatever Settings.server_url points at.
-            let admin_token = std::env::var("SKIPI_ADMIN_TOKEN")
-                .unwrap_or_else(|_| "aCjVedJo87SrtUdNGCcseO9Qtv3R0vpoAlOMkR7xikg".to_string());
+            // Never bake a real admin token into the binary (BUG-L9 / T7). Read it
+            // from the env at runtime; empty if unset (the dev-only push then no-ops).
+            let admin_token = std::env::var("SKIPI_ADMIN_TOKEN").unwrap_or_default();
             Command::new(&venv_python)
                 .args(["-m", "freight_agent.bazaar_push"])
                 .current_dir(agent_dir)

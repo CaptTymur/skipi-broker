@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker - United Seafarers</title>
 <script>
-var APP_VERSION='0.1.131';
+var APP_VERSION='0.1.132';
 function updateTitlebar(){
     var t = 'Skipi Broker '+APP_VERSION+' - United Seafarers';
     document.title = t;
@@ -1436,10 +1436,28 @@ body.dragging-split.col-resize { cursor:col-resize; }
         <div style="font-size:18px; font-weight:700; color:var(--text, #fff); margin-bottom:4px;">⚓ Skipi Broker</div>
         <div style="font-size:11px; color:var(--text2,#aab); margin-bottom:12px;">Skipi - United Seafarers</div>
 
-        <!-- Pane: choice (first run — pick admin or join) -->
-        <div id="auth-pane-choice">
+        <!-- Pane: welcome (FIRST branch — use the app OR see a demo). Тимур:
+             «сначала ветвление пользоваться или демка, потом всё остальное». -->
+        <div id="auth-pane-welcome">
             <div style="font-size:12px; color:var(--text2,#aab); margin-bottom:18px; line-height:1.5;">
-                Первый запуск. Кто ты?
+                Добро пожаловать. С чего начнём?
+            </div>
+            <button onclick="_showAuthPane('choice')"
+                style="display:block; width:100%; padding:13px; margin-bottom:10px; background:var(--accent,#004564); color:#fff; border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:13px; text-align:left;">
+                🚀 Пользоваться приложением
+                <div style="font-size:10px; font-weight:400; opacity:.85; margin-top:3px;">Создать команду или войти по токену — для реальной работы.</div>
+            </button>
+            <button onclick="_authEnterDemo()"
+                style="display:block; width:100%; padding:13px; background:rgba(60,52,137,.12); color:#3C3489; border:1px solid #d9d6f7; border-radius:6px; font-weight:600; cursor:pointer; font-size:13px; text-align:left;">
+                🎬 Посмотреть демонстрацию
+                <div style="font-size:10px; font-weight:400; opacity:.85; margin-top:3px;">Без регистрации — увидеть, как приложение выглядит в работе на готовых данных.</div>
+            </button>
+        </div>
+
+        <!-- Pane: choice (step 2 — pick admin or join) -->
+        <div id="auth-pane-choice" style="display:none;">
+            <div style="font-size:12px; color:var(--text2,#aab); margin-bottom:18px; line-height:1.5;">
+                Кто ты?
             </div>
             <button onclick="_showAuthPane('create')"
                 style="display:block; width:100%; padding:13px; margin-bottom:10px; background:var(--accent,#004564); color:#fff; border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:13px; text-align:left;">
@@ -1451,6 +1469,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
                 🔗 Присоединиться к команде
                 <div style="font-size:10px; font-weight:400; opacity:.7; margin-top:3px;">У меня есть токен от руководителя.</div>
             </button>
+            <div onclick="_showAuthPane('welcome')" style="margin-top:14px; font-size:11px; color:var(--text3,#788); cursor:pointer;">← назад</div>
         </div>
 
         <!-- Pane: create team (admin path) -->
@@ -1529,7 +1548,14 @@ body.dragging-split.col-resize { cursor:col-resize; }
     </div>
 </div>
 <button id="ctx-chat-restore" class="ctx-chat-restore" onclick="showCtxBar()" title="AI-ассистент · ⌘K" aria-label="Открыть AI-ассистента">✦</button>
-<div id="ctx-chat-restore" class="ctx-chat-restore" onclick="showCtxBar()">✦ ассистент</div>
+
+<!-- Demo-mode pill — bottom-left floating indicator + exit (shown only in demo). -->
+<div id="demo-banner" style="display:none; position:fixed; left:14px; bottom:14px; z-index:94;
+    background:#3C3489; color:#fff; padding:6px 12px; border-radius:16px; font-size:11px;
+    align-items:center; gap:8px; box-shadow:0 4px 14px rgba(60,52,137,.45);">
+    <span style="font-weight:600;">🎬 Демонстрация</span>
+    <button onclick="_exitDemo()" style="background:rgba(255,255,255,.22); color:#fff; border:none; border-radius:10px; padding:3px 10px; font-size:11px; cursor:pointer; font-weight:600;">Выйти</button>
+</div>
 
 <!-- Mobile-only top bar (visible only on body.mobile-mode). Matches the
      Skipi Seafarer pattern: home button (left) + brand + settings gear
@@ -2207,6 +2233,18 @@ body.dragging-split.col-resize { cursor:col-resize; }
 var invoke = (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke)
     || (window.__TAURI__ && window.__TAURI__.invoke)
     || function(){ return Promise.reject(new Error("Tauri bridge unavailable — open via Skipi Broker app, not file://")); };
+
+// ---------- Demo mode ----------
+// «Посмотреть демо» logs into a real, pre-seeded demo team on the server, so every
+// read/render path runs UNCHANGED (zero regression risk). Only WRITE actions are
+// blocked client-side with a friendly register-prompt; exit → back to the gate.
+var DEMO_BROKER_ID = '1bbed322-f650-4442-b4e2-a3608e81643a';
+function _isDemo(){ return !!(state.settings && state.settings.broker_id === DEMO_BROKER_ID); }
+function _demoGuard(){
+    if(!_isDemo()) return false;
+    try { showToast('🎬 Это демонстрация. Создай свою команду (бесплатно), чтобы публиковать, связываться и спрашивать ассистента.', 'info'); } catch(_){}
+    return true;
+}
 
 // ---------- Global state ----------
 var state = {
@@ -4152,6 +4190,7 @@ function buildAssistantContext(){
 // Routing = the real backend (Claude Code bridge via send_team_message_with_llm):
 // we send, then watch the team stream for the LLM reply and surface it here.
 async function explainMatchAI(){
+    if(_demoGuard()) return;
     var card = document.getElementById('explain-match-card');
     if(!card) return;
     var a = buildAssistantContext();
@@ -4196,6 +4235,7 @@ async function explainMatchAI(){
 state.pendingCaseLLM = state.pendingCaseLLM || [];
 
 async function sendCtxMessage(){
+    if(_demoGuard()) return;
     var inp = document.getElementById('ctx-input');
     var btn = document.getElementById('ctx-send-btn');
     if(!inp || !btn) return;
@@ -5181,6 +5221,7 @@ function _playChatBeep(){
 // are silent because losing a system event must never block a real
 // action; the chat poll picks them up within 4s on every other client.
 function emitTeamEvent(eventType, summary){
+    if(_isDemo()) return; // demo: don't write presence/action events to the demo channel
     if(!state.settings || !state.settings.broker_id) return;
     if(!summary) return;
     invoke('send_team_message', { body: summary, eventType: eventType }).catch(function(e){
@@ -5249,6 +5290,7 @@ function setTeamTarget(tgt){
 
 // Single send handler that routes based on the active target pill.
 async function teamSendRouted(){
+    if(_demoGuard()) return;
     var tgt = state.team.sendTarget || 'ai';
     if(tgt === 'ai'){
         return teamSendWithLlm();
@@ -6481,7 +6523,7 @@ function _authGateMessage(){
 // A stored token that failed validation → show 'join' with the error.
 var _authFresh = true;
 function _showAuthPane(name){
-    ['choice','create','created','join'].forEach(function(p){
+    ['welcome','choice','create','created','join'].forEach(function(p){
         var el=document.getElementById('auth-pane-'+p);
         if(el) el.style.display = (p===name)?'block':'none';
     });
@@ -6491,7 +6533,8 @@ function _authGateShow(){
     var el = document.getElementById('auth-gate-overlay');
     if(!el) return;
     el.style.display = 'flex';
-    _showAuthPane(_authFresh ? 'choice' : 'join');
+    // Fresh install → welcome (use OR demo) first; a failed stored token → join.
+    _showAuthPane(_authFresh ? 'welcome' : 'join');
 }
 function _authGateHide(){
     var el = document.getElementById('auth-gate-overlay');
@@ -6527,6 +6570,28 @@ async function _authCopyCreated(){
     try { await navigator.clipboard.writeText(t); showToast('Токен скопирован','ok'); } catch(_){}
 }
 async function _authEnterApp(){ _authGateHide(); await _bootContinue(); }
+
+// Enter the demo — log into the pre-seeded demo team (real read paths, blocked writes).
+async function _authEnterDemo(){
+    state.settings = state.settings || {};
+    state.settings.broker_id = DEMO_BROKER_ID;
+    state.settings.bearer_token = DEMO_BROKER_ID;
+    try { state.settings = await invoke('save_settings', { incoming: state.settings }); } catch(_){}
+    try { await _authGateValidate(DEMO_BROKER_ID); } catch(_){}
+    _authGateHide();
+    await _bootContinue();
+}
+// Leave the demo — wipe the demo token and return to the auth gate (fresh start).
+async function _exitDemo(){
+    try {
+        state.settings = state.settings || {};
+        state.settings.broker_id = '';
+        state.settings.bearer_token = '';
+        await invoke('save_settings', { incoming: state.settings });
+    } catch(_){}
+    try { window.location.reload(); }
+    catch(_){ var db=document.getElementById('demo-banner'); if(db) db.style.display='none'; _authFresh=true; _authGateShow(); }
+}
 async function _authGateSubmit(){
     var inp = document.getElementById('auth-gate-input');
     var err = document.getElementById('auth-gate-err');
@@ -6557,10 +6622,12 @@ async function _authGateSubmit(){
 }
 async function _bootContinue(){
     refreshIdentityBadge();
+    // Demo-mode pill (bottom-left) — show/hide based on the demo token.
+    try { var _db=document.getElementById('demo-banner'); if(_db) _db.style.display = _isDemo() ? 'flex' : 'none'; } catch(_){}
     // Trial countdown surfaces only in the last 15 days — first ~2 weeks stay
-    // distraction-free (Тимур 2026-06-20). ≤10 days adds a renewal nudge.
+    // distraction-free (Тимур 2026-06-20). ≤10 days adds a renewal nudge. Never in demo.
     try {
-        if(state.access && state.access.active && state.access.days_left!==null && state.access.days_left<=15){
+        if(!_isDemo() && state.access && state.access.active && state.access.days_left!==null && state.access.days_left<=15){
             var _d=state.access.days_left;
             showToast((_d<=10?'⚠ ':'')+'Пробный доступ: осталось '+_d+' дн.'+(_d<=10?' Свяжись с руководителем для продления.':''), _d<=10?'warn':'info');
         }
@@ -6571,7 +6638,7 @@ async function _bootContinue(){
     showView(state.view || 'ex');
     emitTeamEvent('user_opened', '🚪 зашёл в Skipi (v' + APP_VERSION + ')');
     checkForUpdates();
-    maybePromptForFeedback('broker-board');
+    if(!_isDemo()) maybePromptForFeedback('broker-board');
 }
 
 // ---------- Boot ----------
@@ -9238,6 +9305,7 @@ function renderP1(){
 }
 
 async function closeListingFromRow(kind, id){
+    if(_demoGuard()) return;
     if(!confirm('Снять циркуляцию с базара? Все её совпадения удалятся.')) return;
     // Capture title BEFORE the close so the team-event has a label.
     var pool = kind === 'cargo' ? state.myCargo : state.myTonnage;
@@ -9666,6 +9734,7 @@ function renderP4(){
 }
 
 async function openWaChat(){
+    if(_demoGuard()) return;
     if(!state.selectedMatch || state.selectedMatch.type!=='bazaar') return;
     var m = state.selectedMatch.data;
     var phone = (m.reasons||{}).contact_phone || '';
@@ -9734,6 +9803,7 @@ function contactFromMatch(){
 }
 
 async function actionEml(){
+    if(_demoGuard()) return;
     var draft = buildEmailDraft();
     if(!draft) return;
     var contact = contactFromMatch() || {};
@@ -9754,6 +9824,7 @@ async function actionEml(){
 }
 
 async function actionWhatsApp(){
+    if(_demoGuard()) return;
     var draft = buildEmailDraft();
     if(!draft) return;
     var contact = contactFromMatch() || {};
@@ -9861,6 +9932,7 @@ async function actionDismissOwn(){
 }
 
 async function actionAgentUpdate(){
+    if(_demoGuard()) return;
     var btn = document.getElementById('p2-refresh');
     var fresh = document.getElementById('mb-fresh');
     if(btn && btn.classList.contains('spinning')) return;  // debounce
@@ -10017,11 +10089,13 @@ function composeCircular(d, kind){
 // One-tap circulate straight from a listing card (works on mobile where the
 // detail's action buttons sit below a scroll).
 function circulateListing(kind, id){
+    if(_demoGuard()) return;
     state.selectedListing = { kind:kind, id:id };
     try { if(typeof renderMyCirculationDetail==='function') renderMyCirculationDetail(); } catch(_){}
     openCirculateModal();
 }
 function openCirculateModal(){
+    if(_demoGuard()) return;
     if(!state.selectedListing){ showToast('Сначала выбери циркуляцию.','error'); return; }
     var sel=state.selectedListing;
     var pool=sel.kind==='cargo'?state.myCargo:state.myTonnage;
@@ -10091,6 +10165,7 @@ async function doCirculateShare(){
 }
 
 function openPublishModal(){
+    if(_demoGuard()) return;
     // Restore an in-flight draft if there is one (form auto-save). Edit
     // mode never carries forward to a fresh «+ Опубликовать» click —
     // only same-side new-listing drafts resume.
