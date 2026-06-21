@@ -10639,10 +10639,8 @@ async function loadTeamTokens(){
     var box = document.getElementById('team-tokens-list');
     if(!box || !state.access || state.access.role!=='owner') return;
     try {
-        var r = await fetch(_brokerBase()+'/api/brokers/'+encodeURIComponent(state.access.team_id)+'/tokens',
-            { headers:{ 'Authorization':'Bearer '+state.settings.broker_id } });
-        if(!r.ok){ box.innerHTML='<div class="sub" style="color:#e55561;">Не удалось загрузить токены ('+r.status+').</div>'; return; }
-        var d = await r.json();
+        // T3b: via Rust failover (RU↔origin); bearer (owner broker_id) injected by request_api.
+        var d = await invoke('list_team_tokens', { teamId: state.access.team_id });
         var toks = (d && d.tokens) || [];
         if(!toks.length){ box.innerHTML='<div class="sub">Токенов пока нет.</div>'; return; }
         box.innerHTML = toks.map(function(t){
@@ -10656,7 +10654,7 @@ async function loadTeamTokens(){
                  + '<div class="sub" style="font-family:monospace; font-size:10px; word-break:break-all;">'+esc(t.token)+seen+'</div></div>'
                  + act + '</div>';
         }).join('');
-    } catch(e){ box.innerHTML='<div class="sub" style="color:#e55561;">Ошибка сети.</div>'; }
+    } catch(e){ box.innerHTML='<div class="sub" style="color:#e55561;">Не удалось загрузить токены.</div>'; }
 }
 
 async function createTeamToken(){
@@ -10664,27 +10662,22 @@ async function createTeamToken(){
     var label = prompt('Имя/метка члена команды (например, «Андрей»):','');
     if(label===null) return;
     try {
-        var r = await fetch(_brokerBase()+'/api/brokers/'+encodeURIComponent(state.access.team_id)+'/tokens',
-            { method:'POST', headers:{ 'Authorization':'Bearer '+state.settings.broker_id, 'Content-Type':'application/json' },
-              body: JSON.stringify({ label: label }) });
-        if(!r.ok){ showToast('Не удалось создать токен ('+r.status+')','error'); return; }
-        var d = await r.json();
+        // T3b: via Rust failover (RU↔origin); bearer injected by request_api.
+        var d = await invoke('create_team_token', { teamId: state.access.team_id, label: label });
         try { await navigator.clipboard.writeText(d.token); showToast('Токен создан и скопирован — передай члену команды','ok'); }
         catch(_){ showToast('Токен создан: '+d.token,'ok'); }
         await loadTeamTokens();
-    } catch(e){ showToast('Ошибка: '+e,'error'); }
+    } catch(e){ showToast('Не удалось создать токен: '+e,'error'); }
 }
 
 async function revokeTeamToken(id){
     if(!confirm('Отозвать этот токен? Член команды потеряет доступ при следующем запуске.')) return;
     try {
-        var r = await fetch(_brokerBase()+'/api/brokers/tokens/'+encodeURIComponent(id)+'/status',
-            { method:'PATCH', headers:{ 'Authorization':'Bearer '+state.settings.broker_id, 'Content-Type':'application/json' },
-              body: JSON.stringify({ status:'revoked' }) });
-        if(!r.ok){ showToast('Не удалось отозвать ('+r.status+')','error'); return; }
+        // T3b: via Rust failover (RU↔origin); bearer injected by request_api.
+        await invoke('set_team_token_status', { tokenId: id, status: 'revoked' });
         showToast('Токен отозван','ok');
         await loadTeamTokens();
-    } catch(e){ showToast('Ошибка: '+e,'error'); }
+    } catch(e){ showToast('Не удалось отозвать токен: '+e,'error'); }
 }
 
 // ---------- Boot ----------

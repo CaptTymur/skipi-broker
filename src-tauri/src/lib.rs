@@ -306,6 +306,49 @@ async fn validate_broker_token(
     request_api(&state, s, reqwest::Method::GET, path, None).await
 }
 
+// ---------- Team access tokens (owner) ----------
+// T3b: these three were raw `fetch(_brokerBase()…)` to the origin → blocked on
+// RF/iOS. Routed through the two-base failover. Bearer (= owner broker_id) is
+// injected by request_api. team_id/token_id are server-side UUIDs (URL-safe),
+// so the raw-path format mirrors the other commands.
+
+/// List the team's access tokens (owner only on the server).
+#[tauri::command]
+async fn list_team_tokens(
+    state: tauri::State<'_, AppState>,
+    team_id: String,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let path = format!("/api/brokers/{}/tokens", team_id);
+    request_api(&state, s, reqwest::Method::GET, path, None).await
+}
+
+/// Create a member token under the team (body `{label}`, as the frontend sent).
+#[tauri::command]
+async fn create_team_token(
+    state: tauri::State<'_, AppState>,
+    team_id: String,
+    label: String,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let path = format!("/api/brokers/{}/tokens", team_id);
+    let body = serde_json::json!({ "label": label });
+    request_api(&state, s, reqwest::Method::POST, path, Some(body)).await
+}
+
+/// Change a token's status (e.g. `revoked`).
+#[tauri::command]
+async fn set_team_token_status(
+    state: tauri::State<'_, AppState>,
+    token_id: String,
+    status: String,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let path = format!("/api/brokers/tokens/{}/status", token_id);
+    let body = serde_json::json!({ "status": status });
+    request_api(&state, s, reqwest::Method::PATCH, path, Some(body)).await
+}
+
 // ---------- Email (SMTP) ----------
 
 fn send_smtp_circular(
@@ -1558,6 +1601,9 @@ pub fn run() {
             save_settings,
             register_broker,
             validate_broker_token,
+            list_team_tokens,
+            create_team_token,
+            set_team_token_status,
             publish_cargo,
             publish_tonnage,
             update_cargo,
