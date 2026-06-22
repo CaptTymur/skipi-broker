@@ -5696,7 +5696,7 @@ function renderLeadView(m){
         var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal;
         if(sig && sig.description){
             html += '<h3>Оригинальное сообщение</h3>';
-            html += '<div class="raw-text">'+esc(sig.description)+'</div>';
+            html += '<div class="raw-text">'+esc(_readableOriginalMessage(sig.description))+'</div>';
         }
         sidebar.innerHTML = html;
     }
@@ -7469,6 +7469,11 @@ function _htmlEmailToText(html){
     return s.trim();
 }
 
+function _readableOriginalMessage(raw){
+    var s = String(raw || '');
+    return _looksLikeHtml(s) ? (_htmlEmailToText(s) || s) : s;
+}
+
 async function openMailMessage(id){
     state.mail.selectedId = id;
     renderMailList();
@@ -8668,7 +8673,7 @@ function renderSelectedMatchDetail(){
     // text block; this is the bit the user actually verifies against.
     if(sig.description){
         html += '<h3 style="margin-bottom:6px;">Оригинальное сообщение</h3>';
-        html += '<div class="raw-text" style="max-height:none;">'+esc(sig.description)+'</div>';
+        html += '<div class="raw-text" style="max-height:none;">'+esc(_readableOriginalMessage(sig.description))+'</div>';
         html += '<div style="height:14px;"></div>';
     }
 
@@ -8819,7 +8824,7 @@ function renderOppositeSignalDetail(){
     // Original email body.
     if(sig.description){
         html += '<h3 style="margin-bottom:6px;">Оригинальное сообщение</h3>';
-        html += '<div class="raw-text" style="max-height:none;">'+esc(sig.description)+'</div>';
+        html += '<div class="raw-text" style="max-height:none;">'+esc(_readableOriginalMessage(sig.description))+'</div>';
     }
 
     // Reasons matcher fired. Nested objects (e.g. data_fill {cargo,tonnage})
@@ -9444,7 +9449,7 @@ function renderP0(){
 
     if(d.description){
         html += '<div class="detail-block"><h4>Полный текст</h4>';
-        html += '<div class="raw-text">'+esc(d.description)+'</div></div>';
+        html += '<div class="raw-text">'+esc(_readableOriginalMessage(d.description))+'</div></div>';
     }
 
     // Quick stats — what the bazaar engagement model is showing.
@@ -9861,7 +9866,7 @@ function renderP3Bazaar(body, m){
     // owners_db it's the roster entry summary.
     if(sig.description){
         html += '<div class="detail-block"><h4>Исходное сообщение</h4>';
-        html += '<div class="raw-text">'+esc(sig.description)+'</div></div>';
+        html += '<div class="raw-text">'+esc(_readableOriginalMessage(sig.description))+'</div></div>';
     }
 
     html += '<div class="detail-block"><h4>Структурированные детали</h4>';
