@@ -141,6 +141,17 @@ fn api_bases(s: &Settings) -> Vec<String> {
     vec![configured]
 }
 
+fn credential_api_bases(s: &Settings) -> Vec<String> {
+    let configured = s.server_url.trim_end_matches('/').to_string();
+    if configured.is_empty() || configured == RU_API || configured == PRIMARY_API {
+        // Mailbox setup/test carries a user-entered mail app-password in the
+        // request body. Keep that traffic on the origin, not the RF mirror.
+        return vec![PRIMARY_API.to_string()];
+    }
+    // Manual override — dev/staging explicitly selected in Settings.
+    vec![configured]
+}
+
 static HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
 
 fn http_client() -> reqwest::blocking::Client {
@@ -201,7 +212,27 @@ fn request_api_blocking(
     body: Option<JsonValue>,
     cached: Option<String>,
 ) -> Result<(JsonValue, String), String> {
-    let all_bases = api_bases(&s);
+    request_api_blocking_with_bases(s, method, path_and_query, body, cached, api_bases)
+}
+
+fn request_credential_api_blocking(
+    s: Settings,
+    method: reqwest::Method,
+    path_and_query: String,
+    body: Option<JsonValue>,
+) -> Result<(JsonValue, String), String> {
+    request_api_blocking_with_bases(s, method, path_and_query, body, None, credential_api_bases)
+}
+
+fn request_api_blocking_with_bases(
+    s: Settings,
+    method: reqwest::Method,
+    path_and_query: String,
+    body: Option<JsonValue>,
+    cached: Option<String>,
+    bases_for: fn(&Settings) -> Vec<String>,
+) -> Result<(JsonValue, String), String> {
+    let all_bases = bases_for(&s);
     let client = http_client();
 
     // Build the candidate order: cached active base first (if any and
@@ -281,6 +312,20 @@ async fn request_api(
             Err(e)
         }
     }
+}
+
+async fn request_credential_api(
+    s: Settings,
+    method: reqwest::Method,
+    path_and_query: String,
+    body: Option<JsonValue>,
+) -> Result<JsonValue, String> {
+    let result = spawn_blocking_result(move || {
+        request_credential_api_blocking(s, method, path_and_query, body)
+    })
+    .await;
+
+    result.map(|(value, _active_base)| value)
 }
 
 fn settings_snapshot(state: &AppState) -> Settings {
@@ -692,8 +737,9 @@ async fn send_mail(
 
 // ---------- Per-user mailbox (Connect Email) ----------
 // Each principal connects their OWN IMAP/SMTP mailbox. Credentials go to the
-// server encrypted; the password is write-only (never read back). All routed
-// through request_api's RU↔origin failover so RF/iOS users work too.
+// server encrypted; the password is write-only (never read back). Non-secret
+// mail calls use RU↔origin failover, but credential-bearing setup/test calls
+// are origin-only so a mirror/reverse-proxy never sees the app-password.
 #[tauri::command]
 async fn get_mailbox_status(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
@@ -729,7 +775,7 @@ async fn save_mailbox_config(
     if let Some(v) = password { if !v.is_empty() { body["password"] = JsonValue::String(v); } }
     if let Some(v) = from_name { body["from_name"] = JsonValue::String(v); }
     if let Some(v) = reply_to { body["reply_to"] = JsonValue::String(v); }
-    request_api(&state, s, reqwest::Method::PUT, "/api/mail/mailbox".to_string(), Some(body)).await
+    request_credential_api(s, reqwest::Method::PUT, "/api/mail/mailbox".to_string(), Some(body)).await
 }
 
 #[tauri::command]
@@ -754,7 +800,7 @@ async fn test_mailbox(
     if let Some(v) = smtp_port { body["smtp_port"] = JsonValue::from(v); }
     if let Some(v) = username { body["username"] = JsonValue::String(v); }
     if let Some(v) = password { body["password"] = JsonValue::String(v); }
-    request_api(&state, s, reqwest::Method::POST, "/api/mail/mailbox/test".to_string(), Some(body)).await
+    request_credential_api(s, reqwest::Method::POST, "/api/mail/mailbox/test".to_string(), Some(body)).await
 }
 
 #[tauri::command]
