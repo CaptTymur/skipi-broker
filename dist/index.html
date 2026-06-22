@@ -2722,10 +2722,11 @@ function rowAgeTimestamp(type, data){
 
 // ---------- Theme ----------
 function applyTheme(){
-    var t = localStorage.getItem('skipi-broker-theme') || 'light';
-    var resolved = (t==='system')
-        ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
-        : t;
+    // Light is the hard default. Dark applies ONLY when the user explicitly
+    // selected it — the app never follows the OS theme, so a dark-mode device
+    // does not start the app in dark unless the user chose dark.
+    var t = localStorage.getItem('skipi-broker-theme');
+    var resolved = (t === 'dark') ? 'dark' : 'light';
     document.documentElement.setAttribute('data-theme', resolved);
     var fs = parseInt(localStorage.getItem('skipi-broker-font-size')||'13',10);
     document.documentElement.style.setProperty('--font-size-ui', fs+'px');
@@ -10768,11 +10769,14 @@ function renderSettingsBody(){
             '<div class="sub" style="margin-top:24px; font-size:10px; color:var(--text3);">Сервер: '+esc(s.server_url||'https://api.skipi.app')+'</div>';
         _afterProfileRender();
     } else if(t==='appearance'){
-        var cur = localStorage.getItem('skipi-broker-theme') || 'light';
+        // Light is the default; dark is opt-in only. No 'system' (OS-follow)
+        // option — it would let a dark-mode device start the app in dark.
+        var cur = (localStorage.getItem('skipi-broker-theme') === 'dark') ? 'dark' : 'light';
         body.innerHTML = '<h3>Внешний вид</h3><div class="sub">Тема интерфейса.</div>'+
             '<div style="margin-bottom:14px;"><label style="font-size:11px; color:var(--text2);">Тема</label><br>'+
-                ['dark','light','system'].map(function(x){
-                    return '<label style="margin-right:14px;"><input type="radio" name="theme" '+(cur===x?'checked':'')+' onclick="setTheme(\''+x+'\')"> '+x+'</label>';
+                [['light','Светлая'],['dark','Тёмная']].map(function(o){
+                    var x=o[0];
+                    return '<label style="margin-right:14px;"><input type="radio" name="theme" '+(cur===x?'checked':'')+' onclick="setTheme(\''+x+'\')"> '+o[1]+'</label>';
                 }).join('')+
             '</div>';
     } else {
