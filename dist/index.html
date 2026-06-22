@@ -7303,10 +7303,20 @@ function switchMailChannel(ch){
 // their OWN mailbox (the old drybulk@ company filter no longer applies). Kept
 // as a localStorage override only for the legacy shared account.
 var _COMPANY_EMAIL_DEFAULT = '';
+// Old shared-mailbox default (v0.1.125). A stale copy left in localStorage
+// would filter a per-user personal inbox down to drybulk@-addressed mail only
+// — i.e. hide everything the user just connected. Treat it as unset and clean
+// it up once. A genuinely custom value the user sets later is still respected.
+var _LEGACY_COMPANY_EMAIL = 'drybulk@montlinechartering.com';
 function _companyEmail(){
     try {
         var v = localStorage.getItem('skipi-company-email');
-        return (v == null) ? _COMPANY_EMAIL_DEFAULT : v;
+        if (v == null) return _COMPANY_EMAIL_DEFAULT;
+        if (v.trim().toLowerCase() === _LEGACY_COMPANY_EMAIL){
+            try { localStorage.removeItem('skipi-company-email'); } catch(_){}
+            return _COMPANY_EMAIL_DEFAULT;
+        }
+        return v;
     } catch(_){ return _COMPANY_EMAIL_DEFAULT; }
 }
 function saveCompanyEmail(){
