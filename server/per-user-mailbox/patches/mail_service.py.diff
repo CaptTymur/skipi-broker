@@ -1,0 +1,114 @@
+--- app/mail_service.py.bak.premailbox-20260621-220620	2026-06-21 22:06:20.868663879 +0200
++++ app/mail_service.py	2026-06-21 22:14:13.075640822 +0200
+@@ -102,6 +102,68 @@
+     )
+ 
+ 
++def config_from_account(account, password: str) -> MailAccountConfig:
++    """Build a runtime MailAccountConfig from a per-user MailAccount DB row.
++
++    `password` is the already-decrypted plaintext (decrypted by the caller via
++    mail_crypto.decrypt_secret just before use). For a personal mailbox the
++    login user is `username` (Gmail: the real mailbox) and the INBOX filter is
++    the user's own address. Connections use implicit SSL (993/465); STARTTLS
++    for custom non-SSL providers is a documented follow-up.
++    """
++    addr = account.address or ""
++    user = account.username or addr
++    name = account.display_name or addr
++    return MailAccountConfig(
++        address=addr,
++        display_name=name,
++        imap_host=account.imap_host or "",
++        imap_port=int(account.imap_port or 993),
++        imap_user=user,
++        imap_password=password or "",
++        smtp_host=account.smtp_host or "",
++        smtp_port=int(account.smtp_port or 465),
++        smtp_user=user,
++        smtp_password=password or "",
++        from_address=addr,
++        from_name=name,
++        # Personal inbox: accept everything delivered to the user's own address.
++        delivered_to_filter=addr,
++        poll_interval_secs=60,
++        fetch_days_back=14,
++    )
++
++
++def _test_login_sync(cfg: MailAccountConfig) -> dict:
++    """Blocking IMAP+SMTP login check. No mailbox state is changed."""
++    import ssl as _ssl, imaplib as _imaplib, smtplib as _smtplib
++    ctx = _ssl.create_default_context()
++    try:
++        imap = _imaplib.IMAP4_SSL(cfg.imap_host, cfg.imap_port, ssl_context=ctx, timeout=20)
++        try:
++            imap.login(cfg.imap_user, cfg.imap_password)
++        finally:
++            try:
++                imap.logout()
++            except Exception:
++                pass
++    except Exception as e:
++        return {"ok": False, "stage": "imap", "reason": str(e)}
++    try:
++        with _smtplib.SMTP_SSL(cfg.smtp_host, cfg.smtp_port, context=ctx, timeout=20) as s:
++            s.login(cfg.smtp_user, cfg.smtp_password)
++    except Exception as e:
++        return {"ok": False, "stage": "smtp", "reason": str(e)}
++    return {"ok": True}
++
++
++async def test_account_login(cfg: MailAccountConfig) -> dict:
++    """Async wrapper around _test_login_sync. Returns {ok, [stage, reason]}."""
++    if not (cfg.imap_host and cfg.imap_user and cfg.imap_password and cfg.smtp_host):
++        return {"ok": False, "reason": "missing IMAP/SMTP host, user or password"}
++    return await asyncio.to_thread(_test_login_sync, cfg)
++
++
+ # ---------- Email parsing helpers ----------
+ 
+ 
+@@ -487,13 +549,19 @@
+     account_id: str,
+     folder: str,
+     messages: list[dict],
++    extract_to_bazaar: bool = False,
+ ) -> int:
+     """Upsert poll results into DB. Returns number of NEW rows added.
+ 
+     For new INBOX mails, additionally try to extract a bazaar cargo or
+     tonnage signal via mail_to_bazaar.build_signals_from_mail and upsert
+     into bazaar_*_signals. That is the broker@/drybulk@/info@ -> bazaar
+-    bridge added in PR #4 of the taxonomy audit (2026-06-03)."""
++    bridge added in PR #4 of the taxonomy audit (2026-06-03).
++
++    PRIVACY: extraction only runs when extract_to_bazaar=True. Per-user
++    personal mailboxes default to False so a user's private mail is NOT
++    auto-published into the global shared bazaar. Only the legacy drybulk
++    account opts in."""
+     if not messages:
+         return 0
+     from .models import MailMessage
+@@ -531,7 +599,7 @@
+             date_received=m.get("date_received"),
+         ))
+         newly_added_mails.append(m)
+-    if folder == "INBOX" and newly_added_mails:
++    if extract_to_bazaar and folder == "INBOX" and newly_added_mails:
+         try:
+             await _ingest_mail_into_bazaar(db, newly_added_mails)
+         except Exception as e:
+@@ -654,7 +722,11 @@
+                 result = await poll_account_once(cfg, folder=folder)
+                 if result.get("status") == "ok" and result.get("messages"):
+                     async with async_session_maker() as db:
+-                        new_added = await upsert_messages(db, account_id, folder, result["messages"])
++                        # Legacy drybulk account keeps feeding the global bazaar.
++                        new_added = await upsert_messages(
++                            db, account_id, folder, result["messages"],
++                            extract_to_bazaar=True,
++                        )
+                         if new_added:
+                             log.info("mail %s: %d new messages cached", folder, new_added)
+             except Exception as e:

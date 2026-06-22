@@ -1121,6 +1121,11 @@ body.dragging-split.col-resize { cursor:col-resize; }
     border:1px solid transparent; }
 .mail-tab:hover { background:var(--surface); color:var(--text); }
 .mail-tab.active { background:var(--surface); color:var(--text); border-color:var(--border); font-weight:600; }
+.mb-fld { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--text2); }
+.mb-fld > span { font-weight:600; }
+.mb-fld input, .mb-fld select { padding:8px 10px; border:1px solid var(--border); border-radius:6px;
+    background:var(--bg); color:var(--text); font-size:13px; width:100%; box-sizing:border-box; }
+.mb-fld input:focus, .mb-fld select:focus { outline:none; border-color:var(--accent); }
 .mch-tab { padding:3px 8px; border-radius:3px; cursor:pointer; color:var(--text2);
     border:1px solid transparent; user-select:none; }
 .mch-tab:hover { background:var(--surface2); color:var(--text); }
@@ -2029,7 +2034,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
     <!-- View 📧 Почта — shared drybulk@montlinechartering.com inbox via
          server-side IMAP. Two pane: list left, message body right. -->
     <div class="view-pane view-signals-stack" id="view-mail" style="display:none;">
-        <div class="signals-cols">
+        <div class="signals-cols" id="mail-cols">
             <div class="signals-col" style="max-width:480px;">
                 <div class="col-head">
                     <span style="display:inline-flex; gap:4px;">
@@ -2040,12 +2045,14 @@ body.dragging-split.col-resize { cursor:col-resize; }
                     <span class="p2-refresh" id="mail-refresh" title="Обновить (poll IMAP)" onclick="refreshMail(true)">🔄</span>
                     <span id="mail-last-refresh" style="font-size:10px; color:var(--text3); margin-left:6px;"></span>
                     <span class="p2-refresh" title="Написать новое" onclick="openMailCompose()">✏</span>
+                    <span class="p2-refresh" id="mail-settings-btn" title="Настройки почтового ящика" style="margin-left:auto;" onclick="openMailboxSettings()">⚙</span>
                 </div>
-                <div id="mail-channel-tabs" style="display:flex; gap:2px; padding:6px 10px; background:var(--surface); border-bottom:1px solid var(--border); font-size:11px; flex-wrap:wrap;">
-                    <span class="mch-tab active" data-ch="all"     onclick="switchMailChannel('all')"     title="Все каналы">🌐 Все <span class="mch-n" id="mch-n-all">·</span></span>
-                    <span class="mch-tab"        data-ch="drybulk" onclick="switchMailChannel('drybulk')" title="Outreach Wave — drybulk@montlinechartering.com">🚢 drybulk <span class="mch-n" id="mch-n-drybulk">·</span></span>
-                    <span class="mch-tab"        data-ch="info"    onclick="switchMailChannel('info')"    title="Группа info@montlinechartering.com">📨 info <span class="mch-n" id="mch-n-info">·</span></span>
-                    <span class="mch-tab"        data-ch="broker"  onclick="switchMailChannel('broker')"  title="Личная переписка broker@capt-tymur.com">📥 broker <span class="mch-n" id="mch-n-broker">·</span></span>
+                <!-- Montline-specific channel tabs removed for per-user mailboxes -->
+                <div id="mail-channel-tabs" style="display:none;">
+                    <span class="mch-tab active" data-ch="all" onclick="switchMailChannel('all')"><span class="mch-n" id="mch-n-all">·</span></span>
+                    <span class="mch-tab" data-ch="drybulk" onclick="switchMailChannel('drybulk')"><span class="mch-n" id="mch-n-drybulk">·</span></span>
+                    <span class="mch-tab" data-ch="info" onclick="switchMailChannel('info')"><span class="mch-n" id="mch-n-info">·</span></span>
+                    <span class="mch-tab" data-ch="broker" onclick="switchMailChannel('broker')"><span class="mch-n" id="mch-n-broker">·</span></span>
                 </div>
                 <div class="signals-table-wrap" id="mail-list-body" style="overflow-y:auto;"></div>
             </div>
@@ -2059,9 +2066,49 @@ body.dragging-split.col-resize { cursor:col-resize; }
                 </div>
                 <div class="signals-table-wrap" id="mail-detail-body" style="padding:14px 18px; overflow-y:auto;">
                     <div style="color:var(--text3); font-size:12px; padding:40px; text-align:center;">
-                        Inbox пишется через broker@'s IMAP с фильтром по Delivered-To: drybulk@.<br>
-                        Письма видны всем команде, ничего не настраивать.
+                        Это твой личный почтовый ящик. Выбери письмо слева.
                     </div>
+                </div>
+            </div>
+        </div>
+        <!-- "Подключи свою почту" — shown when this user has no mailbox configured -->
+        <div id="mail-connect-pane" style="display:none; overflow-y:auto; padding:34px 20px;">
+            <div style="max-width:520px; margin:0 auto;">
+                <div style="font-size:20px; font-weight:700; margin-bottom:6px;">📧 Подключи свою почту</div>
+                <div style="color:var(--text2); font-size:13px; line-height:1.5; margin-bottom:18px;">
+                    Skipi Broker работает с <b>твоим личным</b> почтовым ящиком — у каждого участника команды свой.
+                    Пароль хранится в зашифрованном виде на сервере и <b>никогда не показывается обратно</b>.
+                </div>
+                <div style="display:flex; flex-direction:column; gap:10px;">
+                    <label class="mb-fld"><span>Провайдер</span>
+                        <select id="mb-provider" onchange="mbApplyPreset()">
+                            <option value="gmail">Gmail / Google Workspace</option>
+                            <option value="custom">Другой (IMAP/SMTP)</option>
+                        </select>
+                    </label>
+                    <label class="mb-fld"><span>Email</span><input id="mb-email" placeholder="you@example.com" autocomplete="off"></label>
+                    <div id="mb-gmail-hint" style="font-size:11px; color:var(--accent); background:rgba(0,69,100,.06); padding:8px 10px; border-radius:6px;">
+                        Для Gmail / Google Workspace создай <b>пароль приложения</b> (App Password): аккаунт Google → Безопасность → Двухэтапная аутентификация → Пароли приложений. Обычный пароль не подойдёт.
+                    </div>
+                    <div id="mb-advanced">
+                        <div style="display:flex; gap:8px;">
+                            <label class="mb-fld" style="flex:2;"><span>IMAP-хост</span><input id="mb-imap-host" placeholder="imap.gmail.com" autocomplete="off"></label>
+                            <label class="mb-fld" style="flex:1;"><span>Порт</span><input id="mb-imap-port" value="993" autocomplete="off"></label>
+                        </div>
+                        <div style="display:flex; gap:8px; margin-top:10px;">
+                            <label class="mb-fld" style="flex:2;"><span>SMTP-хост</span><input id="mb-smtp-host" placeholder="smtp.gmail.com" autocomplete="off"></label>
+                            <label class="mb-fld" style="flex:1;"><span>Порт</span><input id="mb-smtp-port" value="465" autocomplete="off"></label>
+                        </div>
+                    </div>
+                    <label class="mb-fld"><span>Логин <span style="color:var(--text3);">(обычно = email)</span></span><input id="mb-username" placeholder="you@example.com" autocomplete="off"></label>
+                    <label class="mb-fld"><span id="mb-pass-label">Пароль / App Password</span><input id="mb-password" type="password" placeholder="••••••••" autocomplete="new-password"></label>
+                    <label class="mb-fld"><span>Имя отправителя <span style="color:var(--text3);">(необяз.)</span></span><input id="mb-from-name" placeholder="Captain ..." autocomplete="off"></label>
+                    <div style="display:flex; gap:8px; align-items:center; margin-top:6px;">
+                        <button class="btn" onclick="mbTest()">Проверить подключение</button>
+                        <button class="btn btn-accent" onclick="mbSave()">Сохранить и подключить</button>
+                        <button class="btn" id="mb-disconnect-btn" style="display:none; margin-left:auto;" onclick="mbDisconnect()">Отключить</button>
+                    </div>
+                    <div id="mb-status" style="font-size:12px; min-height:16px;"></div>
                 </div>
             </div>
         </div>
@@ -6985,6 +7032,8 @@ function switchMailFolder(folder){
 }
 
 async function refreshMail(forcePoll){
+    // Demo: self-contained fixtures, never hit the server mailbox.
+    if(_isDemo()){ _renderDemoMail(); return; }
     var btn = document.getElementById('mail-refresh');
     if(btn) btn.classList.add('spinning');
     var folder = state.mail.folder || 'INBOX';
@@ -6992,9 +7041,9 @@ async function refreshMail(forcePoll){
         if(forcePoll){
             try { await invoke('poll_mail'); } catch(e){ /* server may be down */ }
         }
-        // Always fetch all channels — filter locally so the per-channel
-        // tabs can update their counts without a round-trip.
         var data = await invoke('fetch_mail_inbox', { folder:folder, channel:'all', limit:200 });
+        // No mailbox connected for this user → show the Connect Email pane.
+        if(data && data.status === 'not_configured'){ _showMailConnect(true); return; }
         if(data && Array.isArray(data.messages)){
             state.mail.messages = data.messages;
             state.mail.loaded = true;
@@ -7052,6 +7101,188 @@ function _disarmMailAutoRefresh(){
     }
 }
 
+// ===================== Per-user mailbox (Connect Email) =====================
+// Each user connects their OWN mailbox. If the server says not_configured we
+// show the Connect Email pane instead of any shared/server mailbox. Demo mode
+// keeps self-contained fixtures and never touches the server mailbox.
+function _DEMO_MAIL(folder){
+    if(folder === 'SENT') return [
+        { id:'demo-s1', to:'chartering@oceanic-bulk.gr', from_name:'', subject:'RE: MV Aurora — Constanta open 22 Jun', date_received:'2026-06-19T09:12:00', is_read:true, channel:null }
+    ];
+    return [
+        { id:'demo-1', from:'chartering@oceanic-bulk.gr', from_name:'Oceanic Bulk Chartering', subject:'MV Aurora open Constanta 22 Jun — 12,500 dwt geared', date_received:'2026-06-19T08:40:00', is_read:false, channel:null },
+        { id:'demo-2', from:'desk@meridian-shipbrokers.com', from_name:'Meridian Shipbrokers', subject:'Cargo: 5,000 mt steel coils Marmara/Alexandria prompt', date_received:'2026-06-18T16:05:00', is_read:false, channel:null },
+        { id:'demo-3', from:'ops@blacksea-grain.com', from_name:'Black Sea Grain', subject:'Wheat 6,000 mt Reni/Mersin — laycan 25-28 Jun', date_received:'2026-06-18T11:20:00', is_read:true, channel:null }
+    ];
+}
+function _demoMessage(id){
+    var bodies = {
+        'demo-1':'Good day,\n\nMV Aurora (12,500 dwt, geared) opens Constanta 22 June. Seeking cargo Black Sea / East Med. Please advise suitable parcels.\n\nBest regards,\nOceanic Bulk Chartering',
+        'demo-2':'Dear Captain,\n\nWe have firm 5,000 mt steel coils Marmara → Alexandria, prompt laycan. Kindly advise tonnage and freight idea.\n\nMeridian Shipbrokers',
+        'demo-3':'Hello,\n\nWheat in bulk 6,000 mt Reni → Mersin, laycan 25-28 June, suitable geared handysize. Awaiting your best offers.\n\nBlack Sea Grain',
+        'demo-s1':'Thanks — proposing MV Aurora for your steel coils, full details to follow shortly.'
+    };
+    var all = _DEMO_MAIL('INBOX').concat(_DEMO_MAIL('SENT'));
+    var fx = null;
+    for(var i=0;i<all.length;i++){ if(all[i].id===id){ fx=all[i]; break; } }
+    fx = fx || { id:id, subject:'(demo)' };
+    return Object.assign({}, fx, { body_text: bodies[id] || '(demo message)', to: fx.to || 'you@demo', cc:'' });
+}
+function _renderDemoMail(){
+    var folder = state.mail.folder || 'INBOX';
+    state.mail.messages = _DEMO_MAIL(folder);
+    state.mail.loaded = true;
+    state.mail.lastRefreshAt = Date.now();
+    renderMailList();
+    _updateMailRefreshLabel();
+}
+
+function _showMailConnect(show){
+    var cols = document.getElementById('mail-cols');
+    var pane = document.getElementById('mail-connect-pane');
+    if(cols) cols.style.display = show ? 'none' : '';
+    if(pane) pane.style.display = show ? 'block' : 'none';
+}
+
+async function loadMailboxStatus(){
+    if(_isDemo()){ state.mail.mailbox = { configured:true, demo:true }; return state.mail.mailbox; }
+    try {
+        var s = await invoke('get_mailbox_status');
+        state.mail.mailbox = (s && typeof s === 'object') ? s : { configured:false, status:'not_configured' };
+    } catch(e){
+        state.mail.mailbox = { configured:false, status:'error', error:String(e) };
+    }
+    return state.mail.mailbox;
+}
+
+// Entry point when the Mail view opens.
+async function openMailView(){
+    if(_isDemo()){ _showMailConnect(false); _renderDemoMail(); return; }
+    var s = await loadMailboxStatus();
+    if(!s || !s.configured){
+        _prefillMailboxForm(s);
+        _showMailConnect(true);
+        return;
+    }
+    _showMailConnect(false);
+    refreshMail(true);
+    _armMailAutoRefresh();
+}
+
+function openMailboxSettings(){
+    if(_isDemo()){ if(typeof _demoGuard==='function') _demoGuard(); return; }
+    _prefillMailboxForm(state.mail.mailbox);
+    _showMailConnect(true);
+}
+
+function _prefillMailboxForm(s){
+    s = s || {};
+    var g = function(id){ return document.getElementById(id); };
+    if(g('mb-provider')) g('mb-provider').value = s.provider || 'gmail';
+    if(g('mb-email')) g('mb-email').value = '';            // never echo the address back as editable secret-ish
+    if(g('mb-imap-host')) g('mb-imap-host').value = s.imap_host || '';
+    if(g('mb-imap-port')) g('mb-imap-port').value = s.imap_port || 993;
+    if(g('mb-smtp-host')) g('mb-smtp-host').value = s.smtp_host || '';
+    if(g('mb-smtp-port')) g('mb-smtp-port').value = s.smtp_port || 465;
+    if(g('mb-username')) g('mb-username').value = '';
+    if(g('mb-password')) g('mb-password').value = '';      // password is write-only — never prefilled
+    if(g('mb-from-name')) g('mb-from-name').value = s.display_name || '';
+    var disc = g('mb-disconnect-btn');
+    if(disc) disc.style.display = s.configured ? '' : 'none';
+    var st = g('mb-status');
+    if(st){
+        if(s.configured){
+            st.style.color = 'var(--text2)';
+            st.textContent = 'Подключено: ' + (s.email_masked || '') + (s.last_error ? (' · последняя ошибка: ' + s.last_error) : '') + '. Чтобы сменить — введи данные заново.';
+        } else { st.style.color = 'var(--text2)'; st.textContent = ''; }
+    }
+    mbApplyPreset();
+}
+
+function mbApplyPreset(){
+    var prov = (document.getElementById('mb-provider') || {}).value || 'gmail';
+    var hint = document.getElementById('mb-gmail-hint');
+    var adv = document.getElementById('mb-advanced');
+    if(prov === 'gmail'){
+        var ih=document.getElementById('mb-imap-host'), ip=document.getElementById('mb-imap-port'),
+            sh=document.getElementById('mb-smtp-host'), sp=document.getElementById('mb-smtp-port');
+        if(ih) ih.value='imap.gmail.com'; if(ip) ip.value='993';
+        if(sh) sh.value='smtp.gmail.com'; if(sp) sp.value='465';
+        if(hint) hint.style.display='block';
+        if(adv) adv.style.display='none';
+    } else {
+        if(hint) hint.style.display='none';
+        if(adv) adv.style.display='block';
+    }
+}
+
+function _mbCollect(){
+    var v = function(id){ var e=document.getElementById(id); return e ? (e.value||'').trim() : ''; };
+    var email = v('mb-email');
+    return {
+        address: email,
+        provider: (document.getElementById('mb-provider')||{}).value || 'custom',
+        imapHost: v('mb-imap-host'),
+        imapPort: parseInt(v('mb-imap-port'),10) || 993,
+        smtpHost: v('mb-smtp-host'),
+        smtpPort: parseInt(v('mb-smtp-port'),10) || 465,
+        username: v('mb-username') || email,
+        password: v('mb-password'),
+        fromName: v('mb-from-name')
+    };
+}
+
+async function mbTest(){
+    if(_isDemo()){ if(typeof _demoGuard==='function') _demoGuard(); return; }
+    var st = document.getElementById('mb-status');
+    var d = _mbCollect();
+    if(!d.address || !d.imapHost || !d.smtpHost){ if(st){ st.style.color='#e55561'; st.textContent='Заполни email, IMAP и SMTP хосты.'; } return; }
+    if(!d.password){ if(st){ st.style.color='#e55561'; st.textContent='Введи пароль для проверки.'; } return; }
+    if(st){ st.style.color='var(--text2)'; st.textContent='Проверяю подключение…'; }
+    try {
+        var r = await invoke('test_mailbox', { address:d.address, imapHost:d.imapHost, imapPort:d.imapPort, smtpHost:d.smtpHost, smtpPort:d.smtpPort, username:d.username, password:d.password });
+        if(r && r.ok){ if(st){ st.style.color='#2bb673'; st.textContent='✓ Подключение успешно — IMAP и SMTP отвечают.'; } }
+        else { if(st){ st.style.color='#e55561'; st.textContent='✗ Не удалось ('+((r&&r.stage)||'?')+'): '+((r&&r.reason)||'ошибка'); } }
+    } catch(e){ if(st){ st.style.color='#e55561'; st.textContent='✗ Ошибка: '+e; } }
+}
+
+async function mbSave(){
+    if(_isDemo()){ if(typeof _demoGuard==='function') _demoGuard(); return; }
+    var st = document.getElementById('mb-status');
+    var d = _mbCollect();
+    if(!d.address || !d.imapHost || !d.smtpHost){ if(st){ st.style.color='#e55561'; st.textContent='Заполни email, IMAP и SMTP хосты.'; } return; }
+    var configured = state.mail.mailbox && state.mail.mailbox.configured;
+    if(!d.password && !configured){ if(st){ st.style.color='#e55561'; st.textContent='Введи пароль (App Password).'; } return; }
+    if(st){ st.style.color='var(--text2)'; st.textContent='Сохраняю…'; }
+    try {
+        var r = await invoke('save_mailbox_config', { address:d.address, provider:d.provider, imapHost:d.imapHost, imapPort:d.imapPort, smtpHost:d.smtpHost, smtpPort:d.smtpPort, username:d.username, password:d.password, fromName:d.fromName });
+        // Never keep the password in the DOM/localStorage.
+        var p = document.getElementById('mb-password'); if(p) p.value='';
+        if(r && (r.ok || r.configured)){
+            await loadMailboxStatus();
+            _showMailConnect(false);
+            showToast('📧 Почта подключена', 'ok');
+            refreshMail(true);
+            _armMailAutoRefresh();
+        } else { if(st){ st.style.color='#e55561'; st.textContent='Не удалось сохранить.'; } }
+    } catch(e){ if(st){ st.style.color='#e55561'; st.textContent='Ошибка: '+e; } }
+}
+
+async function mbDisconnect(){
+    if(_isDemo()){ if(typeof _demoGuard==='function') _demoGuard(); return; }
+    if(!confirm('Отключить почтовый ящик?\n\nУчётные данные будут стёрты, а сохранённые письма из кэша удалены.')) return;
+    var st = document.getElementById('mb-status');
+    if(st){ st.style.color='var(--text2)'; st.textContent='Отключаю…'; }
+    try {
+        await invoke('disconnect_mailbox');
+        state.mail.mailbox = { configured:false, status:'not_configured' };
+        state.mail.messages = [];
+        _prefillMailboxForm(state.mail.mailbox);
+        _showMailConnect(true);
+        showToast('Почта отключена', 'ok');
+    } catch(e){ if(st){ st.style.color='#e55561'; st.textContent='Ошибка: '+e; } }
+}
+
 function switchMailChannel(ch){
     state.mail.channel = ch;
     state.mail.selectedId = null;
@@ -7068,13 +7299,24 @@ function switchMailChannel(ch){
     renderMailList();
 }
 
-// Company mailbox filter (запрос Виктории 17.06): show only mail
-// addressed to our single company address. Stored in localStorage.
-var _COMPANY_EMAIL_DEFAULT = 'drybulk@montlinechartering.com';
+// Optional client-side mailbox filter. Default empty now that each user has
+// their OWN mailbox (the old drybulk@ company filter no longer applies). Kept
+// as a localStorage override only for the legacy shared account.
+var _COMPANY_EMAIL_DEFAULT = '';
+// Old shared-mailbox default (v0.1.125). A stale copy left in localStorage
+// would filter a per-user personal inbox down to drybulk@-addressed mail only
+// — i.e. hide everything the user just connected. Treat it as unset and clean
+// it up once. A genuinely custom value the user sets later is still respected.
+var _LEGACY_COMPANY_EMAIL = 'drybulk@montlinechartering.com';
 function _companyEmail(){
     try {
         var v = localStorage.getItem('skipi-company-email');
-        return (v == null || v === '') ? _COMPANY_EMAIL_DEFAULT : v;
+        if (v == null) return _COMPANY_EMAIL_DEFAULT;
+        if (v.trim().toLowerCase() === _LEGACY_COMPANY_EMAIL){
+            try { localStorage.removeItem('skipi-company-email'); } catch(_){}
+            return _COMPANY_EMAIL_DEFAULT;
+        }
+        return v;
     } catch(_){ return _COMPANY_EMAIL_DEFAULT; }
 }
 function saveCompanyEmail(){
@@ -7235,7 +7477,7 @@ async function openMailMessage(id){
     var replyBtn = document.getElementById('mail-reply-btn');
     if(dbody) dbody.innerHTML = '<div style="padding:30px; text-align:center; color:var(--text3);">Загружаю…</div>';
     try {
-        var m = await invoke('fetch_mail_message', { messageId: id });
+        var m = _isDemo() ? _demoMessage(id) : await invoke('fetch_mail_message', { messageId: id });
         state.mail.currentMsg = m;
         if(dtitle) dtitle.textContent = (m.subject || '(no subject)').slice(0, 100);
         if(replyBtn) replyBtn.style.display = '';
@@ -7981,11 +8223,10 @@ function showView(name){
             renderPartners();
         }
     }
-    // 📧 Почта — open with IMAP poll so свежие письма подтягиваются сразу.
-    // Также arming background refresh every 3 min пока модуль открыт.
+    // 📧 Почта — first check the user's own mailbox: configured → poll+list,
+    // not configured → "Подключи свою почту". Demo → local fixtures.
     if(name === 'mail'){
-        refreshMail(true);
-        _armMailAutoRefresh();
+        openMailView();
     } else {
         _disarmMailAutoRefresh();
     }
