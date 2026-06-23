@@ -899,8 +899,6 @@ async fn search_vessels(state: tauri::State<'_, AppState>, q: String) -> Result<
 /// if already open. By IMO when known, by name search otherwise.
 #[tauri::command]
 fn open_marinetraffic(app: tauri::AppHandle, imo: Option<String>, name: Option<String>) -> Result<(), String> {
-    use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
-
     let imo_digits = imo
         .map(|i| i.chars().filter(|c| c.is_ascii_digit()).collect::<String>())
         .filter(|d| d.len() >= 6);
@@ -912,25 +910,41 @@ fn open_marinetraffic(app: tauri::AppHandle, imo: Option<String>, name: Option<S
         return Err("нет ни IMO, ни имени судна".into());
     };
 
-    if let Some(win) = app.get_webview_window("marinetraffic") {
-        let _ = win.eval(&format!("window.location.href = '{}';", url));
-        let _ = win.show();
-        let _ = win.set_focus();
-        return Ok(());
+    // Mobile (iOS/Android): no multi-window WebView — hand the URL to the
+    // system browser via the opener plugin instead of WebviewWindowBuilder.
+    #[cfg(mobile)]
+    {
+        use tauri_plugin_opener::OpenerExt;
+        return app
+            .opener()
+            .open_url(url, None::<&str>)
+            .map_err(|e| format!("open MarineTraffic: {e}"));
     }
 
-    WebviewWindowBuilder::new(
-        &app,
-        "marinetraffic",
-        WebviewUrl::External(reqwest::Url::parse(&url).map_err(|e| e.to_string())?),
-    )
-    .title("MarineTraffic — Skipi Broker")
-    .inner_size(1150.0, 820.0)
-    .min_inner_size(640.0, 420.0)
-    .resizable(true)
-    .build()
-    .map(|_| ())
-    .map_err(|e| format!("open MarineTraffic window: {e}"))
+    // Desktop: dedicated mini-browser window (reuse + renavigate if open).
+    #[cfg(desktop)]
+    {
+        use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+        if let Some(win) = app.get_webview_window("marinetraffic") {
+            let _ = win.eval(&format!("window.location.href = '{}';", url));
+            let _ = win.show();
+            let _ = win.set_focus();
+            return Ok(());
+        }
+
+        WebviewWindowBuilder::new(
+            &app,
+            "marinetraffic",
+            WebviewUrl::External(reqwest::Url::parse(&url).map_err(|e| e.to_string())?),
+        )
+        .title("MarineTraffic — Skipi Broker")
+        .inner_size(1150.0, 820.0)
+        .min_inner_size(640.0, 420.0)
+        .resizable(true)
+        .build()
+        .map(|_| ())
+        .map_err(|e| format!("open MarineTraffic window: {e}"))
+    }
 }
 
 /// Team presence: heartbeat while the team chat polls + member list
@@ -1459,12 +1473,29 @@ fn open_external(_state: tauri::State<'_, AppState>, url: String) -> Result<(), 
 /// First run requires QR-code scan (one-time per Tauri WebKit profile).
 #[tauri::command]
 fn open_wa_chat(app: tauri::AppHandle, phone: String) -> Result<(), String> {
-    use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
-
     let digits: String = phone.chars().filter(|c| c.is_ascii_digit()).collect();
     if digits.len() < 6 {
         return Err("Не похоже на телефон — нужны минимум 6 цифр.".into());
     }
+
+    // Mobile (iOS/Android): no multi-window WebView and no WA Web profile —
+    // open the wa.me deep link via the opener plugin so the native WhatsApp
+    // app / system browser handles it.
+    #[cfg(mobile)]
+    {
+        use tauri_plugin_opener::OpenerExt;
+        let url = format!("https://wa.me/{}", digits);
+        return app
+            .opener()
+            .open_url(url, None::<&str>)
+            .map_err(|e| format!("open WhatsApp: {e}"));
+    }
+
+    // Desktop: dedicated WA Web window in single-counterparty mode.
+    #[cfg(desktop)]
+    {
+    use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+
     let url = format!("https://web.whatsapp.com/send?phone={}", digits);
 
     // Reuse the existing window if open — just navigate it to the new chat.
@@ -1517,6 +1548,7 @@ fn open_wa_chat(app: tauri::AppHandle, phone: String) -> Result<(), String> {
     .build()
     .map(|_| ())
     .map_err(|e| format!("open WA window: {e}"))
+    }
 }
 
 #[tauri::command]

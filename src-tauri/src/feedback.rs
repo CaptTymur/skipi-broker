@@ -104,8 +104,19 @@ struct ServerDiagnostic<'a> {
 }
 
 fn feedback_db_path() -> PathBuf {
+    // Mirror Settings::config_path() platform handling so the diagnostics DB
+    // always lands in a writable, app-private location.
+    // - Android: dirs::data_dir() is None/unreachable from the sandbox → use
+    //   the package files dir directly.
+    // - iOS: dirs::data_dir() resolves inside the app sandbox
+    //   (…/Library/Application Support) and is writable.
+    // Never fall back to "." (cwd / read-only on mobile) — use the OS temp
+    // dir as a last resort so the DB path is always valid.
+    #[cfg(target_os = "android")]
+    let dir = PathBuf::from("/data/data/app.skipi.broker/files/skipi-broker");
+    #[cfg(not(target_os = "android"))]
     let dir = dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
+        .unwrap_or_else(std::env::temp_dir)
         .join("skipi-broker");
     let _ = std::fs::create_dir_all(&dir);
     dir.join("feedback.sqlite")
