@@ -495,6 +495,9 @@ body.mobile-mode .mobile-bottom-rail {
     display:flex; gap:6px; height:var(--mrail-h); align-items:stretch;
     overflow-x:auto; overflow-y:hidden; padding:7px 26px 7px 8px;
     scrollbar-width:none; scroll-snap-type:x proximity; box-sizing:border-box;
+    /* iOS WKWebView: enable momentum touch scrolling and tell the engine this
+       strip pans horizontally, otherwise the rail won't scroll to reveal tabs. */
+    -webkit-overflow-scrolling:touch; touch-action:pan-x;
 }
 body.mobile-mode .mobile-bottom-rail::-webkit-scrollbar { display:none; }
 body.mobile-mode .mrail-btn {
@@ -701,6 +704,9 @@ body.mobile-mode .mrail-badge {
         flex-wrap:wrap; gap:6px;
         padding:6px 10px; font-size:12px;
         flex-shrink:0;
+        /* Base .col-head pins height:32px; with flex-wrap the controls wrap to
+           a 2nd line and would overflow onto the list. Let the header grow. */
+        height:auto; min-height:32px;
     }
     body.mobile-mode #view-match .pairs-region-sel { font-size:11px; padding:3px 5px; }
     /* Cargo + tonnage tiles get even smaller header since each is half-width */
@@ -760,7 +766,10 @@ body.mobile-mode .mrail-badge {
 
     /* Modals (incl. ⚙ Настройки) go full-screen on mobile and sit ABOVE the
        fixed top bar / bottom rail (which are z-index:60). */
-    body.mobile-mode .modal-overlay { z-index:200; padding:0; align-items:stretch; justify-content:stretch; }
+    /* z-index must clear the Leaflet map panes/controls (up to ~1000) used by
+       the Карта module — otherwise the map + zoom buttons bleed through a
+       full-screen modal (e.g. ⚙ Настройки opened from Карта). */
+    body.mobile-mode .modal-overlay { z-index:5000; padding:0; align-items:stretch; justify-content:stretch; }
     body.mobile-mode .modal-overlay .modal {
         width:100%; max-width:100%; max-height:100%; height:100%;
         border:none; border-radius:0;
