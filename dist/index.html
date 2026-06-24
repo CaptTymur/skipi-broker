@@ -1589,8 +1589,11 @@ body.dragging-split.col-resize { cursor:col-resize; }
     <div class="mod-tab" id="nav-match" onclick="showView('match')"><span data-i18n="nav.matches">🎯 Совпадения</span> <span id="match-badge" class="count" style="display:none;"></span></div>
     <!-- 📋 Лиды убран 03.06 — merged into 📂 Дела (lead = case со статусом lead). -->
     <div class="mod-tab" id="nav-signals" onclick="showView('signals')"><span data-i18n="nav.signals">🛒 Сигналы</span> <span id="signals-badge" class="count" style="display:none;"></span></div>
-    <div class="mod-tab" id="nav-dedup" onclick="showView('dedup')"><span data-i18n="nav.duplicates">🔍 Дедупликатор</span> <span id="dedup-badge" class="count" style="display:none;"></span></div>
-    <div class="mod-tab" id="nav-partners" onclick="showView('partners')"><span data-i18n="nav.counterparts">🤝 Контрагенты</span> <span id="partners-badge" class="count" style="display:none;"></span></div>
+    <!-- Dedup + Counterparties expose signal source/provenance, so they are
+         internal-only: hidden from normal navigation, revealed only behind an
+         explicit dev gate (localStorage skipi-broker-internal-tools=1). -->
+    <div class="mod-tab internal-tool" id="nav-dedup" style="display:none;" onclick="showView('dedup')"><span data-i18n="nav.duplicates">🔍 Дедупликатор</span> <span id="dedup-badge" class="count" style="display:none;"></span></div>
+    <div class="mod-tab internal-tool" id="nav-partners" style="display:none;" onclick="showView('partners')"><span data-i18n="nav.counterparts">🤝 Контрагенты</span> <span id="partners-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-viz" onclick="showView('viz')"><span data-i18n="nav.map">🗺 Визуализатор</span></div>
     <div class="mod-tab" id="nav-mail" onclick="showView('mail')"><span data-i18n="nav.mail">📧 Почта</span> <span id="mail-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-cases" onclick="showView('cases')"><span data-i18n="nav.cases">📂 Дела</span> <span id="cases-badge" class="count" style="display:none;"></span></div>
@@ -1766,7 +1769,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
                     <span class="p2-refresh" id="signals-cargo-refresh" title="Обновить" onclick="refreshSignalsBrowse()">🔄</span>
                 </div>
                 <div class="signals-filter-row">
-                    <input id="signals-cargo-q" placeholder="поиск: порт, тип груза, контрагент…" oninput="renderSignalsBrowse()">
+                    <input id="signals-cargo-q" placeholder="поиск: порт, тип груза…" oninput="renderSignalsBrowse()">
                     <select id="signals-cargo-region" onchange="renderSignalsBrowse()">
                         <option value="">регион: все</option>
                         <option value="blacksea">Black Sea</option>
@@ -1787,9 +1790,6 @@ body.dragging-split.col-resize { cursor:col-resize; }
                         <option value="supramax">supra (40-65K)</option>
                         <option value="panamax">panamax+ (65K+)</option>
                     </select>
-                    <select id="signals-cargo-counterpart" onchange="renderSignalsBrowse()">
-                        <option value="">контрагент: все</option>
-                    </select>
                 </div>
                 <div class="signals-table-wrap"><table class="signals-table"><thead><tr>
                     <th>ID</th>
@@ -1798,7 +1798,6 @@ body.dragging-split.col-resize { cursor:col-resize; }
                     <th onclick="signalsSort('cargo','quantity_mt')">кол-во</th>
                     <th>маршрут</th>
                     <th onclick="signalsSort('cargo','laycan_from')">laycan</th>
-                    <th>контрагент</th>
                 </tr></thead><tbody id="signals-cargo-body"></tbody></table></div>
             </div>
             <div class="splitter splitter-v" onmousedown="startSplitDrag(event, 'signals-v')"></div>
@@ -1808,7 +1807,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
                     <span class="count" id="signals-tonnage-count">0</span>
                 </div>
                 <div class="signals-filter-row">
-                    <input id="signals-tonnage-q" placeholder="поиск: порт, тип, судно, контрагент…" oninput="renderSignalsBrowse()">
+                    <input id="signals-tonnage-q" placeholder="поиск: порт, тип, судно…" oninput="renderSignalsBrowse()">
                     <select id="signals-tonnage-region" onchange="renderSignalsBrowse()">
                         <option value="">регион: все</option>
                         <option value="blacksea">Black Sea</option>
@@ -1829,9 +1828,6 @@ body.dragging-split.col-resize { cursor:col-resize; }
                         <option value="supramax">supra (40-65K)</option>
                         <option value="panamax">panamax+ (65K+)</option>
                     </select>
-                    <select id="signals-tonnage-counterpart" onchange="renderSignalsBrowse()">
-                        <option value="">контрагент: все</option>
-                    </select>
                 </div>
                 <div class="signals-table-wrap"><table class="signals-table"><thead><tr>
                     <th>ID</th>
@@ -1840,7 +1836,6 @@ body.dragging-split.col-resize { cursor:col-resize; }
                     <th>тип</th>
                     <th onclick="signalsSort('tonnage','dwt')">DWT</th>
                     <th>open</th>
-                    <th>контрагент</th>
                 </tr></thead><tbody id="signals-tonnage-body"></tbody></table></div>
             </div>
         </div>
@@ -3779,16 +3774,7 @@ function renderLeads2View(){
         var vesselText = (t.vessel_name || t.vessel_type || '?')
             + (t.dwt ? ' / '+t.dwt+' DWT' : '')
             + (t.open_port ? ' @ '+t.open_port : '');
-        var posted = c.posted_by_email || t.posted_by_email || '—';
-        var cargoEmail = c.posted_by_email || '';
-        var tonnageEmail = t.posted_by_email || '';
-        var contactBtn = '';
-        if(cargoEmail){
-            contactBtn += '<button onclick="window.open(\'mailto:'+esc(cargoEmail)+'\')">✉ Cargo</button>';
-        }
-        if(tonnageEmail && tonnageEmail !== cargoEmail){
-            contactBtn += '<button onclick="window.open(\'mailto:'+esc(tonnageEmail)+'\')">✉ Vessel</button>';
-        }
+        // Source/contact is never shown — no posted-by email, no mailto buttons.
         return '<div class="lead2-card">'
             + '<div class="l2-route">'+esc(routeText)+'</div>'
             + '<div class="l2-cargo">📦 ' + esc(c.cargo_type || '?') + ', ' + esc((c.quantity_mt || '?')+' MT')
@@ -3801,12 +3787,10 @@ function renderLeads2View(){
             + '<div class="l2-meta">'
                 + '<span class="score">score '+esc(String(l.score || '?'))+'</span>'
                 + '<span>·</span><span>взят '+esc((l.taken_at || '').slice(0,16).replace('T',' '))+'</span>'
-                + '<span>·</span><span>'+esc(posted)+'</span>'
             + '</div>'
             + '<div class="lead2-actions">'
                 + '<button onclick="showLeadOnMap(\''+esc(l.id)+'\')">👁 На карте</button>'
                 + '<button onclick="startCaseFromLead(\''+esc(l.id)+'\')">📂 В дела</button>'
-                + contactBtn
                 + '<button class="danger" onclick="if(confirm(\'Убрать лид?\'))removeLead(\''+esc(l.id)+'\')">🗑 Убрать</button>'
             + '</div>'
             + '</div>';
@@ -4183,6 +4167,24 @@ function fmtMatchReasons(reasons){
     return out.join('\n');
 }
 
+// Private signal fields that must never reach the UI or the assistant. Mirrors
+// the Rust client-side sanitizer (data boundary). Applied to the assistant
+// context as defence in depth: the LLM cannot reveal where a signal came from
+// if it never receives the source/sender/contact/raw fields in the first place.
+var _PRIVATE_SIGNAL_KEYS = ['posted_by_email','posted_by_name','signal_provenance','provenance',
+    'source','source_id','contact_email','contact_phone','contact_name',
+    'counterparty','counterparty_email','counterparty_name','counterparty_domain',
+    'reply_to','from_addr','sender','sender_email','sender_name',
+    'mailbox','message_id','msg_id','raw_message','raw_email','raw_body','headers','description'];
+function _stripPrivateSignalKeys(v){
+    if(Array.isArray(v)){ for(var i=0;i<v.length;i++) _stripPrivateSignalKeys(v[i]); return v; }
+    if(v && typeof v === 'object'){
+        for(var j=0;j<_PRIVATE_SIGNAL_KEYS.length;j++){ if(_PRIVATE_SIGNAL_KEYS[j] in v) delete v[_PRIVATE_SIGNAL_KEYS[j]]; }
+        for(var k in v){ if(Object.prototype.hasOwnProperty.call(v,k)) _stripPrivateSignalKeys(v[k]); }
+    }
+    return v;
+}
+
 // Unified assistant context (spec §5). ALWAYS returns a valid object:
 // { scope_label, chips:[{type,label,id}], payload:{}, suggestions:[] }.
 // Built on top of getModuleContext (reuses its per-view payload) and adds
@@ -4197,6 +4199,8 @@ function buildAssistantContext(){
         suggestions: ['Что здесь самое важное?']
     };
     try { ctx.payload = base.blob ? JSON.parse(base.blob) : {}; } catch(_){ ctx.payload = {}; }
+    // Strip source/sender/contact/raw before the assistant can see it.
+    ctx.payload = _stripPrivateSignalKeys(ctx.payload);
     try {
         if(view === 'match'){
             var p = (state.bazaarPairs || []).filter(function(x){ return x.id === state.selectedPair; })[0];
@@ -5365,11 +5369,9 @@ function captureViewContext(){
             if(match && match.cargo_signal && match.tonnage_signal){
                 lines.push('Cargo:   ' + (match.cargo_signal.cargo_type || '?') + ' | '
                     + (match.cargo_signal.quantity_mt || '?') + ' mt | '
-                    + (match.cargo_signal.load_port || '?') + ' → ' + (match.cargo_signal.disch_port || '?')
-                    + ' | поставил: ' + (match.cargo_signal.posted_by_email || '?'));
+                    + (match.cargo_signal.load_port || '?') + ' → ' + (match.cargo_signal.disch_port || '?'));
                 lines.push('Tonnage: ' + (match.tonnage_signal.vessel_name || match.tonnage_signal.vessel_imo || match.tonnage_signal.vessel_type || '?') + ' | '
-                    + (match.tonnage_signal.dwt || '?') + ' dwt | open ' + (match.tonnage_signal.open_port || '?')
-                    + ' | поставил: ' + (match.tonnage_signal.posted_by_email || '?'));
+                    + (match.tonnage_signal.dwt || '?') + ' dwt | open ' + (match.tonnage_signal.open_port || '?'));
                 if(match.score != null) lines.push('Score: ' + match.score + (match.reasons ? ' | reasons: ' + JSON.stringify(match.reasons).slice(0,200) : ''));
             }
         } else if(view === 'ex'){
@@ -5661,14 +5663,11 @@ function closeLeadView(){
 
 function renderLeadView(m){
     var ports = _leadPorts(m);
-    var counterEmail = (m.bazaar_cargo_signal || m.bazaar_tonnage_signal || {}).posted_by_email || '';
-    var counterName = (m.bazaar_cargo_signal || m.bazaar_tonnage_signal || {}).posted_by_name || counterEmail.split('@')[0] || '?';
     var title = ports.cargo_summary || ports.vessel_summary || '(лид)';
     var header = document.getElementById('lead-header');
     if(header){
         header.innerHTML = '<h2>🔗 Лид</h2>'
             + '<span class="lh-meta">'+esc(title)+'</span>'
-            + '<span class="lh-sep">·</span><span class="lh-meta">'+esc(counterName)+'</span>'
             + '<span class="lh-sep">·</span><span class="lh-meta">взят '+esc((m.pinned_at||'').slice(0,16))+'</span>'
             + '<span class="lh-close" onclick="closeLeadView()" title="Вернуться к Эксклюзивам/Совпадениям">✕ Закрыть вид</span>';
     }
@@ -5688,16 +5687,7 @@ function renderLeadView(m){
                 html += '<div class="sub">open: ' + esc(ports.vessel_open) + '</div>';
             }
         }
-        html += '<h3>Контрагент</h3>';
-        html += '<div class="detail-block">';
-        if(counterName) html += '<div class="detail-row"><span class="k">Имя</span><span class="v">'+esc(counterName)+'</span></div>';
-        html += '<div class="detail-row"><span class="k">Email</span><span class="v">'+esc(counterEmail || '—')+'</span></div>';
-        html += '</div>';
-        var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal;
-        if(sig && sig.description){
-            html += '<h3>Оригинальное сообщение</h3>';
-            html += '<div class="raw-text">'+esc(_readableOriginalMessage(sig.description))+'</div>';
-        }
+        // Source/counterparty and the raw original message are never shown.
         sidebar.innerHTML = html;
     }
     // Map — lazy-init Leaflet on first render, redraw on subsequent leads.
@@ -6300,8 +6290,7 @@ function _vizCargoPopup(s){
     lines.push('Маршрут: '+esc(s.load_port || '?')+' → '+esc(s.disch_port || '?'));
     if(s.laycan_from || s.laycan_to) lines.push('Laycan: '+(s.laycan_from||'').slice(0,10)+' — '+(s.laycan_to||'').slice(0,10));
     if(s.rate_indication) lines.push('Рейт: '+esc(s.rate_indication));
-    if(s.posted_by_email) lines.push('От: '+esc(s.posted_by_email));
-    lines.push('<span style="font-size:10px; color:#888;">id '+esc((s.id||'').slice(0,8))+' · '+esc(s.source||'—')+'</span>');
+    lines.push('<span style="font-size:10px; color:#888;">id '+esc((s.id||'').slice(0,8))+'</span>');
     return lines.join('<br>');
 }
 
@@ -6782,18 +6771,17 @@ function renderLeadTabs(){
         var listing = m.cargo_listing || m.tonnage_listing || {};
         var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal || {};
         var iconL = m.cargo_listing ? '📦' : '🚢';
-        var counterparty = sig.posted_by_email || sig.posted_by_name || '?';
         var label = listing.title
             ? listing.title.slice(0, 28)
             : (m.cargo_listing
                 ? ((listing.cargo_type || '?') + ' ' + (listing.load_port || ''))
                 : ((listing.vessel_name || ('IMO ' + listing.vessel_imo)) + ''));
-        var tooltip = label + ' · ' + counterparty + ' · взят ' + (m.pinned_at || '').slice(0, 16);
+        var tooltip = label + ' · взят ' + (m.pinned_at || '').slice(0, 16);
         var isActive = (state.activeLeadId === m.id);
         return '<div class="mod-tab lead-tab' + (isActive ? ' active' : '') + '" data-mid="'+esc(m.id)+'" title="'+esc(tooltip)+'"'
             + ' onclick="selectLead(\''+esc(m.id)+'\')"'
             + ' oncontextmenu="leadContextMenu(event, \''+esc(m.id)+'\'); return false;">'
-            + iconL + ' ' + esc(label) + ' · ' + esc(counterparty.split('@')[0]) + ' '
+            + iconL + ' ' + esc(label) + ' '
             + '<span class="lead-tab-close" title="Закрыть лид" onclick="event.stopPropagation(); closeLead(\''+esc(m.id)+'\')">×</span>'
             + '</div>';
     }).join('');
@@ -8021,9 +8009,8 @@ function _populateCounterpartDropdowns(counterparts){
 }
 
 function renderSignalsBrowse(){
-    // Populate counterpart dropdowns on first paint (and re-paint when data
-    // changes). Re-uses the same per-email aggregation as Контрагенты tab.
-    try { _populateCounterpartDropdowns(); } catch(_){ /* before partners code loaded */ }
+    // Source/counterpart is never shown in the normal Signals UI, so there are
+    // no counterpart dropdowns to populate.
     _renderSignalsPane('cargo');
     _renderSignalsPane('tonnage');
     var bodyC = document.getElementById('signals-cargo-count');
@@ -8046,7 +8033,6 @@ function _renderSignalsPane(kind){
     q = q.trim().toLowerCase();
     var region = (document.getElementById('signals-' + kind + '-region') || {}).value || '';
     var size = (document.getElementById('signals-' + kind + '-size') || {}).value || '';
-    var counterEmail = (document.getElementById('signals-' + kind + '-counterpart') || {}).value || '';
     if(q){
         rows = rows.filter(function(s){
             var blob = JSON.stringify(s).toLowerCase();
@@ -8054,11 +8040,6 @@ function _renderSignalsPane(kind){
         });
     }
     rows = rows.filter(function(s){ return _signalsRegionMatch(s, region) && _signalsSizeMatch(s, kind, size); });
-    if(counterEmail){
-        rows = rows.filter(function(s){
-            return ((s.posted_by_email || '').toLowerCase() === counterEmail.toLowerCase());
-        });
-    }
     var sort = state.signalsBrowse.sort[kind];
     rows.sort(function(a, b){
         var av = a[sort.col]; var bv = b[sort.col];
@@ -8072,14 +8053,14 @@ function _renderSignalsPane(kind){
         return 0;
     });
     if(rows.length === 0){
-        body.innerHTML = '<tr><td colspan="7" class="signals-empty">Под фильтр ничего не подходит. Сбрось поиск/регион/размер или нажми 🔄.</td></tr>';
+        body.innerHTML = '<tr><td colspan="6" class="signals-empty">Под фильтр ничего не подходит. Сбрось поиск/регион/размер или нажми 🔄.</td></tr>';
         return;
     }
     body.innerHTML = rows.slice(0, 300).map(function(s){
         var ageH = s.first_seen_at ? (Date.now() - Date.parse(s.first_seen_at)) / 3600000 : null;
         var ageRing = s.first_seen_at ? ageRingSvg(s.first_seen_at, 12) : '';
         var ageLabel = ageH == null ? '' : (ageH < 1 ? Math.round(ageH*60)+'м' : ageH < 24 ? ageH.toFixed(1)+'ч' : (ageH/24).toFixed(1)+'д');
-        var contact = s.posted_by_email || s.posted_by_name || s.source || '—';
+        // No counterpart/source column — only market facts are shown.
         if(kind === 'cargo'){
             var route = (s.load_port || '?') + ' → ' + (s.disch_port || '?');
             var laycan = s.laycan_from ? ((s.laycan_from||'').slice(5,10) + ' — ' + (s.laycan_to||'').slice(5,10)) : '—';
@@ -8090,7 +8071,6 @@ function _renderSignalsPane(kind){
                 + '<td class="qty-cell">'+(s.quantity_mt ? esc(String(s.quantity_mt)) : '—')+'</td>'
                 + '<td class="route-cell">'+esc(route)+'</td>'
                 + '<td>'+esc(laycan)+'</td>'
-                + '<td class="contact-cell" title="'+esc(contact)+'">'+esc(contact)+renderFlagBadges(s.posted_by_email, 'compact')+'</td>'
                 + '</tr>';
         } else {
             var open = (s.open_port || '?');
@@ -8102,7 +8082,6 @@ function _renderSignalsPane(kind){
                 + '<td>'+esc((s.vessel_type || '—').slice(0,18))+'</td>'
                 + '<td class="dwt-cell">'+(s.dwt ? esc(String(s.dwt)) : '—')+'</td>'
                 + '<td>'+esc(open)+' · '+esc(win)+'</td>'
-                + '<td class="contact-cell" title="'+esc(contact)+'">'+esc(contact)+renderFlagBadges(s.posted_by_email, 'compact')+'</td>'
                 + '</tr>';
         }
     }).join('');
@@ -8112,15 +8091,25 @@ function openSignalDetail(kind, id){
     var list = state.signalsBrowse[kind] || [];
     var s = list.filter(function(x){ return x.id === id; })[0];
     if(!s){ showToast('Сигнал не найден', 'error'); return; }
-    var body = (s.description || '(нет тела письма)');
-    var contact = s.posted_by_email || s.posted_by_name || '—';
-    alert(
-        (kind === 'cargo' ? '📦 Cargo' : '🚢 Tonnage')
-        + '\nID: ' + s.id
-        + '\nИсточник: ' + (s.source || '—')
-        + '\nКонтрагент: ' + contact
-        + '\n\nОригинал:\n' + body
-    );
+    // Market facts only — no source, no counterparty, no raw original body.
+    var lines = [];
+    if(kind === 'cargo'){
+        lines.push('📦 Cargo');
+        if(s.cargo_type || s.title) lines.push('Груз: ' + (s.cargo_type || s.title));
+        if(s.quantity_mt) lines.push('Кол-во: ' + s.quantity_mt + ' mt');
+        var route = (s.load_port || '?') + ' → ' + (s.disch_port || '?');
+        lines.push('Маршрут: ' + route);
+        if(s.laycan_from) lines.push('Laycan: ' + (s.laycan_from||'').slice(0,10) + ' — ' + (s.laycan_to||'').slice(0,10));
+    } else {
+        lines.push('🚢 Tonnage');
+        if(s.vessel_name || s.title) lines.push('Судно: ' + (s.vessel_name || s.title));
+        if(s.vessel_type) lines.push('Тип: ' + s.vessel_type);
+        if(s.dwt) lines.push('DWT: ' + s.dwt);
+        if(s.open_port) lines.push('Open: ' + s.open_port + (s.open_from ? (' · ' + (s.open_from||'').slice(0,10) + ' — ' + (s.open_to||'').slice(0,10)) : ''));
+    }
+    if(s.match_score != null) lines.push('Скор: ' + s.match_score);
+    if(s.status) lines.push('Статус: ' + s.status);
+    alert(lines.join('\n'));
 }
 
 // ---------- View switching (Эксклюзивы ↔ Совпадения ↔ Сигналы) ----------
@@ -8470,11 +8459,7 @@ function renderSignalsFeed(){
         var ageMin = freshTs ? Math.floor((Date.now() - Date.parse(freshTs)) / 60000) : null;
         var ageLabel = ageMin == null ? '' : (ageMin < 60 ? (ageMin + 'м') : (Math.floor(ageMin / 60) + 'ч'));
         var sel = (selKey === p.id);
-        // Meta line = useful breadcrumb (who's the counterparty), NOT raw
-        // score-component keys (age_penalty/confidence/… are internal debug).
-        var rsn = (p.reasons && typeof p.reasons === 'object' && !Array.isArray(p.reasons)) ? p.reasons : {};
-        var contact = rsn.contact_name || rsn.contact_company
-                   || (c.posted_by_name || '') || (t.posted_by_name || '');
+        // No counterparty/source breadcrumb — pairs show only market facts.
         return '<div class="row '+(sel?'active':'')+'" onclick="selectBazaarPair(\''+esc(p.id)+'\')">'
             + '<div class="r-top">'
             + '<span class="r-title">📦 '+esc(cLabel)+'</span>'
@@ -8484,7 +8469,6 @@ function renderSignalsFeed(){
             + '<span class="r-title">🚢 '+esc(tLabel)+'</span>'
             + '<span class="r-score">score '+Number(p.score||0)+'</span>'
             + '</div>'
-            + (contact ? '<div class="r-meta">👤 '+esc(truncate(String(contact), 40))+'</div>' : '')
             + '</div>';
     }).join('');
 }
@@ -8606,7 +8590,7 @@ function renderSelectedSignalDetail(){
     if(meta) meta.textContent = ageLabel;
 
     var html = '<h2>'+(kind === 'cargo' ? '📦' : '🚢')+' '+esc(title)+'</h2>'
-        + '<div class="sub">'+_sigIdBadge(sig.id)+' · источник: '+esc(sig.source || '—')+(sig.signal_provenance ? ' · ' + esc(sig.signal_provenance) : '')+'</div>'
+        + '<div class="sub">'+_sigIdBadge(sig.id)+'</div>'
         + '<div class="detail-block">'
         + fields.map(function(f){ var fv = (f[2]==='vessel') ? vesselNameLinkHtml(f[1]) : esc(f[1]); return '<div class="detail-row"><span class="k">'+esc(f[0])+'</span><span class="v">'+fv+'</span></div>'; }).join('')
         + '</div>';
@@ -8629,7 +8613,7 @@ function renderSelectedMatchDetail(){
     }
     if(bodies.length === 0) return;
     if(!state.selectedMatch || state.selectedMatch.type !== 'bazaar'){
-        var emptyHtml = '<div class="col-empty-soft"><span class="ce-dot">📨</span>Выбери совпадение — здесь будет оригинал сообщения и контакты.</div>';
+        var emptyHtml = '<div class="col-empty-soft"><span class="ce-dot">📨</span>Выбери совпадение — здесь будут рыночные детали.</div>';
         bodies.forEach(function(b){ b.body.innerHTML = emptyHtml; if(b.meta) b.meta.textContent = ''; });
         return;
     }
@@ -8639,9 +8623,6 @@ function renderSelectedMatchDetail(){
     var listingKind = m.cargo_listing ? 'cargo' : (m.tonnage_listing ? 'tonnage' : null);
     var listing = m.cargo_listing || m.tonnage_listing || {};
     var reasons = m.reasons || {};
-    var contactEmail = reasons.contact_email || sig.posted_by_email || '';
-    var contactPhone = reasons.contact_phone || '';
-    var contactName = reasons.contact_name || sig.posted_by_name || '';
     var scoreLabel = 'score ' + Number(m.score || 0);
 
     var html = '';
@@ -8652,30 +8633,17 @@ function renderSelectedMatchDetail(){
         html += '<div class="sub" style="margin-bottom:8px;">сигнал ' + _sigIdBadge(sig.id) + '</div>';
     }
 
-    // Counterparty contact block — first because it's the actionable bit.
-    html += '<h3 style="margin-bottom:6px;">Контрагент</h3>';
-    html += '<div class="detail-block">';
-    if(contactName) html += '<div class="detail-row"><span class="k">Имя</span><span class="v">'+esc(contactName)+'</span></div>';
-    html += '<div class="detail-row"><span class="k">Email</span><span class="v">'+esc(contactEmail || '—')+'</span></div>';
-    if(contactPhone) html += '<div class="detail-row"><span class="k">Phone</span><span class="v">'+esc(contactPhone)+'</span></div>';
-    html += '<div class="detail-row"><span class="k">Источник</span><span class="v">'+esc(sig.source || '—')+'</span></div>';
-    html += '</div>';
-
-    // Inline action buttons — same set as the row buttons, but room here is wider.
+    // Source/counterparty is hidden from the normal UI — no contact block,
+    // no email/phone, no contact (.eml/WhatsApp) buttons. Only the
+    // non-contact "in work" pin remains.
     var pinned = !!m.pinned_at;
     html += '<div class="mc-actions" style="margin-bottom:14px;">';
-    html += '<button class="btn btn-sm btn-accent" '+(contactEmail ? '' : 'disabled')+' onclick="quickEml(\''+esc(m.id)+'\')">📧 .eml</button>';
-    if(contactPhone) html += '<button class="btn btn-sm" onclick="quickWa(\''+esc(m.id)+'\')">💬 WhatsApp</button>';
     html += '<button class="btn btn-sm" onclick="quickPin(\''+esc(m.id)+'\')">'+(pinned ? '📍 Открепить' : '📌 В работу')+'</button>';
     html += '</div>';
 
     // The original message — what came in over email. Folded into a raw
     // text block; this is the bit the user actually verifies against.
-    if(sig.description){
-        html += '<h3 style="margin-bottom:6px;">Оригинальное сообщение</h3>';
-        html += '<div class="raw-text" style="max-height:none;">'+esc(_readableOriginalMessage(sig.description))+'</div>';
-        html += '<div style="height:14px;"></div>';
-    }
+    // Raw original message is never shown — it carries sender/source/contact.
 
     // What of mine matched, for cross-reference without leaving col 4.
     if(listing && listing.id){
@@ -8751,9 +8719,9 @@ function renderBxbMatchesForSelectedSignal(){
         var ageLabel = ageMin == null ? '' : (ageMin < 60 ? (ageMin + 'м') : (Math.floor(ageMin / 60) + 'ч'));
         var sel = (m.id === selId);
         var icon = sigKind === 'cargo' ? '📦' : '🚢';
-        var meta = sig.posted_by_email
-            ? ('от: ' + truncate(sig.posted_by_email, 28))
-            : ('источник: ' + (sig.source || '—'));
+        var meta = sigKind === 'cargo'
+            ? ((sig.load_port || '?') + ' → ' + (sig.disch_port || '?') + (sig.quantity_mt ? ' · ' + sig.quantity_mt + ' MT' : ''))
+            : ((sig.open_port || '?') + (sig.dwt ? ' · ' + sig.dwt + ' DWT' : ''));
         var conf = (m.reasons && m.reasons.confidence) || null;
         var confDot = conf ? '<span class="conf-dot conf-'+esc(conf.toLowerCase())+'" title="Confidence: '+conf+'"></span>' : '';
         return '<div class="match-card '+(sel ? 'active' : '')+'" onclick="selectBxbMatch(\''+esc(m.id)+'\')">'
@@ -8772,7 +8740,7 @@ function renderOppositeSignalDetail(){
     var meta = document.getElementById('opposite-signal-meta');
     if(!body) return;
     if(!state.selectedBxbMatch){
-        body.innerHTML = '<div class="col-empty">Выбери совпадение в соседней колонке — здесь появится оригинальное сообщение пары и её контакт.</div>';
+        body.innerHTML = '<div class="col-empty">Выбери совпадение в соседней колонке — здесь появятся рыночные детали пары.</div>';
         if(meta) meta.textContent = '';
         return;
     }
@@ -8807,25 +8775,12 @@ function renderOppositeSignalDetail(){
         : ((sig.vessel_name || sig.vessel_type || '?') + ' ' + (sig.open_port || '')));
 
     var html = '<h2>'+(sigKind === 'cargo' ? '📦' : '🚢')+' '+esc(title)+'</h2>'
-        + '<div class="sub">'+_sigIdBadge(sig.id)+' · источник: '+esc(sig.source || '—')+'</div>'
+        + '<div class="sub">'+_sigIdBadge(sig.id)+'</div>'
         + '<div class="detail-block">'
         + fields.map(function(f){ var fv = (f[2]==='vessel') ? vesselNameLinkHtml(f[1]) : esc(f[1]); return '<div class="detail-row"><span class="k">'+esc(f[0])+'</span><span class="v">'+fv+'</span></div>'; }).join('')
         + '</div>';
 
-    // Contact block — first because it's the actionable bit.
-    var contactEmail = sig.posted_by_email || '';
-    var contactName = sig.posted_by_name || '';
-    html += '<h3 style="margin-bottom:6px;">Контрагент</h3>';
-    html += '<div class="detail-block">';
-    if(contactName) html += '<div class="detail-row"><span class="k">Имя</span><span class="v">'+esc(contactName)+'</span></div>';
-    html += '<div class="detail-row"><span class="k">Email</span><span class="v">'+esc(contactEmail || '—')+'</span></div>';
-    html += '</div>';
-
-    // Original email body.
-    if(sig.description){
-        html += '<h3 style="margin-bottom:6px;">Оригинальное сообщение</h3>';
-        html += '<div class="raw-text" style="max-height:none;">'+esc(_readableOriginalMessage(sig.description))+'</div>';
-    }
+    // Source/counterparty and the raw original message are never shown.
 
     // Reasons matcher fired. Nested objects (e.g. data_fill {cargo,tonnage})
     // are rendered as «k v · k v» instead of the raw [object Object] (BUG-1).
@@ -8903,8 +8858,9 @@ function renderMatchesForSelectedSignal(){
             ? ((listing.cargo_type || '?') + ' ' + (listing.load_port || '') + '→' + (listing.disch_port || ''))
             : ((listing.vessel_name || listing.vessel_type || '?') + ' ' + (listing.open_port || '')));
         var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal || {};
-        var phone = (m.reasons && m.reasons.contact_phone) || '';
-        var email = (m.reasons && m.reasons.contact_email) || sig.posted_by_email || '';
+        var sigMeta = m.bazaar_cargo_signal
+            ? ((sig.load_port||'?')+' → '+(sig.disch_port||'?')+(sig.quantity_mt?' · '+sig.quantity_mt+' MT':''))
+            : ((sig.open_port||'?')+(sig.dwt?' · '+sig.dwt+' DWT':''));
         var sel = (m.id === selMatchId);
 
         return '<div class="match-card '+(pinned ? 'pinned ' : '')+(sel ? 'active' : '')+'" onclick="selectMatchInCol3(\''+esc(m.id)+'\')">'
@@ -8912,10 +8868,8 @@ function renderMatchesForSelectedSignal(){
             + '<span class="mc-title">'+(listingKind === 'cargo' ? '📦' : '🚢')+' '+esc(truncate(listingTitle, 50))+'</span>'
             + '<span class="mc-score">score '+score+'</span>'
             + '</div>'
-            + '<div class="mc-meta">' + (email ? 'к: '+esc(email) : 'контрагент: ' + esc(truncate(sig.posted_by_name || '—', 30))) + '</div>'
+            + '<div class="mc-meta">' + esc(sigMeta) + '</div>'
             + '<div class="mc-actions" onclick="event.stopPropagation();">'
-            + '<button class="btn btn-sm" onclick="quickEml(\''+esc(m.id)+'\')" title="Сгенерировать .eml для ответа на сигнал">📧 .eml</button>'
-            + (phone ? '<button class="btn btn-sm" onclick="quickWa(\''+esc(m.id)+'\')" title="Открыть WhatsApp">💬 WA</button>' : '')
             + '<button class="btn btn-sm" onclick="quickPin(\''+esc(m.id)+'\')" title="' + (pinned ? 'Открепить' : 'Закрепить — пометить в работе') + '">' + (pinned ? '📍' : '📌') + '</button>'
             + '</div>'
             + '</div>';
@@ -8974,8 +8928,9 @@ function renderExMatchesForSelectedListing(){
         var sigTitle = sig.title || (sigKind === 'cargo'
             ? ((sig.cargo_type || '?') + ' ' + (sig.load_port || '') + '→' + (sig.disch_port || ''))
             : ((sig.vessel_name || sig.vessel_type || '?') + ' ' + (sig.open_port || '')));
-        var phone = (m.reasons && m.reasons.contact_phone) || '';
-        var email = (m.reasons && m.reasons.contact_email) || sig.posted_by_email || '';
+        var sigMeta = sigKind === 'cargo'
+            ? ((sig.load_port||'?')+' → '+(sig.disch_port||'?')+(sig.quantity_mt?' · '+sig.quantity_mt+' MT':''))
+            : ((sig.open_port||'?')+(sig.dwt?' · '+sig.dwt+' DWT':''));
         var sel = (m.id === selMatchId);
         var ageMin = sig.first_seen_at ? Math.floor((Date.now() - Date.parse(sig.first_seen_at)) / 60000) : null;
         var ageLabel = ageMin == null ? '' : (ageMin < 60 ? (ageMin + 'м') : (Math.floor(ageMin / 60) + 'ч'));
@@ -8985,10 +8940,8 @@ function renderExMatchesForSelectedListing(){
             + '<span class="mc-title">'+(sigKind === 'cargo' ? '📦' : '🚢')+' '+esc(truncate(sigTitle, 46))+'</span>'
             + '<span class="mc-score">'+score+' · '+esc(ageLabel)+'</span>'
             + '</div>'
-            + '<div class="mc-meta">' + (email ? 'от: '+esc(email) : 'источник: ' + esc(sig.source || '—')) + '</div>'
+            + '<div class="mc-meta">' + esc(sigMeta) + '</div>'
             + '<div class="mc-actions" onclick="event.stopPropagation();">'
-            + '<button class="btn btn-sm" onclick="quickEml(\''+esc(m.id)+'\')" title="Сгенерировать .eml — предложить мой эксклюзив контрагенту">📧 .eml</button>'
-            + (phone ? '<button class="btn btn-sm" onclick="quickWa(\''+esc(m.id)+'\')" title="Открыть WhatsApp">💬 WA</button>' : '')
             + '<button class="btn btn-sm" onclick="quickPin(\''+esc(m.id)+'\')" title="' + (pinned ? 'Открепить' : 'Закрепить — пометить в работе') + '">' + (pinned ? '📍' : '📌') + '</button>'
             + '</div>'
             + '</div>';
@@ -9356,21 +9309,8 @@ function _cleanPhone(s){
     return s;
 }
 function enrichInboxContacts(){
-    (state.inbox.bazaar_matches || []).forEach(function(m){
-        var reasons = m.reasons = m.reasons || {};
-        if(reasons.contact_phone) return;
-        var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal;
-        var phone = sig && _extractPhone(sig.description || '');
-        if(phone){
-            reasons.contact_phone = phone;
-            reasons.contact_source = reasons.contact_source || 'desc_regex';
-        }
-        // Also fill email from posted_by_email if reasons.contact_email empty.
-        if(!reasons.contact_email && sig && sig.posted_by_email){
-            reasons.contact_email = sig.posted_by_email;
-            reasons.contact_source = reasons.contact_source || 'signal_from';
-        }
-    });
+    // Source/contact is hidden from the normal UI — no phone is extracted from
+    // raw signal bodies and no contact is backfilled onto matches.
 }
 
 // ---------- P1 — my listings ----------
@@ -9614,9 +9554,8 @@ function _matchSize(m){
     return 0;
 }
 function _hasEmail(m){
-    var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal || {};
-    var r = m.reasons || {};
-    return !!(r.contact_email || sig.posted_by_email);
+    // Source/contact is hidden from the normal UI — never advertise a contact.
+    return false;
 }
 function _hasPhone(m){
     var r = m.reasons || {};
@@ -9742,7 +9681,7 @@ function renderP2(){
             title = sig.title || (sig.vessel_name || sig.cargo_type || '—');
             if(sig.vessel_name && sig.dwt) meta = sig.dwt+' DWT · open '+(sig.open_port||'?')+' '+fmtRange(sig.open_from, sig.open_to);
             else if(sig.cargo_type) meta = (sig.quantity_mt?sig.quantity_mt+'mt · ':'')+(sig.load_port||'?')+'/'+(sig.disch_port||'?');
-            else meta = sig.source || '—';
+            else meta = '—';
             // Tiny inline indicator of available contact channels.
             // Lets the eye scan for actionable matches without
             // hiding the rest.
@@ -9857,17 +9796,9 @@ function renderP3Bazaar(body, m){
 
     var html = '<div class="detail">';
     html += '<h2>'+esc(sig.title || (sigKind==='tonnage'?'Vessel position':'Cargo'))+'</h2>';
-    html += '<div class="sub">источник: '+esc(sig.source||'—')+' · '+esc(sig.signal_provenance||'')+' · впервые: '+esc(fmtDate(sig.first_seen_at))+'</div>';
+    html += '<div class="sub">впервые: '+esc(fmtDate(sig.first_seen_at))+'</div>';
 
-    // Raw original message — surfaced FIRST so the broker reads what
-    // the upstream party actually wrote (phone / extra context that
-    // didn't survive parsing into structured fields). For mbox this
-    // is the email body; for ShipNext it's the JSON payload; for
-    // owners_db it's the roster entry summary.
-    if(sig.description){
-        html += '<div class="detail-block"><h4>Исходное сообщение</h4>';
-        html += '<div class="raw-text">'+esc(_readableOriginalMessage(sig.description))+'</div></div>';
-    }
+    // Raw original message is never shown — it carries sender/source/contact.
 
     html += '<div class="detail-block"><h4>Структурированные детали</h4>';
     fields.forEach(function(f){
@@ -9876,32 +9807,10 @@ function renderP3Bazaar(body, m){
     });
     html += '</div>';
 
-    // Counterparty contact — comes from one of two places:
-    //   (1) signal.posted_by_email — set when source=mbox (From: header)
-    //   (2) match.reasons.contact_email/phone — enriched by freight_agent
-    //       at AI matching time via vessel_db lookup (СПИСОК_ОВНЕРОВ.md).
-    // The reasons-derived contact takes precedence because owner-side
-    // contact is more useful than the broker who circulated.
-    var reasons = m.reasons || {};
-    var contactEmail = reasons.contact_email || sig.posted_by_email || '';
-    var contactPhone = reasons.contact_phone || '';
-    var contactName  = reasons.contact_name  || sig.posted_by_name || '';
-    var contactCompany = reasons.contact_company || '';
-    var contactSource = reasons.contact_source || (sig.posted_by_email ? 'signal_from' : '');
+    // Source/counterparty contact is never shown in the normal UI — no
+    // "Контакт публикатора" block and no .eml/WhatsApp contact buttons.
 
-    html += '<div class="detail-block"><h4>Контакт публикатора</h4>';
-    html += '<div class="detail-row"><span class="k">Email</span><span class="v">'+esc(contactEmail||'—')+'</span></div>';
-    if(contactPhone) html += '<div class="detail-row"><span class="k">Phone</span><span class="v">'+esc(contactPhone)+'</span></div>';
-    if(contactName) html += '<div class="detail-row"><span class="k">Имя</span><span class="v">'+esc(contactName)+'</span></div>';
-    if(contactCompany) html += '<div class="detail-row"><span class="k">Компания</span><span class="v">'+esc(contactCompany)+'</span></div>';
-    if(contactSource) html += '<div class="detail-row"><span class="k">Источник</span><span class="v" style="font-size:10px; color:var(--text3);">'+esc(contactSource)+'</span></div>';
-    html += '</div>';
-
-    // Action buttons — three channels (E2E in P4 separately).
-    // .eml needs an email; WhatsApp needs a phone (or asks the user).
     html += '<div class="actions-row">';
-    html += '<button class="btn btn-accent" '+(contactEmail?'':'disabled')+' onclick="actionEml()">📧 Generate .eml</button>';
-    html += '<button class="btn" '+(contactPhone?'':'')+' onclick="actionWhatsApp()">💬 WhatsApp'+(contactPhone?'':' …')+'</button>';
     var adoptLabel = sigKind==='tonnage' ? '📋 Взять судно в работу' : '📋 Взять груз в работу';
     var adoptTitle = sigKind==='tonnage'
         ? 'Скопировать этот vessel-сигнал в мои циркуляции — matcher начнёт подбирать грузы под него'
@@ -10032,7 +9941,7 @@ function buildEmailDraft(){
         }
         body += '\nPlease confirm cargo readiness and freight idea.\n\nBest regards,\n'+(state.settings.display_name||'');
     }
-    return { to_email: sig.posted_by_email||'', to_name: sig.posted_by_name||'', subject:subject, body:body };
+    return { to_email: '', to_name: '', subject:subject, body:body };
 }
 
 function currentOwnListing(){
@@ -10043,14 +9952,9 @@ function currentOwnListing(){
 
 function contactFromMatch(){
     if(!state.selectedMatch || state.selectedMatch.type!=='bazaar') return null;
-    var m = state.selectedMatch.data;
-    var sig = m.bazaar_cargo_signal || m.bazaar_tonnage_signal || {};
-    var reasons = m.reasons || {};
-    return {
-        email: reasons.contact_email || sig.posted_by_email || '',
-        phone: reasons.contact_phone || '',
-        name:  reasons.contact_name  || sig.posted_by_name  || '',
-    };
+    // Source/counterparty contact is hidden from the normal UI — the composer
+    // has no recipient (actionEml/WhatsApp degrade to "no contact available").
+    return { email: '', phone: '', name: '' };
 }
 
 async function actionEml(){
@@ -10135,7 +10039,7 @@ async function actionAdoptSignal(){
                 russia_trading: !!sigT.russia_trading,
                 description: sigT.description || null,
                 posted_as: 'broker',
-                representing_principal: sigT.posted_by_name || sigT.commercial_manager || null,
+                representing_principal: sigT.commercial_manager || null,
             };
             await invoke('publish_tonnage', { draft: draft });
             showToast('Судно взято в работу — matcher ищет грузы', 'success');
@@ -10154,7 +10058,7 @@ async function actionAdoptSignal(){
                 russia_trading: !!sigC.russia_trading,
                 description: sigC.description || null,
                 posted_as: 'broker',
-                representing_principal: sigC.posted_by_name || null,
+                representing_principal: null,
             };
             await invoke('publish_cargo', { draft: draftC });
             showToast('Груз взят в работу — matcher ищет суда', 'success');

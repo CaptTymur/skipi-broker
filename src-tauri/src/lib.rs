@@ -328,6 +328,50 @@ async fn request_credential_api(
     result.map(|(value, _active_base)| value)
 }
 
+// ---------- Public signal sanitizer (data boundary) ----------
+// Where a bazaar signal came from is a commercial secret. The normal Broker UI
+// must NEVER receive signal provenance/source/sender/contact — only market
+// facts (cargo/vessel/qty/dwt/ports/laycan/dates/age/score/status). These keys
+// are stripped recursively from every bazaar / signal / match payload before it
+// reaches the webview. Source metadata still lives server-side for matching,
+// dedup and audit. This closes the leak at the data boundary (not via CSS).
+const PRIVATE_SIGNAL_KEYS: &[&str] = &[
+    "posted_by_email", "posted_by_name", "signal_provenance", "provenance",
+    "source", "source_id",
+    "contact_email", "contact_phone", "contact_name",
+    "counterparty", "counterparty_email", "counterparty_name", "counterparty_domain",
+    "reply_to", "from_addr", "sender", "sender_email", "sender_name",
+    "mailbox", "message_id", "msg_id",
+    "raw_message", "raw_email", "raw_body", "headers",
+    // raw original message body — rendered as «Оригинал» and mined for contact
+    // phone; it carries sender/signature/source, so it is not a public field.
+    "description",
+];
+
+fn strip_private_keys(v: &mut JsonValue) {
+    match v {
+        JsonValue::Object(map) => {
+            for k in PRIVATE_SIGNAL_KEYS {
+                map.remove(*k);
+            }
+            for (_k, child) in map.iter_mut() {
+                strip_private_keys(child);
+            }
+        }
+        JsonValue::Array(arr) => {
+            for item in arr.iter_mut() {
+                strip_private_keys(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn sanitize_public_signals(mut v: JsonValue) -> JsonValue {
+    strip_private_keys(&mut v);
+    v
+}
+
 fn settings_snapshot(state: &AppState) -> Settings {
     state.settings.lock().unwrap().clone()
 }
@@ -635,7 +679,8 @@ async fn fetch_bazaar_signal_list(
     let k = if kind == "tonnage" { "tonnage" } else { "cargo" };
     let lim = limit.unwrap_or(500);
     let path = format!("/api/bazaar/{}-signals?limit={}", k, lim);
-    request_api(&state, s, reqwest::Method::GET, path, None).await
+    let v = request_api(&state, s, reqwest::Method::GET, path, None).await?;
+    Ok(sanitize_public_signals(v))
 }
 
 /// Mail: list cached messages from broker@ inbox, optionally filtered by
@@ -849,7 +894,8 @@ async fn fetch_bazaar_cross_matches(
     let s = settings_snapshot(&state);
     let kind = if signal_kind == "tonnage" { "tonnage" } else { "cargo" };
     let path = format!("/api/bazaar-signals/{}/{}/matches?limit=200", kind, signal_id);
-    request_api(&state, s, reqwest::Method::GET, path, None).await
+    let v = request_api(&state, s, reqwest::Method::GET, path, None).await?;
+    Ok(sanitize_public_signals(v))
 }
 
 /// List ALL bazaar×bazaar pairs (cargo signal ↔ tonnage signal) — used as
@@ -863,7 +909,8 @@ async fn fetch_bazaar_pairs(
     let s = settings_snapshot(&state);
     let d = days.unwrap_or(2).clamp(1, 365);
     let path = format!("/api/bazaar-pairs?limit=300&max_age_days={}", d);
-    request_api(&state, s, reqwest::Method::GET, path, None).await
+    let v = request_api(&state, s, reqwest::Method::GET, path, None).await?;
+    Ok(sanitize_public_signals(v))
 }
 
 /// Vessel DB lookup — full card (details, Skipi scores, managers,
@@ -987,7 +1034,8 @@ async fn fetch_my_tonnage(state: tauri::State<'_, AppState>) -> Result<JsonValue
 async fn fetch_matches(state: tauri::State<'_, AppState>) -> Result<JsonValue, String> {
     let s = settings_snapshot(&state);
     let path = format!("/api/matches?broker_id={}", s.broker_id);
-    request_api(&state, s, reqwest::Method::GET, path, None).await
+    let v = request_api(&state, s, reqwest::Method::GET, path, None).await?;
+    Ok(sanitize_public_signals(v))
 }
 
 /// 4-panel UX inbox: returns own × own + own × bazaar matches with
@@ -1015,7 +1063,8 @@ async fn fetch_matches_inbox(
     if include_dismissed.unwrap_or(false) {
         path.push_str("&include_dismissed=true");
     }
-    request_api(&state, s, reqwest::Method::GET, path, None).await
+    let v = request_api(&state, s, reqwest::Method::GET, path, None).await?;
+    Ok(sanitize_public_signals(v))
 }
 
 #[tauri::command]
