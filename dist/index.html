@@ -50,7 +50,7 @@ var UI_STRINGS={
     ru:{
         'nav.exclusives':'📋 Эксклюзивы','nav.matches':'🎯 Совпадения','nav.signals':'🛒 Базар',
         'nav.duplicates':'🔍 Дубли','nav.counterparts':'🤝 Контрагенты',
-        'nav.map':'🗺 Карта','nav.mail':'📧 Почта','nav.cases':'📂 Дела','nav.team':'💬 Команда',
+        'nav.map':'🗺 Карта','nav.mail':'📧 Почта','nav.cases':'📂 Дела','nav.team':'💬 Команда','nav.apps':'🧩 Приложения',
         'top.notRegistered':'Не зарегистрирован','top.gear':'Настройки',
         'settings.title':'Настройки','settings.tab.general':'Общие','settings.tab.connection':'Подключение',
         'settings.tab.identity':'Профиль брокера','settings.tab.reply':'Reply-to','settings.tab.profile':'Профиль и доступ',
@@ -62,7 +62,7 @@ var UI_STRINGS={
     en:{
         'nav.exclusives':'📋 Exclusives','nav.matches':'🎯 Matches','nav.signals':'🛒 Bazaar',
         'nav.duplicates':'🔍 Duplicates','nav.counterparts':'🤝 Counterparties',
-        'nav.map':'🗺 Map','nav.mail':'📧 Mail','nav.cases':'📂 Cases','nav.team':'💬 Desk',
+        'nav.map':'🗺 Map','nav.mail':'📧 Mail','nav.cases':'📂 Cases','nav.team':'💬 Desk','nav.apps':'🧩 Apps',
         'top.notRegistered':'Not registered','top.gear':'Settings',
         'settings.title':'Settings','settings.tab.general':'General','settings.tab.connection':'Connection',
         'settings.tab.identity':'Broker profile','settings.tab.reply':'Reply-to','settings.tab.profile':'Profile & access',
@@ -74,7 +74,7 @@ var UI_STRINGS={
     tl:{
         'nav.exclusives':'📋 Exclusives','nav.matches':'🎯 Matches','nav.signals':'🛒 Bazaar',
         'nav.duplicates':'🔍 Duplicates','nav.counterparts':'🤝 Counterparties',
-        'nav.map':'🗺 Mapa','nav.mail':'📧 Mail','nav.team':'💬 Desk',
+        'nav.map':'🗺 Mapa','nav.mail':'📧 Mail','nav.team':'💬 Desk','nav.apps':'🧩 Apps',
         'top.notRegistered':'Hindi naka-rehistro','top.gear':'Settings',
         'settings.title':'Settings','settings.tab.general':'Pangkalahatan','settings.tab.connection':'Connection',
         'settings.tab.identity':'Broker profile','settings.tab.reply':'Reply-to',
@@ -86,7 +86,7 @@ var UI_STRINGS={
     hi:{
         'nav.exclusives':'📋 Exclusives','nav.matches':'🎯 Matches','nav.signals':'🛒 Bazaar',
         'nav.duplicates':'🔍 Duplicates','nav.counterparts':'🤝 Counterparties',
-        'nav.map':'🗺 मानचित्र','nav.mail':'📧 मेल','nav.team':'💬 डेस्क',
+        'nav.map':'🗺 मानचित्र','nav.mail':'📧 मेल','nav.team':'💬 डेस्क','nav.apps':'🧩 ऐप्स',
         'top.notRegistered':'पंजीकृत नहीं','top.gear':'सेटिंग्स',
         'settings.title':'सेटिंग्स','settings.tab.general':'सामान्य','settings.tab.connection':'कनेक्शन',
         'settings.tab.identity':'ब्रोकर प्रोफ़ाइल','settings.tab.reply':'Reply-to',
@@ -98,7 +98,7 @@ var UI_STRINGS={
     id:{
         'nav.exclusives':'📋 Eksklusif','nav.matches':'🎯 Kecocokan','nav.signals':'🛒 Bazaar',
         'nav.duplicates':'🔍 Duplikat','nav.counterparts':'🤝 Counterparties',
-        'nav.map':'🗺 Peta','nav.mail':'📧 Surat','nav.team':'💬 Desk',
+        'nav.map':'🗺 Peta','nav.mail':'📧 Surat','nav.team':'💬 Desk','nav.apps':'🧩 Aplikasi',
         'top.notRegistered':'Belum terdaftar','top.gear':'Pengaturan',
         'settings.title':'Pengaturan','settings.tab.general':'Umum','settings.tab.connection':'Koneksi',
         'settings.tab.identity':'Profil broker','settings.tab.reply':'Reply-to',
@@ -1595,6 +1595,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
     <div class="mod-tab" id="nav-mail" onclick="showView('mail')"><span data-i18n="nav.mail">📧 Почта</span> <span id="mail-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-cases" onclick="showView('cases')"><span data-i18n="nav.cases">📂 Дела</span> <span id="cases-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-team" onclick="showView('team')"><span data-i18n="nav.team">💬 Команда</span> <span id="team-nav-badge" class="count" style="display:none;"></span></div>
+    <div class="mod-tab" id="nav-apps" onclick="showView('apps')"><span data-i18n="nav.apps">🧩 Приложения</span></div>
     <div id="lead-tabs-host" style="display:flex; align-items:center; gap:4px;"></div>
     <div class="mb-spacer"></div>
     <div class="mb-identity" id="mb-identity" data-i18n="top.notRegistered">Не зарегистрирован</div>
@@ -2213,6 +2214,32 @@ body.dragging-split.col-resize { cursor:col-resize; }
         </div>
     </div>
 
+    <!-- View: 🧩 Приложения — plugin host (bundled first-party, host-readiness
+         H2/H3). Registry of tiles → permissions/safety screen → mount/unmount of
+         a reviewed bundled artifact via window.SkipiPlugins[id]. Plugins get a
+         NARROW hostApi only (theme/storage/navigation/permissions): never
+         mailbox creds, app-passwords, email bodies, private drafts, principal
+         account IDs, admin tokens, or auto-Bazaar publish. No remote code, no
+         marketplace. See vault: "Skipi Plugin Update Mechanism — bundled
+         first-party MVP" + "Handoff — Broker plugin host readiness". -->
+    <div class="view-pane view-apps-stack" id="view-apps" style="display:none; flex-direction:column;">
+        <div id="apps-registry-screen" style="flex:1; min-height:0; display:flex; flex-direction:column;">
+            <div class="apps-head">
+                <div class="apps-title">🧩 Приложения</div>
+                <div class="apps-sub">Расширения для Broker. Устанавливаются локально из подписанного релиза — без магазина и без загрузки кода из сети.</div>
+            </div>
+            <div class="apps-grid" id="apps-grid"></div>
+            <div class="apps-foot" id="apps-foot">Плагины не получают доступ к почте, паролям, письмам, черновикам, ID аккаунта и токенам и не публикуют в базар без явного подтверждения.</div>
+        </div>
+        <div id="apps-detail-screen" style="flex:1; min-height:0; display:none; flex-direction:column;">
+            <div class="apps-detail-head">
+                <button class="btn" onclick="appsBackToRegistry()">‹ Назад</button>
+                <div class="apps-detail-title" id="apps-detail-title">Приложение</div>
+            </div>
+            <div class="apps-detail-body" id="apps-detail-body"></div>
+        </div>
+    </div>
+
     <div class="statusbar" id="statusbar">
         <span class="sb-pill"><span>Базар</span>: <span class="v" id="sb-bazaar-total">0</span></span>
         <span class="sb-pill ok"><span>Покрытие</span>: <span class="v" id="sb-coverage">0%</span></span>
@@ -2270,6 +2297,43 @@ body.dragging-split.col-resize { cursor:col-resize; }
         <div class="modal-foot" id="feedback-foot"></div>
     </div>
 </div>
+
+<style>
+/* 🧩 Приложения — plugin host (bundled first-party) */
+.view-apps-stack { display:flex; }
+.apps-head { padding:14px 16px 8px; border-bottom:1px solid var(--border); }
+.apps-title { font-size:16px; font-weight:600; }
+.apps-sub { font-size:12px; color:var(--muted, #8a8a8a); margin-top:3px; max-width:720px; }
+.apps-grid { flex:1; min-height:0; overflow-y:auto; display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:12px; padding:16px; align-content:start; }
+.app-tile { border:1px solid var(--border); border-radius:8px; background:var(--surface);
+    padding:12px 13px; display:flex; flex-direction:column; gap:8px; }
+.app-tile.soon { opacity:.62; }
+.app-tile-top { display:flex; align-items:flex-start; gap:9px; }
+.app-tile-icon { font-size:22px; line-height:1; }
+.app-tile-name { font-weight:600; font-size:13px; }
+.app-tile-cat { font-size:11px; color:var(--muted, #8a8a8a); }
+.app-tile-desc { font-size:12px; color:var(--text); opacity:.85; flex:1; min-height:32px; }
+.app-tile-foot { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.app-state { font-size:11px; padding:2px 7px; border-radius:10px; border:1px solid var(--border); white-space:nowrap; }
+.app-state.installed { color:#1a7f37; border-color:#1a7f37; }
+.app-state.disabled { color:#9a6700; border-color:#9a6700; }
+.app-state.available { color:var(--accent-text, #004564); border-color:var(--accent); }
+.app-state.soon { color:var(--muted, #8a8a8a); }
+.apps-foot { padding:9px 16px; border-top:1px solid var(--border); font-size:11px; color:var(--muted, #8a8a8a); }
+.apps-detail-head { display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid var(--border); }
+.apps-detail-title { font-weight:600; font-size:14px; }
+.apps-detail-body { flex:1; min-height:0; overflow-y:auto; padding:16px; }
+.apps-perm-card { border:1px solid var(--border); border-radius:8px; background:var(--surface); padding:14px 16px; max-width:660px; }
+.apps-perm-card h3 { margin:0 0 6px; font-size:14px; }
+.apps-perm-list { margin:8px 0; padding-left:18px; font-size:12px; }
+.apps-perm-deny { margin-top:10px; padding:10px 12px; border-radius:6px; border:1px solid var(--border);
+    background:var(--surface2); font-size:12px; }
+.apps-perm-deny b { color:#b3261e; }
+.app-plugin-mount { border:1px solid var(--border); border-radius:8px; background:var(--bg);
+    min-height:240px; overflow:auto; margin-top:12px; }
+.btn-danger { border-color:#b3261e !important; color:#b3261e !important; }
+</style>
 
 <div class="toast-host" id="toast-host"></div>
 
@@ -8125,7 +8189,7 @@ function openSignalDetail(kind, id){
 
 // ---------- View switching (Эксклюзивы ↔ Совпадения ↔ Сигналы) ----------
 function showView(name){
-    if(name !== 'ex' && name !== 'match' && name !== 'signals' && name !== 'dedup' && name !== 'partners' && name !== 'viz' && name !== 'mail' && name !== 'team' && name !== 'leads2' && name !== 'cases') return;
+    if(name !== 'ex' && name !== 'match' && name !== 'signals' && name !== 'dedup' && name !== 'partners' && name !== 'viz' && name !== 'mail' && name !== 'team' && name !== 'leads2' && name !== 'cases' && name !== 'apps') return;
     state.view = name;
     // Manage the assistant orb + Desk unread badge for the new view.
     setTimeout(updateCtxBarVisibility, 0);
@@ -8155,6 +8219,8 @@ function showView(name){
     if(vleads2) vleads2.style.display = (name === 'leads2') ? '' : 'none';
     var vcases = document.getElementById('view-cases');
     if(vcases) vcases.style.display = (name === 'cases') ? '' : 'none';
+    var vapps = document.getElementById('view-apps');
+    if(vapps) vapps.style.display = (name === 'apps') ? 'flex' : 'none';
     var navEx = document.getElementById('nav-ex');
     var navMatch = document.getElementById('nav-match');
     var navSig = document.getElementById('nav-signals');
@@ -8175,6 +8241,8 @@ function showView(name){
     if(navViz) navViz.classList.toggle('active', name === 'viz');
     if(navMail) navMail.classList.toggle('active', name === 'mail');
     if(navTeam) navTeam.classList.toggle('active', name === 'team');
+    var navApps = document.getElementById('nav-apps');
+    if(navApps) navApps.classList.toggle('active', name === 'apps');
 
     // Team chat now lives ONLY on the «Команда» tab (spec §4) — no corner dock
     // in ex/match. Migrate the team-block into team-mount-team and keep it there.
@@ -8242,6 +8310,10 @@ function showView(name){
     // 📂 Дела — render cases
     if(name === 'cases'){
         renderCasesView();
+    }
+    // 🧩 Приложения — plugin host registry / mounted plugin
+    if(name === 'apps'){
+        openAppsView();
     }
     // Визуализатор: карта рендерится из state.bazaarPairs (bxb pairs из
     // /api/bazaar-pairs) — это глобальная картина базара. Дополняем
@@ -10933,6 +11005,249 @@ async function revokeTeamToken(id){
 
 // ---------- Boot ----------
 boot();
+</script>
+
+<script>
+"use strict";
+/* ============================================================================
+   🧩 Приложения — Broker plugin host (bundled first-party, host-readiness H2/H3)
+   ----------------------------------------------------------------------------
+   Registry → permissions/safety → mount/unmount of a reviewed bundled artifact
+   exposed as window.SkipiPlugins[id] = { manifest, mount(container, hostApi),
+   unmount() }. Plugins receive ONLY the narrow hostApi below. They never get:
+   mailbox credentials, app-passwords, email bodies, private cargo/tonnage
+   drafts, principal/account IDs, admin/team tokens, or auto-Bazaar publish.
+   No remote code loading, no marketplace. Artifacts live in dist/plugins/<id>/.
+   ========================================================================== */
+
+// registry seed. Only host-check is a runnable bundled fixture; the rest are
+// "Скоро" placeholders for future Broker plugins named in the handoff.
+var PLUGIN_REGISTRY = [
+  { id:'host-check', name:'Проверка хоста', icon:'🧩', category:'Утилита',
+    version:'0.1.0', bundled:true,
+    desc:'Демо-плагин: подтверждает, что Apps-хост монтирует плагин и отдаёт тему и локальное хранилище.',
+    permissions:['local_storage','theme'] },
+  { id:'distance-tables', name:'Distance tables', icon:'📐', category:'Рейсовые расчёты',
+    soon:true, desc:'Таблицы расстояний между портами для оценки рейса.' },
+  { id:'laytime-calculator', name:'Laytime calculator', icon:'⏱', category:'Демередж',
+    soon:true, desc:'Расчёт сталийного времени и демереджа по SOF.' },
+  { id:'cargo-tonnage-checker', name:'Cargo/Tonnage quality check', icon:'✅', category:'Качество данных',
+    soon:true, desc:'Проверка полноты и непротиворечивости карточек груза и тоннажа.' },
+  { id:'port-cost-estimator', name:'Port cost estimator', icon:'⚓', category:'Рейсовые расчёты',
+    soon:true, desc:'Оценка портовых расходов для прикидки нетто-фрахта.' }
+];
+
+var PLUGIN_STATE_KEY = 'skipi-broker-plugins';
+var _mountedPluginId = null;
+var _pluginArtifactsLoaded = {};
+var _themeSubs = {};
+
+function _pluginRegistryEntry(id){
+  for(var i=0;i<PLUGIN_REGISTRY.length;i++){ if(PLUGIN_REGISTRY[i].id===id) return PLUGIN_REGISTRY[i]; }
+  return null;
+}
+function _pluginState(){
+  try { var raw=localStorage.getItem(PLUGIN_STATE_KEY); if(raw){ var o=JSON.parse(raw); if(o && o.plugins) return o; } } catch(_){}
+  return { plugins:{} };
+}
+function _savePluginState(st){ try { localStorage.setItem(PLUGIN_STATE_KEY, JSON.stringify(st)); } catch(_){} }
+function _pluginRec(id){ var st=_pluginState(); return st.plugins[id] || null; }
+function _nowIso(){ try { return new Date().toISOString(); } catch(_){ return ''; } }
+
+// entry from showView('apps')
+function openAppsView(){ appsBackToRegistry(); renderAppsRegistry(); }
+
+function renderAppsRegistry(){
+  var grid=document.getElementById('apps-grid'); if(!grid) return;
+  var st=_pluginState(); var html='';
+  for(var i=0;i<PLUGIN_REGISTRY.length;i++){
+    var p=PLUGIN_REGISTRY[i]; var rec=st.plugins[p.id];
+    var stateLabel, stateCls, btn;
+    if(p.soon){
+      stateLabel='Скоро'; stateCls='soon'; btn='<button class="btn" disabled>Скоро</button>';
+    } else if(rec && rec.installed && rec.enabled){
+      stateLabel='Установлен'; stateCls='installed';
+      btn='<button class="btn btn-accent" onclick="appsOpen(\''+p.id+'\')">Открыть</button>'
+        + ' <button class="btn btn-danger" onclick="appsDisable(\''+p.id+'\')">Отключить</button>';
+    } else if(rec && rec.installed && !rec.enabled){
+      stateLabel='Отключён'; stateCls='disabled';
+      btn='<button class="btn btn-accent" onclick="appsEnable(\''+p.id+'\')">Включить</button>';
+    } else {
+      stateLabel='Доступен'; stateCls='available';
+      btn='<button class="btn btn-accent" onclick="appsInstall(\''+p.id+'\')">Установить</button>';
+    }
+    html += '<div class="app-tile'+(p.soon?' soon':'')+'">'
+      + '<div class="app-tile-top"><div class="app-tile-icon">'+esc(p.icon||'🧩')+'</div>'
+      + '<div><div class="app-tile-name">'+esc(p.name)+'</div><div class="app-tile-cat">'+esc(p.category||'')+'</div></div></div>'
+      + '<div class="app-tile-desc">'+esc(p.desc||'')+'</div>'
+      + '<div class="app-tile-foot"><span class="app-state '+stateCls+'">'+stateLabel+'</span><span>'+btn+'</span></div>'
+      + '</div>';
+  }
+  grid.innerHTML=html;
+  _showAppsScreen('registry');
+}
+
+function _showAppsScreen(which){
+  var reg=document.getElementById('apps-registry-screen'); var det=document.getElementById('apps-detail-screen');
+  if(reg) reg.style.display=(which==='detail')?'none':'flex';
+  if(det) det.style.display=(which==='detail')?'flex':'none';
+}
+
+function appsBackToRegistry(){
+  _unmountCurrentPlugin();
+  _showAppsScreen('registry');
+  var title=document.getElementById('apps-detail-title'); if(title) title.textContent='Приложение';
+}
+
+function appsInstall(id){
+  var p=_pluginRegistryEntry(id); if(!p || p.soon) return;
+  _renderPermissionsScreen(p);
+}
+
+function _renderPermissionsScreen(p){
+  var body=document.getElementById('apps-detail-body'); var title=document.getElementById('apps-detail-title');
+  if(!body) return;
+  if(title) title.textContent=p.name;
+  var perms=(p.permissions||[]);
+  var permHtml=perms.length
+    ? '<ul class="apps-perm-list">'+perms.map(function(x){ return '<li>'+esc(_permLabel(x))+'</li>'; }).join('')+'</ul>'
+    : '<div style="font-size:12px; opacity:.8;">Без специальных разрешений.</div>';
+  body.innerHTML=
+    '<div class="apps-perm-card">'
+    + '<h3>'+esc(p.icon||'🧩')+' '+esc(p.name)+' <span style="font-weight:400; opacity:.7; font-size:12px;">v'+esc(p.version||'')+'</span></h3>'
+    + '<div style="font-size:12px; opacity:.85;">'+esc(p.desc||'')+'</div>'
+    + '<div style="margin-top:12px; font-size:12px;"><b>Разрешения, которые получит плагин:</b></div>'
+    + permHtml
+    + '<div class="apps-perm-deny"><b>Плагин НЕ получает</b> доступ к почтовым логинам и паролям, тексту писем, '
+    + 'приватным черновикам груза/тоннажа, ID аккаунта/команды, админ-токенам и не публикует в базар. '
+    + 'Код встроен в подписанный релиз — без загрузки из сети.</div>'
+    + '<div style="margin-top:14px; display:flex; gap:8px;">'
+    + '<button class="btn btn-accent" onclick="appsConfirmInstall(\''+p.id+'\')">Установить и открыть</button>'
+    + '<button class="btn" onclick="appsBackToRegistry()">Отмена</button>'
+    + '</div></div>';
+  _showAppsScreen('detail');
+}
+
+function _permLabel(x){
+  var m={ local_storage:'Локальное хранилище плагина (в пределах его пространства)',
+          theme:'Чтение текущей темы (светлая/тёмная)',
+          audio_alert:'Звуковое оповещение' };
+  return m[x]||x;
+}
+
+function appsConfirmInstall(id){
+  var p=_pluginRegistryEntry(id); if(!p) return;
+  var prev=_pluginRec(id);
+  var st=_pluginState();
+  st.plugins[id]={ installed:true, enabled:true, version:p.version||'0.0.0',
+                   installed_at:(prev && prev.installed_at)||_nowIso(), last_opened_at:null };
+  _savePluginState(st);
+  appsOpen(id);
+}
+
+function appsEnable(id){
+  var st=_pluginState(); if(!st.plugins[id]) return;
+  st.plugins[id].enabled=true; _savePluginState(st);
+  appsOpen(id);
+}
+
+function appsDisable(id){
+  if(_mountedPluginId===id) _unmountCurrentPlugin();
+  var st=_pluginState(); if(st.plugins[id]){ st.plugins[id].enabled=false; _savePluginState(st); }
+  renderAppsRegistry();
+  try { showToast('Плагин отключён', 'info'); } catch(_){}
+}
+
+function appsOpen(id){
+  var p=_pluginRegistryEntry(id); if(!p || p.soon) return;
+  var rec=_pluginRec(id);
+  if(!rec || !rec.installed){ appsInstall(id); return; }
+  var body=document.getElementById('apps-detail-body'); var title=document.getElementById('apps-detail-title');
+  if(title) title.textContent=p.name;
+  if(body) body.innerHTML='<div class="app-plugin-mount" id="app-plugin-mount"><div style="padding:16px; font-size:12px; opacity:.7;">Загрузка плагина…</div></div>';
+  _showAppsScreen('detail');
+  _loadPluginArtifact(id, function(ok){
+    if(!ok){ var mt=document.getElementById('app-plugin-mount'); if(mt) mt.innerHTML='<div style="padding:16px; font-size:12px; color:#b3261e;">Не удалось загрузить плагин.</div>'; return; }
+    _mountPlugin(id);
+  });
+}
+
+// one-time load of the bundled artifact (dist/plugins/<id>/) — NOT remote code.
+function _loadPluginArtifact(id, cb){
+  if(window.SkipiPlugins && window.SkipiPlugins[id]){ cb(true); return; }
+  if(_pluginArtifactsLoaded[id]==='error'){ cb(false); return; }
+  if(!document.getElementById('plugin-css-'+id)){
+    var l=document.createElement('link'); l.id='plugin-css-'+id; l.rel='stylesheet';
+    l.href='plugins/'+id+'/index.css'; l.onerror=function(){}; document.head.appendChild(l);
+  }
+  var s=document.createElement('script'); s.id='plugin-js-'+id; s.src='plugins/'+id+'/index.js';
+  s.onload=function(){ _pluginArtifactsLoaded[id]='ok'; cb(!!(window.SkipiPlugins && window.SkipiPlugins[id])); };
+  s.onerror=function(){ _pluginArtifactsLoaded[id]='error'; cb(false); };
+  document.body.appendChild(s);
+}
+
+function _mountPlugin(id){
+  var mountEl=document.getElementById('app-plugin-mount');
+  var plugin=window.SkipiPlugins && window.SkipiPlugins[id];
+  if(!mountEl || !plugin || typeof plugin.mount!=='function') return;
+  _unmountCurrentPlugin();
+  mountEl.innerHTML='';
+  try {
+    plugin.mount(mountEl, _buildHostApi(id));
+    _mountedPluginId=id;
+    var st=_pluginState(); if(st.plugins[id]){ st.plugins[id].last_opened_at=_nowIso(); _savePluginState(st); }
+  } catch(e){
+    mountEl.innerHTML='<div style="padding:16px; font-size:12px; color:#b3261e;">Плагин упал при монтировании.</div>';
+  }
+}
+
+function _unmountCurrentPlugin(){
+  if(!_mountedPluginId) return;
+  var plugin=window.SkipiPlugins && window.SkipiPlugins[_mountedPluginId];
+  if(plugin && typeof plugin.unmount==='function'){ try { plugin.unmount(); } catch(_){} }
+  _mountedPluginId=null;
+}
+
+// The ONLY surface a plugin can touch. Deliberately excludes mail, credentials,
+// drafts, account/team IDs, tokens and Bazaar. Storage is namespaced per plugin.
+function _buildHostApi(pluginId){
+  var ns='skipi-broker-plugin:'+pluginId+':';
+  return {
+    theme: {
+      get: function(){ return document.documentElement.getAttribute('data-theme') || 'light'; },
+      subscribe: function(cb){
+        if(typeof cb!=='function') return function(){};
+        var key=pluginId+':'+(_themeSubKey++);
+        _themeSubs[key]=cb;
+        return function(){ delete _themeSubs[key]; };
+      }
+    },
+    storage: {
+      get: function(k){ try { return localStorage.getItem(ns+k); } catch(_){ return null; } },
+      set: function(k,v){ try { localStorage.setItem(ns+k, String(v)); } catch(_){} },
+      remove: function(k){ try { localStorage.removeItem(ns+k); } catch(_){} }
+    },
+    navigation: {
+      closePlugin: function(){ appsBackToRegistry(); },
+      setTitle: function(t){ var el=document.getElementById('apps-detail-title'); if(el) el.textContent=String(t||''); }
+    },
+    permissions: {
+      listGranted: function(pid){ var p=_pluginRegistryEntry(pid||pluginId); return (p && p.permissions) ? p.permissions.slice() : []; }
+    }
+  };
+}
+var _themeSubKey=1;
+
+// notify subscribed plugins when the host theme changes
+(function(){
+  try {
+    var obs=new MutationObserver(function(){
+      var t=document.documentElement.getAttribute('data-theme')||'light';
+      for(var k in _themeSubs){ if(Object.prototype.hasOwnProperty.call(_themeSubs,k)){ try { _themeSubs[k](t); } catch(_){} } }
+    });
+    obs.observe(document.documentElement, { attributes:true, attributeFilter:['data-theme'] });
+  } catch(_){}
+})();
 </script>
 </body>
 </html>

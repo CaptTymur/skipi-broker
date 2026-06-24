@@ -1,0 +1,10 @@
+{
+  "algo": "sha256",
+  "files": {
+    "plugin.json": "ac41c02697a6b9c7dc7d5f8ec255e8c29fd203e98bd3ebe3fe3455eedfd470e3",
+    "index.js": "0d3c2ffaa0968b255262610fb09d20b0b5955281554bb93273e8064becee1a8d",
+    "index.css": "c1c7fc20aa6fdefab77a164ffd9be2f05911043789189466e3f8c4a2382bb685",
+    "CHANGELOG.md": "f20a63ff0dd697a3e7d372ede0ce55da9acb7f2909afd3a5e955ab11c709ec9f",
+    "REPORT.md": "0b466a182444878a21fe3ec757432bf5c21b0066b31e72de35b9ed727c5b3a9f"
+  }
+}
