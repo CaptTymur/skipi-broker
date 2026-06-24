@@ -152,6 +152,19 @@ fn credential_api_bases(s: &Settings) -> Vec<String> {
     vec![configured]
 }
 
+fn register_api_bases(s: &Settings) -> Vec<String> {
+    let configured = s.server_url.trim_end_matches('/').to_string();
+    if configured.is_empty() || configured == RU_API || configured == PRIMARY_API {
+        // Team creation is a one-time write. Prefer the fast, reliable origin;
+        // fall back to the RF bridge (RU) only if the origin is unreachable
+        // (RF users). The RU PHP-proxy is slow/flaky on POST, which previously
+        // made "Create team" fail with a misleading "no connection".
+        return vec![PRIMARY_API.to_string(), RU_API.to_string()];
+    }
+    // Manual override — dev/staging explicitly selected in Settings.
+    vec![configured]
+}
+
 static HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
 
 fn http_client() -> reqwest::blocking::Client {
@@ -224,6 +237,15 @@ fn request_credential_api_blocking(
     request_api_blocking_with_bases(s, method, path_and_query, body, None, credential_api_bases)
 }
 
+fn request_register_api_blocking(
+    s: Settings,
+    method: reqwest::Method,
+    path_and_query: String,
+    body: Option<JsonValue>,
+) -> Result<(JsonValue, String), String> {
+    request_api_blocking_with_bases(s, method, path_and_query, body, None, register_api_bases)
+}
+
 fn request_api_blocking_with_bases(
     s: Settings,
     method: reqwest::Method,
@@ -266,16 +288,39 @@ fn request_api_blocking_with_bases(
         match req.send() {
             Ok(resp) => {
                 let status = resp.status();
-                let text = resp.text().unwrap_or_default();
+                // Read the body explicitly. A failed/timed-out body read after a
+                // slow proxy already sent the status line used to be swallowed by
+                // `unwrap_or_default()` → returned Ok(Null) with NO failover,
+                // which surfaced downstream as a null payload (team-create then
+                // crashed on `d.id` and showed a misleading "no connection").
+                let text = match resp.text() {
+                    Ok(t) => t,
+                    Err(e) => {
+                        last_err = format!("{base}: body read failed: {e}");
+                        if i < last {
+                            continue;
+                        }
+                        return Err(last_err);
+                    }
+                };
                 if !status.is_success() {
                     return Err(format!("HTTP {}: {}", status.as_u16(), text));
                 }
                 if text.is_empty() {
                     return Ok((JsonValue::Null, base.clone()));
                 }
-                let value = serde_json::from_str(&text)
-                    .map_err(|e| format!("decode: {} (body: {})", e, text))?;
-                return Ok((value, base.clone()));
+                match serde_json::from_str(&text) {
+                    Ok(value) => return Ok((value, base.clone())),
+                    Err(e) => {
+                        // Body arrived but is not valid JSON (e.g. a proxy error
+                        // page). Try the next base rather than failing outright.
+                        last_err = format!("{base}: decode: {e} (body: {text})");
+                        if i < last {
+                            continue;
+                        }
+                        return Err(last_err);
+                    }
+                }
             }
             Err(e) => {
                 last_err = format!("{base}: {e}");
@@ -370,6 +415,20 @@ fn strip_private_keys(v: &mut JsonValue) {
 fn sanitize_public_signals(mut v: JsonValue) -> JsonValue {
     strip_private_keys(&mut v);
     v
+}
+
+async fn request_register_api(
+    s: Settings,
+    method: reqwest::Method,
+    path_and_query: String,
+    body: Option<JsonValue>,
+) -> Result<JsonValue, String> {
+    let result = spawn_blocking_result(move || {
+        request_register_api_blocking(s, method, path_and_query, body)
+    })
+    .await;
+
+    result.map(|(value, _active_base)| value)
 }
 
 fn settings_snapshot(state: &AppState) -> Settings {
@@ -560,23 +619,30 @@ async fn register_broker(
         "jurisdiction": jurisdiction,
         "contact_phone": contact_phone,
     });
-    let resp = request_api(
-        &state,
+    // Team creation routes origin-first (RU fallback) — the RU PHP-proxy is
+    // slow/flaky on POST and was making this fail with a misleading
+    // "no connection". Origin is fast and reliable; RF users fall back to RU.
+    let resp = request_register_api(
         s.clone(),
         reqwest::Method::POST,
         "/api/brokers".to_string(),
         Some(body),
     )
     .await?;
+    // The server returns the created broker {id, ...}. A missing id means the
+    // response was empty/unexpected (e.g. a proxy hiccup) — surface a clear
+    // error instead of handing the UI a null it crashes on (`d.id`).
+    let id = resp
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| format!("server did not return a broker id (response: {resp})"))?;
     // Auto-persist the new broker_id so the user doesn't have to copy it.
-    if let Some(id) = resp.get("id").and_then(|v| v.as_str()) {
-        let mut updated = s.clone();
-        updated.broker_id = id.to_string();
-        updated.display_name = display_name;
-        updated.reply_to = contact_email;
-        updated.save()?;
-        *state.settings.lock().unwrap() = updated;
-    }
+    let mut updated = s.clone();
+    updated.broker_id = id.to_string();
+    updated.display_name = display_name;
+    updated.reply_to = contact_email;
+    updated.save()?;
+    *state.settings.lock().unwrap() = updated;
     Ok(resp)
 }
 

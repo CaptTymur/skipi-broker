@@ -6594,6 +6594,7 @@ async function _authCreateTeam(){
         // raw fetch to the (RF-blocked) origin — so RF/iOS users can register too.
         // Reuses register_broker (POST /api/brokers via request_api).
         var d=await invoke('register_broker', { displayName:name, contactEmail:email });
+        if(!d || !d.id){ throw new Error('Пустой ответ сервера (нет id)'); }
         var bid=d.id;
         state.settings=state.settings||{};
         state.settings.broker_id=bid; state.settings.bearer_token=bid;
@@ -6605,9 +6606,15 @@ async function _authCreateTeam(){
         if(btn) btn.disabled=false;
     } catch(e){
         err.style.color='#e55561';
-        // invoke throws for both HTTP errors and network failures — keep the two-case
-        // mapping: a server HTTP error vs «no connection».
-        err.textContent = /HTTP \d/.test(String(e)) ? 'Ошибка сервера. Проверь данные и повтори.' : 'Нет связи с сервером — проверь интернет.';
+        // invoke throws for HTTP errors, body/decode failures AND real network
+        // failures. Only call it "no connection" when it actually is one —
+        // otherwise the server is reachable and the message must say so.
+        var es = String(e || '');
+        if(/HTTP 4\d\d/.test(es))            err.textContent = 'Сервер отклонил данные. Проверь имя и email, затем повтори.';
+        else if(/HTTP \d/.test(es))          err.textContent = 'Ошибка на сервере. Повтори через минуту.';
+        else if(/error sending request|connect|timed out|timeout|dns|resolve|failed to lookup|tcp connect|no api bases/i.test(es))
+                                             err.textContent = 'Нет связи с сервером — проверь интернет.';
+        else                                 err.textContent = 'Сервер ответил неожиданно — повтори. (' + es.slice(0, 140) + ')';
         if(btn) btn.disabled=false;
     }
 }
