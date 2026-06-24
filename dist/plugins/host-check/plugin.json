@@ -1,0 +1,34 @@
+{
+  "id": "app.skipi.plugins.host-check",
+  "slug": "host-check",
+  "name": "Проверка хоста / Host Check",
+  "version": "0.1.0",
+  "developer": "Tymur Rudov / Skipi",
+  "kind": "utility",
+  "category": "diagnostics",
+  "distribution": {
+    "mode": "bundled_first_party",
+    "bundled": true,
+    "remote_code": false
+  },
+  "hosts": ["broker"],
+  "entrypoints": {
+    "ui": "index.js",
+    "style": "index.css"
+  },
+  "permissions": [
+    "local_storage",
+    "theme"
+  ],
+  "capabilities": {
+    "network": "none",
+    "documents": "none",
+    "account": "none",
+    "analytics": "none",
+    "server_upload": false
+  },
+  "safety": {
+    "certified_equipment": false,
+    "requires_disclaimer": true
+  }
+}

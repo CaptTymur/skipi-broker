@@ -1,0 +1,2 @@
+/* host-check fixture — minimal styling; inherits host theme via CSS variables. */
+.skipi-hostcheck { font-family: inherit; }
