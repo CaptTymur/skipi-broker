@@ -2155,9 +2155,10 @@ body.dragging-split.col-resize { cursor:col-resize; }
                     <label class="mb-fld"><span>Логин <span style="color:var(--text3);">(обычно = email)</span></span><input id="mb-username" placeholder="you@example.com" autocomplete="off"></label>
                     <label class="mb-fld"><span id="mb-pass-label">Пароль / App Password</span><input id="mb-password" type="password" placeholder="••••••••" autocomplete="new-password"></label>
                     <label class="mb-fld"><span>Имя отправителя <span style="color:var(--text3);">(необяз.)</span></span><input id="mb-from-name" placeholder="Captain ..." autocomplete="off"></label>
-                    <div style="display:flex; gap:8px; align-items:center; margin-top:6px;">
+                    <div style="display:flex; gap:8px; align-items:center; margin-top:6px; flex-wrap:wrap;">
                         <button class="btn" onclick="mbTest()">Проверить подключение</button>
                         <button class="btn btn-accent" onclick="mbSave()">Сохранить и подключить</button>
+                        <button class="btn" id="mb-save-unverified" style="display:none; color:#d4a017; border-color:#d4a017;" onclick="mbSave(true)" title="Сохранить настройки несмотря на неуспешную проверку — почта может не загрузиться">Сохранить без проверки</button>
                         <button class="btn" id="mb-disconnect-btn" style="display:none; margin-left:auto;" onclick="mbDisconnect()">Отключить</button>
                     </div>
                     <div id="mb-status" style="font-size:12px; min-height:16px;"></div>
@@ -7264,15 +7265,86 @@ function switchMailFolder(folder){
     refreshMail(false);
 }
 
+// ----- Mailbox connection diagnostics (shared by Проверить подключение + the
+//       mail-load error panel). Reasons are IMAP/SMTP error strings from the
+//       server — they never contain the password. -----
+function _mbShortReason(reason){
+    var r = String(reason || '').replace(/\s+/g, ' ').trim().replace(/^b['"]|['"]$/g, '');
+    if(r.length > 90) r = r.slice(0, 90) + '…';
+    return r;
+}
+function _mbReasonKind(reason){
+    var r = String(reason || '').toLowerCase();
+    if(/authenticationfailed|invalid credentials|auth.*fail|login.*fail|username and password not accepted|application-specific|invalid login|\[auth/.test(r))
+        return { kind:'auth', title:'Аутентификация не прошла — неверный логин или пароль.', hint:'Для Gmail / Google Workspace нужен пароль приложения (App Password), а не обычный пароль.' };
+    if(/timed out|timeout|temporarily unavailable/.test(r))
+        return { kind:'timeout', title:'Таймаут — сервер почты не ответил вовремя.', hint:'Проверь хост/порт и соединение, затем повтори.' };
+    if(/getaddrinfo|name or service not known|nodename nor servname|no address associated|connection refused|no route to host|network is unreachable|failed to resolve|cannot connect|connection reset/.test(r))
+        return { kind:'host', title:'Не удалось подключиться к серверу почты.', hint:'Проверь IMAP/SMTP-хост и порт.' };
+    if(/ssl|tls|certificate|wrong version number|handshake|sslv/.test(r))
+        return { kind:'tls', title:'Ошибка TLS/SSL при подключении.', hint:'Обычно IMAP 993 и SMTP 465 c SSL — проверь порт.' };
+    if(/inbox|select|mailbox.*unavailable|does not exist|\[nonexistent/.test(r))
+        return { kind:'inbox', title:'Учётные данные приняты, но папка INBOX недоступна.', hint:'Сервер аутентифицировал, но не открыл входящие.' };
+    if(/smtp/.test(r))
+        return { kind:'smtp', title:'IMAP в порядке, но SMTP-подключение не прошло.', hint:'Проверь SMTP-хост, порт и логин.' };
+    if(/missing|not configured|need address/.test(r))
+        return { kind:'missing', title:'Не заполнены поля подключения.', hint:'' };
+    return { kind:'unknown', title:'Не удалось подключиться к почте.', hint:'' };
+}
+// test_mailbox result {ok,stage,reason} → {ok,color,text} for #mb-status.
+function _mbResultMessage(r){
+    if(r && r.ok) return { ok:true, color:'#2bb673', text:'✓ Подключение успешно — IMAP, INBOX и SMTP отвечают.' };
+    var stage = (r && r.stage) || '';
+    var reason = (r && r.reason) || '';
+    var probe = (stage === 'inbox' ? 'inbox ' : stage === 'smtp' ? 'smtp ' : '') + reason;
+    var k = _mbReasonKind(probe);
+    var detail = _mbShortReason(reason);
+    return { ok:false, color:'#e55561', text:'✗ ' + k.title + (k.hint ? (' ' + k.hint) : '') + (detail ? (' [' + detail + ']') : '') };
+}
+function _renderMailLoading(){
+    var body = document.getElementById('mail-list-body');
+    if(!body) return;
+    if(state.mail.messages && state.mail.messages.length) return; // keep list visible while refreshing
+    body.innerHTML = '<div style="padding:28px 18px; text-align:center; color:var(--text2);">'+
+        '<div style="font-size:22px;">⏳</div><div style="margin-top:8px; font-size:12px;">Загрузка писем…</div></div>';
+}
+function _renderMailError(reason){
+    var body = document.getElementById('mail-list-body');
+    if(!body) return;
+    var k = _mbReasonKind(reason);
+    body.innerHTML =
+        '<div style="padding:24px 18px; text-align:center;">'+
+            '<div style="font-size:30px;">📭</div>'+
+            '<div style="font-weight:600; margin-top:8px;">Почта не загрузилась</div>'+
+            '<div style="margin-top:6px; font-size:12px; line-height:1.5; color:var(--text2);">'+esc(k.title)+'</div>'+
+            (k.hint ? '<div style="margin-top:4px; font-size:11px; color:var(--text3); line-height:1.5;">'+esc(k.hint)+'</div>' : '')+
+            (reason ? '<div style="margin-top:8px; font-size:10px; color:var(--text3); word-break:break-word;">'+esc(_mbShortReason(reason))+'</div>' : '')+
+            '<div style="display:flex; gap:8px; justify-content:center; margin-top:14px; flex-wrap:wrap;">'+
+                '<button class="btn" onclick="refreshMail(true)">↻ Повторить</button>'+
+                '<button class="btn" onclick="openMailboxSettings()">Проверить настройки</button>'+
+                '<button class="btn btn-accent" onclick="openMailboxSettings()">Изменить почтовый ящик</button>'+
+            '</div>'+
+        '</div>';
+    state.mail.loaded = true; // never stay on "Загрузка…"
+}
+
 async function refreshMail(forcePoll){
     // Demo: self-contained fixtures, never hit the server mailbox.
     if(_isDemo()){ _renderDemoMail(); return; }
     var btn = document.getElementById('mail-refresh');
     if(btn) btn.classList.add('spinning');
     var folder = state.mail.folder || 'INBOX';
+    _renderMailLoading();
+    var pollErr = null;
     try {
         if(forcePoll){
-            try { await invoke('poll_mail'); } catch(e){ /* server may be down */ }
+            // poll_mail returns 200 with {status:"error", reason} on IMAP auth/connection
+            // failure — inspect it instead of silently ignoring (the original bug:
+            // wrong password "saved" but mail never loaded and no error shown).
+            try {
+                var pr = await invoke('poll_mail');
+                if(pr && pr.status && pr.status !== 'ok' && pr.status !== 'disabled'){ pollErr = pr.reason || ('опрос: ' + pr.status); }
+            } catch(e){ pollErr = String(e); }
         }
         var data = await invoke('fetch_mail_inbox', { folder:folder, channel:'all', limit:200 });
         // No mailbox connected for this user → show the Connect Email pane.
@@ -7281,20 +7353,20 @@ async function refreshMail(forcePoll){
             state.mail.messages = data.messages;
             state.mail.loaded = true;
             state.mail.lastRefreshAt = Date.now();
-            // Best-effort: pull signal conversion counts so list can show
-            // ⚓/🚢 badges when an email was extracted into bazaar signal.
-            try {
-                // T3a: via Rust failover (best-effort — badges only).
-                state.mail.signalCounts = await invoke('fetch_mail_signal_counts', { days: 14 }) || {};
-            } catch(_){}
-            // Watcher: check all cases for new replies from watched emails.
-            if(typeof _checkCaseReplies === 'function'){
-                try { _checkCaseReplies(); } catch(_){}
-            }
+            // Poll failed AND nothing cached → clear error panel, not a blank list.
+            if(pollErr && data.messages.length === 0){ _renderMailError(pollErr); return; }
+            try { state.mail.signalCounts = await invoke('fetch_mail_signal_counts', { days: 14 }) || {}; } catch(_){}
+            if(typeof _checkCaseReplies === 'function'){ try { _checkCaseReplies(); } catch(_){} }
             renderMailList();
+            // Cached messages exist but poll errored → list shown + non-blocking warning.
+            if(pollErr){ showToast('Почта: опрос с ошибкой — ' + _mbReasonKind(pollErr).title, 'error'); }
             _updateMailRefreshLabel();
+        } else {
+            _renderMailError(pollErr || 'Сервер вернул неожиданный ответ.');
         }
-    } catch(e){ showToast('Почта: '+e, 'error'); }
+    } catch(e){
+        _renderMailError(String(e));
+    }
     finally { if(btn) btn.classList.remove('spinning'); }
 }
 
@@ -7422,11 +7494,12 @@ function _prefillMailboxForm(s){
     if(g('mb-from-name')) g('mb-from-name').value = s.display_name || '';
     var disc = g('mb-disconnect-btn');
     if(disc) disc.style.display = s.configured ? '' : 'none';
+    _mbShowUnverified(false);
     var st = g('mb-status');
     if(st){
         if(s.configured){
             st.style.color = 'var(--text2)';
-            st.textContent = 'Подключено: ' + (s.email_masked || '') + (s.last_error ? (' · последняя ошибка: ' + s.last_error) : '') + '. Чтобы сменить — введи данные заново.';
+            st.textContent = 'Подключено: ' + (s.email_masked || '') + (s.last_error ? (' · последняя ошибка: ' + _mbShortReason(s.last_error)) : '') + '. Чтобы сменить ящик — введи новые данные, нажми «Проверить подключение», затем «Сохранить».';
         } else { st.style.color = 'var(--text2)'; st.textContent = ''; }
     }
     mbApplyPreset();
@@ -7471,34 +7544,52 @@ async function mbTest(){
     var d = _mbCollect();
     if(!d.address || !d.imapHost || !d.smtpHost){ if(st){ st.style.color='#e55561'; st.textContent='Заполни email, IMAP и SMTP хосты.'; } return; }
     if(!d.password){ if(st){ st.style.color='#e55561'; st.textContent='Введи пароль для проверки.'; } return; }
-    if(st){ st.style.color='var(--text2)'; st.textContent='Проверяю подключение…'; }
+    if(st){ st.style.color='var(--text2)'; st.textContent='Проверяю подключение… (IMAP / INBOX / SMTP, до ~20 сек)'; }
     try {
         var r = await invoke('test_mailbox', { address:d.address, imapHost:d.imapHost, imapPort:d.imapPort, smtpHost:d.smtpHost, smtpPort:d.smtpPort, username:d.username, password:d.password });
-        if(r && r.ok){ if(st){ st.style.color='#2bb673'; st.textContent='✓ Подключение успешно — IMAP и SMTP отвечают.'; } }
-        else { if(st){ st.style.color='#e55561'; st.textContent='✗ Не удалось ('+((r&&r.stage)||'?')+'): '+((r&&r.reason)||'ошибка'); } }
-    } catch(e){ if(st){ st.style.color='#e55561'; st.textContent='✗ Ошибка: '+e; } }
+        var m = _mbResultMessage(r);
+        if(st){ st.style.color=m.color; st.textContent=m.text; }
+    } catch(e){ var k=_mbReasonKind(String(e)); if(st){ st.style.color='#e55561'; st.textContent='✗ '+k.title+(k.hint?(' '+k.hint):'')+' ['+_mbShortReason(String(e))+']'; } }
 }
 
-async function mbSave(){
+async function mbSave(force){
     if(_isDemo()){ if(typeof _demoGuard==='function') _demoGuard(); return; }
     var st = document.getElementById('mb-status');
     var d = _mbCollect();
     if(!d.address || !d.imapHost || !d.smtpHost){ if(st){ st.style.color='#e55561'; st.textContent='Заполни email, IMAP и SMTP хосты.'; } return; }
     var configured = state.mail.mailbox && state.mail.mailbox.configured;
     if(!d.password && !configured){ if(st){ st.style.color='#e55561'; st.textContent='Введи пароль (App Password).'; } return; }
-    if(st){ st.style.color='var(--text2)'; st.textContent='Сохраняю…'; }
+    // Verify before saving — never silently accept bad credentials. We can only
+    // test when a password is present (changing other fields keeps the stored one).
+    if(!force && d.password){
+        if(st){ st.style.color='var(--text2)'; st.textContent='Проверяю подключение перед сохранением…'; }
+        var tr = null;
+        try { tr = await invoke('test_mailbox', { address:d.address, imapHost:d.imapHost, imapPort:d.imapPort, smtpHost:d.smtpHost, smtpPort:d.smtpPort, username:d.username, password:d.password }); }
+        catch(e){ tr = { ok:false, reason:String(e) }; }
+        if(!tr || !tr.ok){
+            var m = _mbResultMessage(tr);
+            if(st){ st.style.color=m.color; st.textContent = m.text + ' — настройки НЕ сохранены.'; }
+            _mbShowUnverified(true);   // offer explicit "save without check"
+            return;
+        }
+    }
+    if(st){ st.style.color='var(--text2)'; st.textContent = force ? 'Сохраняю без проверки…' : 'Проверка пройдена. Сохраняю…'; }
     try {
         var r = await invoke('save_mailbox_config', { address:d.address, provider:d.provider, imapHost:d.imapHost, imapPort:d.imapPort, smtpHost:d.smtpHost, smtpPort:d.smtpPort, username:d.username, password:d.password, fromName:d.fromName });
-        // Never keep the password in the DOM/localStorage.
-        var p = document.getElementById('mb-password'); if(p) p.value='';
+        var p = document.getElementById('mb-password'); if(p) p.value='';   // never keep password in DOM
+        _mbShowUnverified(false);
         if(r && (r.ok || r.configured)){
             await loadMailboxStatus();
             _showMailConnect(false);
-            showToast('📧 Почта подключена', 'ok');
+            showToast(force ? '📧 Почта сохранена без проверки' : '📧 Почта подключена', force ? 'info' : 'ok');
             refreshMail(true);
             _armMailAutoRefresh();
         } else { if(st){ st.style.color='#e55561'; st.textContent='Не удалось сохранить.'; } }
-    } catch(e){ if(st){ st.style.color='#e55561'; st.textContent='Ошибка: '+e; } }
+    } catch(e){ if(st){ st.style.color='#e55561'; st.textContent='Ошибка сохранения: '+e; } }
+}
+function _mbShowUnverified(show){
+    var b = document.getElementById('mb-save-unverified');
+    if(b) b.style.display = show ? '' : 'none';
 }
 
 async function mbDisconnect(){
