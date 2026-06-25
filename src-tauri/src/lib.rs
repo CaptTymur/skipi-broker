@@ -497,6 +497,73 @@ async fn set_team_token_status(
     request_api(&state, s, reqwest::Method::PATCH, path, Some(body)).await
 }
 
+// ---------- Device migration / paired devices ----------
+// Separate from team access tokens: these call the live /api/devices/* pairing
+// API. A pairing CODE is a short-lived, one-time device-migration secret — NOT
+// the long-lived team access token. Bearer (= current broker credential) is
+// injected by request_api for issue/list/revoke; `pair` runs with whatever the
+// fresh device has (usually no bearer), and the server requires none.
+
+/// Trusted device issues a one-time pairing code (app=broker).
+#[tauri::command]
+async fn device_pairing_token(
+    state: tauri::State<'_, AppState>,
+    device_label: Option<String>,
+    platform: Option<String>,
+    issued_by_device_id: Option<String>,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let body = serde_json::json!({
+        "app": "broker",
+        "device_label": device_label,
+        "platform": platform,
+        "issued_by_device_id": issued_by_device_id,
+    });
+    request_api(&state, s, reqwest::Method::POST, "/api/devices/pairing-token".into(), Some(body)).await
+}
+
+/// New device redeems a code and receives a fresh per-device skb_ credential.
+#[tauri::command]
+async fn device_pair(
+    state: tauri::State<'_, AppState>,
+    code: String,
+    device_id: String,
+    device_label: Option<String>,
+    platform: Option<String>,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let body = serde_json::json!({
+        "app": "broker",
+        "code_or_qr_payload": code.trim(),
+        "device_id": device_id,
+        "device_label": device_label,
+        "platform": platform,
+    });
+    request_api(&state, s, reqwest::Method::POST, "/api/devices/pair".into(), Some(body)).await
+}
+
+/// List paired devices for the current principal.
+#[tauri::command]
+async fn device_list(
+    state: tauri::State<'_, AppState>,
+    device_id: String,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let path = format!("/api/devices?app=broker&device_id={}", device_id);
+    request_api(&state, s, reqwest::Method::GET, path, None).await
+}
+
+/// Revoke a paired device (and its bound credential) server-side.
+#[tauri::command]
+async fn device_revoke(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<JsonValue, String> {
+    let s = settings_snapshot(&state);
+    let path = format!("/api/devices/{}", id);
+    request_api(&state, s, reqwest::Method::DELETE, path, None).await
+}
+
 // ---------- Email (SMTP) ----------
 
 fn send_smtp_circular(
@@ -1838,6 +1905,10 @@ pub fn run() {
             list_team_tokens,
             create_team_token,
             set_team_token_status,
+            device_pairing_token,
+            device_pair,
+            device_list,
+            device_revoke,
             publish_cargo,
             publish_tonnage,
             update_cargo,
