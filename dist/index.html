@@ -1517,7 +1517,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
             <!-- Method 1: Token -->
             <div id="auth-connect-token">
                 <div style="font-size:11px; color:var(--text3,#788); margin:12px 0 8px; line-height:1.5;">
-                    Токен показан на другом устройстве: Настройки → Сопряжённые устройства. Это не пароль — не пересылайте его публично.
+                    Токен доступа показан на другом устройстве: Настройки → Сопряжённые устройства. Это токен доступа, а не пароль — не пересылайте его публично.
                 </div>
                 <input id="auth-gate-input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
                     placeholder="например: 1d76abea-3c85-438c-82af-0bf3d8801651"
@@ -10697,7 +10697,7 @@ function renderSettingsBody(){
         var plat = _deviceLabel();
         body.innerHTML =
             '<h3>📱 '+esc(tr('settings.tab.devices'))+'</h3>'+
-            '<div class="sub">Профиль команды можно открыть на нескольких устройствах по одному токену.</div>'+
+            '<div class="sub">Команда открывается на нескольких устройствах по токену доступа. Одноразовый код сопряжения/переноса устройства (с серверным отзывом) — будущая функция.</div>'+
             // current device
             '<div class="settings-section" style="margin-top:14px;">'+
                 '<div class="setting-label">Это устройство</div>'+
@@ -10708,8 +10708,8 @@ function renderSettingsBody(){
             '</div>'+
             // connect new device — show token (real) / QR (shell)
             '<div class="settings-section" style="margin-top:14px;">'+
-                '<div class="setting-label">Подключить новое устройство</div>'+
-                '<div class="sub" style="margin-top:4px; line-height:1.5;">Покажите этот токен на новом устройстве: <b>Открыть существующий профиль → Токен</b>. Это не пароль — не пересылайте публично.</div>'+
+                '<div class="setting-label">Токен доступа команды</div>'+
+                '<div class="sub" style="margin-top:4px; line-height:1.5;">Постоянный токен доступа/приглашения. Открывает команду на другом устройстве: <b>Открыть существующий профиль → Токен</b>. Это <b>не</b> одноразовый код сопряжения устройства и не пароль — не пересылайте публично.</div>'+
                 (tok
                   ? '<div id="dev-token" style="display:none; font-family:monospace; font-size:12px; word-break:break-all; background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:10px; margin-top:10px;"><code>'+esc(tok)+'</code></div>'+
                     '<div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">'+
@@ -10718,14 +10718,14 @@ function renderSettingsBody(){
                     '</div>'+
                     '<div style="border:1px dashed var(--border); border-radius:8px; padding:18px 14px; text-align:center; background:var(--surface); margin-top:12px;">'+
                         '<div style="font-size:24px;">🔳</div>'+
-                        '<div class="sub" style="margin-top:6px; line-height:1.5;">QR-код для сопряжения появится после подключения QR / native camera bridge. Пока используйте токен.</div>'+
+                        '<div class="sub" style="margin-top:6px; line-height:1.5;">QR и одноразовый код сопряжения/переноса устройства (с отзывом) появятся с pairing API (<code>/api/devices</code>) и camera bridge. Показанный выше токен — постоянный токен доступа, не код сопряжения.</div>'+
                     '</div>'
                   : '<div class="sub" style="color:#e55561; margin-top:8px;">Токен не задан — сначала войдите в профиль (Профиль и доступ).</div>')+
             '</div>'+
             // paired devices list — honest backend-missing state (no fake list/revoke)
             '<div class="settings-section" style="margin-top:14px;">'+
                 '<div class="setting-label">Сопряжённые устройства</div>'+
-                '<div class="sub" style="margin-top:6px; line-height:1.5;">Список устройств и серверный отзыв доступа появятся, когда будет готов pairing API (<code>/api/devices</code>). Сейчас подключение идёт по токену команды — без пер-устройственного учёта и серверного отзыва.</div>'+
+                '<div class="sub" style="margin-top:6px; line-height:1.5;">Список устройств, одноразовый код сопряжения и серверный отзыв доступа появятся, когда будет готов pairing API (<code>/api/devices</code>). Сейчас подключение идёт по постоянному токену доступа команды — без пер-устройственного учёта и серверного отзыва.</div>'+
                 '<button class="btn" disabled title="Будет доступно с серверным pairing API" style="margin-top:10px; opacity:.55; cursor:default;">Отозвать устройство — недоступно</button>'+
             '</div>';
     } else if(t==='profile'){
