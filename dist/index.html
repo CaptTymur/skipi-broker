@@ -1471,7 +1471,11 @@ body.dragging-split.col-resize { cursor:col-resize; }
             </div>
             <button class="auth-launch-btn" onclick="_showAuthPane('connect')">
                 🔑 Открыть существующий профиль
-                <div class="auth-launch-sub">Подключиться по токену или QR-коду с другого устройства.</div>
+                <div class="auth-launch-sub">По постоянному токену доступа команды.</div>
+            </button>
+            <button class="auth-launch-btn" onclick="_showAuthPane('migrate')">
+                📲 Скопировать с другого устройства
+                <div class="auth-launch-sub">Одноразовый код переноса с уже доверенного устройства (QR — позже).</div>
             </button>
             <button class="auth-launch-btn" onclick="_showAuthPane('create')">
                 ➕ Создать профиль
@@ -1508,20 +1512,15 @@ body.dragging-split.col-resize { cursor:col-resize; }
             <button onclick="_authEnterApp()" style="width:100%; padding:10px; background:var(--accent,#004564); color:#fff; border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:13px;">Войти в приложение →</button>
         </div>
 
-        <!-- Pane: connect = Open existing profile (Token + QR methods). -->
+        <!-- Pane: connect = Open existing profile via the team ACCESS TOKEN
+             (long-lived entitlement). NOT device migration — no QR here. -->
         <div id="auth-pane-connect" style="display:none;">
             <div style="font-size:12px; color:var(--text2, #aab); margin-bottom:12px; line-height:1.5;">
-                Подключение к существующему профилю команды.
+                Вход по постоянному токену доступа команды.
             </div>
-            <div class="auth-tabs">
-                <div id="auth-tab-token" class="auth-tab active" onclick="_authConnectTab('token')">Токен</div>
-                <div id="auth-tab-qr" class="auth-tab" onclick="_authConnectTab('qr')">QR-код</div>
-            </div>
-
-            <!-- Method 1: Token -->
             <div id="auth-connect-token">
-                <div style="font-size:11px; color:var(--text3,#788); margin:12px 0 8px; line-height:1.5;">
-                    Токен доступа показан на другом устройстве: Настройки → Сопряжённые устройства. Это токен доступа, а не пароль — не пересылайте его публично.
+                <div style="font-size:11px; color:var(--text3,#788); margin:0 0 8px; line-height:1.5;">
+                    Токен выдаёт руководитель команды (Настройки → Профиль и доступ). Это постоянный токен доступа — не пароль и не код переноса устройства. Не пересылайте публично.
                 </div>
                 <input id="auth-gate-input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
                     placeholder="например: 1d76abea-3c85-438c-82af-0bf3d8801651"
@@ -1535,19 +1534,49 @@ body.dragging-split.col-resize { cursor:col-resize; }
                 </div>
                 <div id="auth-gate-err" style="margin-top:12px; font-size:11px; color:var(--text3, #788); min-height:14px;"></div>
             </div>
+            <div onclick="_showAuthPane('welcome')" style="margin-top:14px; font-size:11px; color:var(--text3,#788); cursor:pointer;">← назад</div>
+        </div>
 
-            <!-- Method 2: QR (honest shell — no native camera bridge yet) -->
-            <div id="auth-connect-qr" style="display:none;">
+        <!-- Pane: migrate = copy an already-trusted profile onto THIS device via a
+             one-time device-migration code (separate from the access token).
+             Manual code first; QR scan is an honest shell until the native camera
+             bridge lands. A QR would carry only skipi-pair:1:broker:<code>. -->
+        <div id="auth-pane-migrate" style="display:none;">
+            <div style="font-size:12px; color:var(--text2, #aab); margin-bottom:12px; line-height:1.5;">
+                Перенос профиля с уже доверенного устройства по одноразовому коду.
+            </div>
+            <div class="auth-tabs">
+                <div id="migrate-tab-code" class="auth-tab active" onclick="_migrateTab('code')">Код</div>
+                <div id="migrate-tab-qr" class="auth-tab" onclick="_migrateTab('qr')">QR-код</div>
+            </div>
+            <!-- Method 1: one-time code (manual entry — primary) -->
+            <div id="migrate-pane-code">
+                <div style="font-size:11px; color:var(--text3,#788); margin:12px 0 8px; line-height:1.5;">
+                    Одноразовый код показан на доверенном устройстве: Настройки → Сопряжённые устройства → «Показать код». Код короткоживущий и срабатывает один раз.
+                </div>
+                <input id="migrate-code-input" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false"
+                    placeholder="например: K7P4-9QXZ"
+                    style="width:100%; padding:10px 12px; font-size:15px; letter-spacing:2px; font-family:monospace; text-transform:uppercase;
+                        background:var(--surface, #0f141c); color:var(--text, #fff);
+                        border:1px solid var(--border, #2a3240); border-radius:6px; box-sizing:border-box;"
+                    onkeydown="if(event.key==='Enter') _migrateSubmit();" />
+                <div style="display:flex; gap:8px; margin-top:10px;">
+                    <button id="migrate-btn" class="auth-launch-btn" style="flex:1; margin:0;" onclick="_migrateSubmit()">Подключить устройство</button>
+                    <button class="auth-secondary-btn" onclick="_migrateClear()">Очистить</button>
+                </div>
+                <div id="migrate-err" style="margin-top:12px; font-size:11px; color:var(--text3, #788); min-height:14px;"></div>
+            </div>
+            <!-- Method 2: QR scan (honest shell — needs native camera bridge) -->
+            <div id="migrate-pane-qr" style="display:none;">
                 <div class="auth-qr-area">
                     <div style="font-size:30px;">📷</div>
-                    <div style="font-size:12px; color:var(--text2,#aab); margin-top:8px;">Сканирование QR-кода</div>
+                    <div style="font-size:12px; color:var(--text2,#aab); margin-top:8px;">Сканирование QR-кода переноса</div>
                     <div style="font-size:10px; color:var(--text3,#788); margin-top:6px; line-height:1.5;">
-                        Камера в этой сборке ещё не подключена (требуется native camera bridge). Пока подключайтесь по токену — он показан на другом устройстве в Настройках.
+                        Камера в этой сборке ещё не подключена (требуется native camera bridge). Пока введите одноразовый код вручную — он показан на доверенном устройстве.
                     </div>
-                    <button class="auth-secondary-btn" style="margin-top:12px;" onclick="_authConnectTab('token')">← Ввести токен вручную</button>
+                    <button class="auth-secondary-btn" style="margin-top:12px;" onclick="_migrateTab('code')">← Ввести код вручную</button>
                 </div>
             </div>
-
             <div onclick="_showAuthPane('welcome')" style="margin-top:14px; font-size:11px; color:var(--text3,#788); cursor:pointer;">← назад</div>
         </div>
         <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border, #2a3240);
@@ -2391,6 +2420,8 @@ function diagnosticsScreen(){
 function scrubDiagnosticText(v){
     var s=String(v==null?'':v);
     s=s.replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/g,'Bearer [redacted]');
+    s=s.replace(/skb_[A-Za-z0-9_-]+/g,'skb_[redacted]');
+    s=s.replace(/skipi-pair:1:broker:[A-Za-z0-9-]+/gi,'skipi-pair:1:broker:[redacted]');
     s=s.replace(/token["'\s:=]+[A-Za-z0-9._~+/=-]{12,}/ig,'token=[redacted]');
     return s.slice(0,4000);
 }
@@ -6563,7 +6594,10 @@ async function doInstallUpdate(){
 var _authLastReason = 'ok';
 async function _authGateValidate(bid){
     if(!bid){ _authLastReason='invalid'; return false; }
-    if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bid)){ _authLastReason='invalid'; return false; }
+    // Accept either a UUID (owner broker_id / member access token) OR an skb_
+    // device-migration credential minted by /api/devices/pair. Both validate
+    // through /api/broker-auth/validate server-side.
+    if(!/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|skb_[A-Za-z0-9_-]{20,})$/i.test(bid)){ _authLastReason='invalid'; return false; }
     // C1: validate through the Rust two-base failover (RU bridge → origin), NOT a
     // raw fetch to the (RF-blocked) origin — otherwise RF/iOS users lock out at
     // the gate even though the Rust path would reach the server via api-ru.
@@ -6592,11 +6626,12 @@ function _authGateMessage(){
 // A stored token that failed validation → show 'connect' (Token tab) with the error.
 var _authFresh = true;
 function _showAuthPane(name){
-    ['welcome','create','created','connect'].forEach(function(p){
+    ['welcome','create','created','connect','migrate'].forEach(function(p){
         var el=document.getElementById('auth-pane-'+p);
         if(el) el.style.display = (p===name)?'block':'none';
     });
     if(name==='connect'){ _authConnectTab('token'); }
+    if(name==='migrate'){ _migrateClear(); _migrateTab('code'); }
 }
 // Connect dialog: switch Token / QR method.
 function _authConnectTab(tab){
@@ -6666,6 +6701,166 @@ async function _authCopyCreated(){
     try { await navigator.clipboard.writeText(t); showToast('Токен скопирован','ok'); } catch(_){}
 }
 async function _authEnterApp(){ _authGateHide(); await _bootContinue(); }
+
+// ---------- Device migration (one-time pairing code; SEPARATE from the team
+// access token). The code is short-lived & one-time; the access token is the
+// long-lived team entitlement. Never mix them. ----------
+function _deviceId(){
+    var k='skipi-broker-device-id', v=null;
+    try { v=localStorage.getItem(k); } catch(_){}
+    if(!v){
+        try { v=(window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+                : ('dev-'+Date.now().toString(16)+'-'+Math.random().toString(16).slice(2,10)); }
+        catch(_){ v='dev-'+Date.now().toString(16); }
+        try { localStorage.setItem(k,v); } catch(_){}
+    }
+    return v;
+}
+function _platformTag(){ try { return String(navigator.platform||navigator.userAgent||'').slice(0,16); } catch(_){ return ''; } }
+function _migrateTab(tab){
+    var isCode=(tab!=='qr');
+    var tc=document.getElementById('migrate-tab-code'), tq=document.getElementById('migrate-tab-qr');
+    var pc=document.getElementById('migrate-pane-code'), pq=document.getElementById('migrate-pane-qr');
+    if(tc) tc.classList.toggle('active', isCode);
+    if(tq) tq.classList.toggle('active', !isCode);
+    if(pc) pc.style.display=isCode?'block':'none';
+    if(pq) pq.style.display=isCode?'none':'block';
+    if(isCode){ setTimeout(function(){ var i=document.getElementById('migrate-code-input'); if(i) i.focus(); },40); }
+}
+function _migrateClear(){
+    var i=document.getElementById('migrate-code-input'); if(i){ i.value=''; }
+    var e=document.getElementById('migrate-err'); if(e){ e.textContent=''; e.style.color='var(--text3)'; }
+}
+// Map the Rust "HTTP <code>: <body>" error string to a fail-closed message.
+function _pairErrorMessage(es){
+    if(/HTTP 404/.test(es)) return 'Код не найден — проверьте ввод.';
+    if(/HTTP 409/.test(es)) return /different app/i.test(es) ? 'Этот код не для Брокера.' : 'Код уже использован. Запросите новый код.';
+    if(/HTTP 400/.test(es)) return 'Код истёк. Попросите новый код на другом устройстве.';
+    if(/HTTP 429/.test(es)) return 'Слишком много попыток. Подождите минуту.';
+    if(/HTTP \d/.test(es))  return 'Ошибка на сервере. Повторите через минуту.';
+    if(/error sending request|connect|timed out|timeout|dns|resolve|failed to lookup|tcp connect|no api bases/i.test(es))
+                            return 'Нет связи с сервером — проверьте интернет.';
+    return 'Не удалось подключить устройство. Повторите.';
+}
+// Redeem a one-time code on this (new) device, store the returned skb_ bearer in
+// the normal auth slot, then reuse the existing validate gate.
+async function _migrateSubmit(){
+    var inp=document.getElementById('migrate-code-input');
+    var err=document.getElementById('migrate-err');
+    var btn=document.getElementById('migrate-btn');
+    if(!inp||!err) return;
+    var code=(inp.value||'').trim();
+    if(!code){ err.style.color='#e55561'; err.textContent='Введите одноразовый код переноса.'; return; }
+    err.style.color='var(--text3)'; err.textContent='Подключаю устройство…'; if(btn) btn.disabled=true;
+    try {
+        var d=await invoke('device_pair', { code:code, deviceId:_deviceId(), deviceLabel:_deviceLabel(), platform:_platformTag() });
+        inp.value=''; code=null;                 // scrub the one-time code from the DOM immediately
+        if(!d || !d.access_token){ throw new Error('Пустой ответ сервера (нет access_token)'); }
+        var tok=d.access_token;
+        state.settings=state.settings||{};
+        state.settings.bearer_token=tok;         // skb_ goes into the SAME slot as a team token
+        state.settings.broker_id=(d.principal_id||state.settings.broker_id||'');
+        try { state.settings=await invoke('save_settings',{ incoming: state.settings }); } catch(_){}
+        var ok=false; try { ok=await _authGateValidate(tok); } catch(_){}
+        if(!ok){ if(btn) btn.disabled=false; err.style.color='#e55561'; err.textContent=_authGateMessage(); return; }
+        if(state.access && state.access.team_id){
+            state.settings.broker_id=state.access.team_id;
+            try { state.settings=await invoke('save_settings',{ incoming: state.settings }); } catch(_){}
+        }
+        if(btn) btn.disabled=false;
+        _authGateHide(); await _bootContinue();
+    } catch(e){
+        if(btn) btn.disabled=false;
+        inp.value='';                            // never leave the code in the DOM on error
+        err.style.color='#e55561'; err.textContent=_pairErrorMessage(String(e||''));
+    }
+}
+// ----- Settings → Сопряжённые устройства: issue code / list / revoke -----
+function _devFmtWhen(iso){ try { return new Date(iso).toLocaleString(); } catch(_){ return String(iso||''); } }
+var _devPairTimer=null;
+function _devPairCountdown(ttl){
+    if(_devPairTimer){ clearInterval(_devPairTimer); _devPairTimer=null; }
+    var left=parseInt(ttl,10)||600;
+    var tick=function(){
+        var c=document.getElementById('dev-pair-countdown');
+        if(!c){ if(_devPairTimer){ clearInterval(_devPairTimer); _devPairTimer=null; } return; }
+        if(left<=0){
+            clearInterval(_devPairTimer); _devPairTimer=null;
+            var b=document.getElementById('dev-pair-code');
+            if(b) b.innerHTML='<span class="sub">Код истёк. <a href="#" onclick="_devShowPairingCode();return false;">Показать новый</a>.</span>';
+            return;
+        }
+        var m=Math.floor(left/60), sx=left%60;
+        c.textContent='Действует ещё '+m+':'+(sx<10?'0':'')+sx;
+        left--;
+    };
+    tick(); _devPairTimer=setInterval(tick,1000);
+}
+async function _devShowPairingCode(){
+    var box=document.getElementById('dev-pair-code'); if(!box) return;
+    box.innerHTML='<span class="sub">Создаю код…</span>';
+    try {
+        var d=await invoke('device_pairing_token', { deviceLabel:_deviceLabel(), platform:_platformTag(), issuedByDeviceId:_deviceId() });
+        if(!d || !d.code){ throw new Error('нет кода'); }
+        var code=d.code, payload=d.qr_payload||('skipi-pair:1:broker:'+code), ttl=d.ttl_seconds||600;
+        var pretty=code.length>4 ? (code.slice(0,4)+'-'+code.slice(4)) : code;
+        box.innerHTML=
+            '<div style="border:1px solid var(--border); border-radius:8px; padding:12px; background:var(--surface);">'+
+                '<div class="sub">Одноразовый код переноса — введите на новом устройстве:</div>'+
+                '<div style="font-family:monospace; font-size:22px; letter-spacing:3px; font-weight:700; margin:8px 0; user-select:all;">'+esc(pretty)+'</div>'+
+                '<div class="sub" id="dev-pair-countdown"></div>'+
+                '<div style="border:1px dashed var(--border); border-radius:8px; padding:14px; text-align:center; margin-top:10px;">'+
+                    '<div style="font-size:22px;">🔳</div>'+
+                    '<div class="sub" style="margin-top:6px; word-break:break-all;"><code>'+esc(payload)+'</code></div>'+
+                    '<div class="sub" style="margin-top:6px;">Картинка QR и сканер появятся с native camera bridge. Сейчас — ручной ввод кода.</div>'+
+                '</div>'+
+                '<button class="btn" style="margin-top:10px;" onclick="_devShowPairingCode()">Обновить код</button>'+
+            '</div>';
+        _devPairCountdown(ttl);
+    } catch(e){
+        box.innerHTML='<span class="sub" style="color:#e55561;">'+esc(_pairErrorMessage(String(e||'')))+'</span>';
+    }
+}
+async function _loadPairedDevices(){
+    var box=document.getElementById('paired-devices-list'); if(!box) return;
+    box.textContent='Загрузка…';
+    try {
+        var list=await invoke('device_list', { deviceId:_deviceId() });
+        if(!Array.isArray(list) || !list.length){ box.innerHTML='<span class="sub">Пока только это устройство. Добавьте новое через «Показать код».</span>'; return; }
+        var html='';
+        list.forEach(function(dv){
+            var cur=!!dv.current, label=dv.label||dv.platform||'устройство';
+            var meta=(dv.platform||'')+(dv.last_seen_at?(' · '+_devFmtWhen(dv.last_seen_at)):'');
+            html+='<div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--surface); margin-top:8px;">'+
+                '<div><b>'+esc(label)+'</b>'+(cur?' <span style="font-size:10px; padding:1px 7px; border-radius:10px; border:1px solid var(--accent); color:var(--accent-text,#004564);">текущее</span>':'')+
+                    '<div class="sub" style="margin-top:2px;">'+esc(meta)+'</div></div>'+
+                '<button class="btn" onclick="_devRevokeDevice(\''+esc(dv.id)+'\','+(cur?'true':'false')+')">'+(cur?'Отключить':'Отозвать')+'</button>'+
+            '</div>';
+        });
+        box.innerHTML=html;
+    } catch(e){
+        box.innerHTML='<span class="sub" style="color:#e55561;">'+esc(_pairErrorMessage(String(e||'')))+'</span>';
+    }
+}
+async function _devRevokeDevice(id, isCurrent){
+    var msg=isCurrent
+        ? 'Отключить ТЕКУЩЕЕ устройство? Его доступ будет отозван на сервере — потребуется новый код или токен.'
+        : 'Отозвать это устройство? Его доступ будет аннулирован на сервере.';
+    if(!window.confirm(msg)) return;
+    try {
+        await invoke('device_revoke', { id:id });
+        if(isCurrent){
+            state.settings=state.settings||{}; state.settings.bearer_token=''; state.settings.broker_id='';
+            try { state.settings=await invoke('save_settings',{ incoming: state.settings }); } catch(_){}
+            try { window.location.reload(); } catch(_){ _authFresh=true; _authGateShow(); }
+            return;
+        }
+        showToast('Устройство отозвано','ok');
+        _loadPairedDevices();
+    } catch(e){
+        showToast(_pairErrorMessage(String(e||'')),'err');
+    }
+}
 
 // Enter the demo — log into the pre-seeded demo team (real read paths, blocked writes).
 async function _authEnterDemo(){
@@ -10696,12 +10891,12 @@ function renderSettingsBody(){
                 '</div>'+
             '</div>';
     } else if(t==='devices'){
-        var tok = s.broker_id || '';
         var role = (state.access && state.access.role) || '';
         var plat = _deviceLabel();
+        var hasTok = !!(s.bearer_token || s.broker_id);
         body.innerHTML =
             '<h3>📱 '+esc(tr('settings.tab.devices'))+'</h3>'+
-            '<div class="sub">Команда открывается на нескольких устройствах по токену доступа. Одноразовый код сопряжения/переноса устройства (с серверным отзывом) — будущая функция.</div>'+
+            '<div class="sub">Перенос профиля на другое устройство по одноразовому коду. Это <b>не</b> токен доступа команды — постоянный токен в разделе «Профиль и доступ».</div>'+
             // current device
             '<div class="settings-section" style="margin-top:14px;">'+
                 '<div class="setting-label">Это устройство</div>'+
@@ -10710,28 +10905,21 @@ function renderSettingsBody(){
                     '<span style="font-size:10px; padding:2px 8px; border-radius:10px; border:1px solid var(--accent); color:var(--accent-text,#004564); white-space:nowrap;">текущее</span>'+
                 '</div>'+
             '</div>'+
-            // connect new device — show token (real) / QR (shell)
+            // issue a one-time pairing code (device migration — NOT the access token)
             '<div class="settings-section" style="margin-top:14px;">'+
-                '<div class="setting-label">Токен доступа команды</div>'+
-                '<div class="sub" style="margin-top:4px; line-height:1.5;">Постоянный токен доступа/приглашения. Открывает команду на другом устройстве: <b>Открыть существующий профиль → Токен</b>. Это <b>не</b> одноразовый код сопряжения устройства и не пароль — не пересылайте публично.</div>'+
-                (tok
-                  ? '<div id="dev-token" style="display:none; font-family:monospace; font-size:12px; word-break:break-all; background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:10px; margin-top:10px;"><code>'+esc(tok)+'</code></div>'+
-                    '<div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">'+
-                        '<button class="btn btn-accent" onclick="_devToggleToken()">Показать токен на этом устройстве</button>'+
-                        '<button class="btn" onclick="_devCopyToken()">📋 Скопировать</button>'+
-                    '</div>'+
-                    '<div style="border:1px dashed var(--border); border-radius:8px; padding:18px 14px; text-align:center; background:var(--surface); margin-top:12px;">'+
-                        '<div style="font-size:24px;">🔳</div>'+
-                        '<div class="sub" style="margin-top:6px; line-height:1.5;">QR и одноразовый код сопряжения/переноса устройства (с отзывом) появятся с pairing API (<code>/api/devices</code>) и camera bridge. Показанный выше токен — постоянный токен доступа, не код сопряжения.</div>'+
-                    '</div>'
-                  : '<div class="sub" style="color:#e55561; margin-top:8px;">Токен не задан — сначала войдите в профиль (Профиль и доступ).</div>')+
+                '<div class="setting-label">Подключить новое устройство</div>'+
+                '<div class="sub" style="margin-top:4px; line-height:1.5;">Покажите одноразовый код переноса здесь, затем на новом устройстве: <b>Скопировать с другого устройства → Код</b>. Код короткоживущий и срабатывает один раз; в QR попадает только <code>skipi-pair:1:broker:&lt;код&gt;</code> — постоянный токен туда не кладётся.</div>'+
+                (hasTok
+                  ? '<button class="btn btn-accent" style="margin-top:10px;" onclick="_devShowPairingCode()">Показать код</button>'+
+                    '<div id="dev-pair-code" style="margin-top:12px;"></div>'
+                  : '<div class="sub" style="color:#e55561; margin-top:8px;">Сначала войдите в профиль (Профиль и доступ).</div>')+
             '</div>'+
-            // paired devices list — honest backend-missing state (no fake list/revoke)
+            // paired devices — real list + per-device revoke
             '<div class="settings-section" style="margin-top:14px;">'+
                 '<div class="setting-label">Сопряжённые устройства</div>'+
-                '<div class="sub" style="margin-top:6px; line-height:1.5;">Список устройств, одноразовый код сопряжения и серверный отзыв доступа появятся, когда будет готов pairing API (<code>/api/devices</code>). Сейчас подключение идёт по постоянному токену доступа команды — без пер-устройственного учёта и серверного отзыва.</div>'+
-                '<button class="btn" disabled title="Будет доступно с серверным pairing API" style="margin-top:10px; opacity:.55; cursor:default;">Отозвать устройство — недоступно</button>'+
+                '<div id="paired-devices-list" class="sub" style="margin-top:8px;">Загрузка…</div>'+
             '</div>';
+        if(hasTok) setTimeout(_loadPairedDevices, 0);
     } else if(t==='profile'){
         // Skipi Broker архитектурно использует ОДИН токен — broker_id.
         // Он же выполняет роль Bearer для API. Раньше в UI было два поля
