@@ -774,6 +774,9 @@ body.mobile-mode .mrail-badge {
     body.mobile-mode .set-layout { flex-direction:column; min-height:0; }
     body.mobile-mode .set-nav { width:100%; flex:0 0 auto; display:flex; gap:4px;
         overflow-x:auto; overflow-y:hidden; border-right:none; border-bottom:1px solid var(--border); padding:8px 10px; white-space:nowrap; }
+    body.mobile-mode .set-nav-head { display:none; }
+    body.mobile-mode .set-nav-item { flex:0 0 auto; grid-template-columns:minmax(0,1fr); min-height:34px; padding:7px 11px; }
+    body.mobile-mode .set-nav-icon { display:none; }
     body.mobile-mode .set-body { flex:1; min-height:0; overflow-y:auto; }
     /* Long-press copy hint on team messages */
     body.mobile-mode .team-msg { -webkit-touch-callout:none; }
@@ -1103,7 +1106,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
 .team-composer .btn-sm { padding:0 10px; align-self:stretch; }
 
 /* Modal — used for + Publish wizard */
-.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:50;
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:5000;
     display:none; align-items:center; justify-content:center; padding:24px; }
 .modal-overlay.open { display:flex; }
 .modal { background:var(--bg); border:1px solid var(--border); border-radius:8px;
@@ -1184,16 +1187,34 @@ body.dragging-split.col-resize { cursor:col-resize; }
 .side-card h3 { font-size:13px; font-weight:600; margin-bottom:4px; }
 .side-card p { font-size:11px; color:var(--text2); }
 
-/* Settings modal (inherits modal-overlay) */
-.set-modal { width:760px; height:520px; max-width:96vw; max-height:90vh; }
-.set-layout { display:flex; flex:1; overflow:hidden; }
-.set-nav { width:200px; background:var(--surface); border-right:1px solid var(--border); overflow-y:auto; padding:8px 0; }
-.set-nav-item { padding:8px 18px; cursor:pointer; font-size:12px; color:var(--text2); }
+/* Settings modal (inherits modal-overlay). Desktop follows the accepted
+   Obsidian-like two-panel package: sidebar left, grouped settings right,
+   Skipi petrol #004564 instead of Obsidian purple. */
+.set-modal { width:900px; height:620px; max-width:96vw; max-height:90vh; border-radius:10px; background:var(--bg); position:relative; z-index:1; }
+.set-layout { display:flex; flex:1; overflow:hidden; background:var(--bg); position:relative; z-index:1; }
+.set-nav { width:248px; background:var(--surface); border-right:1px solid var(--border); overflow-y:auto; padding:14px 10px; }
+.set-nav-head { padding:2px 8px 14px; border-bottom:1px solid var(--border); margin-bottom:10px; }
+.set-nav-head .set-nav-title { font-size:16px; font-weight:700; color:var(--text); }
+.set-nav-head .set-nav-desc { margin-top:4px; font-size:11px; line-height:1.4; color:var(--text3); }
+.set-nav-item { display:grid; grid-template-columns:26px minmax(0,1fr); align-items:center; gap:9px;
+    min-height:42px; padding:7px 8px; margin:3px 0; cursor:pointer; border-radius:9px;
+    font-size:12px; color:var(--text2); border:1px solid transparent; }
 .set-nav-item:hover { color:var(--text); background:var(--hover); }
-.set-nav-item.active { color:#fff; background:var(--accent); }
-.set-body { flex:1; padding:22px 26px; overflow-y:auto; }
+.set-nav-item.active { color:var(--text); background:var(--bg); border-color:var(--border); }
+.set-nav-icon { width:24px; height:24px; display:grid; place-items:center; border-radius:7px;
+    background:var(--bg); border:1px solid var(--border); color:var(--accent); font-size:11px; font-weight:800; }
+.set-nav-item.active .set-nav-icon { background:var(--accent); color:#fff; border-color:var(--accent); }
+.set-nav-label { min-width:0; font-weight:650; line-height:1.25; overflow-wrap:anywhere; }
+.set-body { flex:1; padding:28px 32px; overflow-y:auto; background:var(--bg); }
+.set-page-head { display:flex; justify-content:space-between; gap:16px; align-items:flex-start; margin-bottom:22px; }
+.set-page-head h3 { font-size:22px; line-height:1.16; margin:0; font-weight:700; }
+.set-page-head .sub { margin:7px 0 0; max-width:560px; font-size:12px; line-height:1.5; color:var(--text2); }
+.set-status-pill { flex-shrink:0; border:1px solid rgba(0,69,100,.25); background:rgba(0,69,100,.08);
+    color:var(--accent); border-radius:999px; padding:5px 10px; font-size:11px; font-weight:800; white-space:nowrap; }
+.set-section-title { margin:22px 0 8px; color:var(--text3); font-size:11px; text-transform:uppercase; font-weight:800; letter-spacing:.02em; }
 .set-body h3 { font-size:14px; margin-bottom:4px; font-weight:600; }
 .set-body .sub { font-size:11px; color:var(--text2); margin-bottom:16px; }
+.settings-section .setting-row { background:var(--surface); }
 
 /* Settings sections — ported from Skipi Seafarer so the look is consistent
    across the family. Used for the new General tab (language selector). */
@@ -2357,7 +2378,7 @@ var state = {
     selectedPair: null,      // id of the selected bxb pair
     selectedMatch: null,     // { type:'own'|'bazaar', data:{...} }
     publish: { side:null },  // null | 'cargo' | 'tonnage'
-    settingsTab: 'connection',
+    settingsTab: 'team',
     access: null,   // {role, team_id, team_name, days_left, active, expires} — from /api/broker-auth/validate
     view: 'ex',              // 'ex' = Эксклюзивы tab, 'match' = Совпадения tab
     selectedSignal: null,    // { kind:'cargo'|'tonnage', id:'...' } — driver of view-match col 2 selection
@@ -10925,20 +10946,31 @@ function closeSettings(){
 }
 function renderSettingsNav(){
     var tabs = [
-        {id:'general',    label:tr('settings.tab.general')},
-        {id:'profile',    label:tr('settings.tab.profile')},
-        {id:'devices',    label:tr('settings.tab.devices')},
-        {id:'appearance', label:tr('settings.tab.appearance')},
-        {id:'about',      label:tr('settings.tab.about')},
+        {id:'team',       icon:'T', label:'Команда'},
+        {id:'data',       icon:'D', label:'Данные команды'},
+        {id:'mail',       icon:'M', label:'Почта / источники'},
+        {id:'devices',    icon:'U', label:'Сопряжённые устройства'},
+        {id:'access',     icon:'A', label:'Доступ / токены'},
+        {id:'app',        icon:'S', label:'Приложение'},
     ];
-    // Legacy tab ids redirect to the consolidated 'profile' tab.
-    if(state.settingsTab === 'connection' || state.settingsTab === 'identity' || state.settingsTab === 'reply'){
-        state.settingsTab = 'profile';
+    // Legacy tab ids redirect to the new canonical Broker IA.
+    if(state.settingsTab === 'connection' || state.settingsTab === 'identity' || state.settingsTab === 'reply' || state.settingsTab === 'profile'){
+        state.settingsTab = 'access';
     }
-    if(!state.settingsTab) state.settingsTab='general';
-    document.getElementById('set-nav').innerHTML = tabs.map(function(t){
+    if(state.settingsTab === 'general'){
+        state.settingsTab = 'team';
+    }
+    if(state.settingsTab === 'appearance' || state.settingsTab === 'about'){
+        state.settingsTab = 'app';
+    }
+    if(!state.settingsTab) state.settingsTab='team';
+    document.getElementById('set-nav').innerHTML =
+        '<div class="set-nav-head"><div class="set-nav-title">Настройки</div>'+
+        '<div class="set-nav-desc">Рабочее пространство брокерской команды. Без Vault: только команда, данные и доступ.</div></div>'+
+        tabs.map(function(t){
         return '<div class="set-nav-item '+(state.settingsTab===t.id?'active':'')
-            +'" onclick="state.settingsTab=\''+t.id+'\'; renderSettingsNav(); renderSettingsBody();">'+esc(t.label)+'</div>';
+            +'" onclick="state.settingsTab=\''+t.id+'\'; renderSettingsNav(); renderSettingsBody();">'+
+            '<span class="set-nav-icon">'+esc(t.icon)+'</span><span class="set-nav-label">'+esc(t.label)+'</span></div>';
     }).join('');
 }
 // Paired-devices helpers (Settings → Сопряжённые устройства).
@@ -10967,79 +10999,28 @@ function renderSettingsBody(){
     var body = document.getElementById('set-body');
     if(!body) return;
     var s = state.settings;
-    var t = state.settingsTab || 'general';
-    if(t==='general'){
+    var t = state.settingsTab || 'team';
+    if(t==='team'){
         body.innerHTML =
+            '<div class="set-page-head"><div><h3>Команда</h3>'+
+                '<div class="sub">Название, контакт и рабочая идентичность Broker-команды.</div></div>'+
+                '<span class="set-status-pill">СКИПИ БРОКЕР</span></div>'+
             '<div class="settings-section">'+
-                '<h3>'+esc(tr('settings.general.title'))+'</h3>'+
-                '<div class="section-desc">'+esc(tr('settings.general.desc'))+'</div>'+
+                '<div class="set-section-title">Профиль команды</div>'+
                 '<div class="setting-row">'+
                     '<div class="setting-info">'+
-                        '<div class="setting-label">'+esc(tr('settings.lang.label'))+'</div>'+
-                        '<div class="setting-desc">'+esc(tr('settings.lang.desc'))+'</div>'+
+                        '<div class="setting-label">Имя / компания</div>'+
+                        '<div class="setting-desc">Показывается в верхней панели, .eml-письмах и рабочих сигналах.</div>'+
                     '</div>'+
-                    '<div class="setting-control">'+uiLanguageSelectHtml()+'</div>'+
+                    '<div class="setting-control"><input id="set-display" value="'+esc(s.display_name||'')+'" style="min-width:260px;"></div>'+
                 '</div>'+
-            '</div>';
-    } else if(t==='devices'){
-        var role = (state.access && state.access.role) || '';
-        var plat = _deviceLabel();
-        var hasTok = !!(s.bearer_token || s.broker_id);
-        body.innerHTML =
-            '<h3>📱 '+esc(tr('settings.tab.devices'))+'</h3>'+
-            '<div class="sub">Перенос профиля на другое устройство по одноразовому коду. Это <b>не</b> токен доступа команды — постоянный токен в разделе «Профиль и доступ».</div>'+
-            // current device
-            '<div class="settings-section" style="margin-top:14px;">'+
-                '<div class="setting-label">Это устройство</div>'+
-                '<div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--surface); margin-top:8px;">'+
-                    '<div><b>'+esc(plat)+'</b><div class="sub" style="margin-top:2px;">'+(role?('роль: '+esc(role)+' · '):'')+'активно сейчас</div></div>'+
-                    '<span style="font-size:10px; padding:2px 8px; border-radius:10px; border:1px solid var(--accent); color:var(--accent-text,#004564); white-space:nowrap;">текущее</span>'+
+                '<div class="setting-row">'+
+                    '<div class="setting-info">'+
+                        '<div class="setting-label">Email для ответов</div>'+
+                        '<div class="setting-desc">Reply-to для сигналов и исходящих писем.</div>'+
+                    '</div>'+
+                    '<div class="setting-control"><input id="set-contact" value="'+esc(s.reply_to||'')+'" style="min-width:260px;"></div>'+
                 '</div>'+
-            '</div>'+
-            // issue a one-time pairing code (device migration — NOT the access token)
-            '<div class="settings-section" style="margin-top:14px;">'+
-                '<div class="setting-label">Подключить новое устройство</div>'+
-                '<div class="sub" style="margin-top:4px; line-height:1.5;">Покажите одноразовый код переноса здесь, затем на новом устройстве: <b>Скопировать с другого устройства → Код</b>. Код короткоживущий и срабатывает один раз; в QR попадает только <code>skipi-pair:1:broker:&lt;код&gt;</code> — постоянный токен туда не кладётся.</div>'+
-                (hasTok
-                  ? '<button class="btn btn-accent" style="margin-top:10px;" onclick="_devShowPairingCode()">Показать код</button>'+
-                    '<div id="dev-pair-code" style="margin-top:12px;"></div>'
-                  : '<div class="sub" style="color:#e55561; margin-top:8px;">Сначала войдите в профиль (Профиль и доступ).</div>')+
-            '</div>'+
-            // paired devices — real list + per-device revoke
-            '<div class="settings-section" style="margin-top:14px;">'+
-                '<div class="setting-label">Сопряжённые устройства</div>'+
-                '<div id="paired-devices-list" class="sub" style="margin-top:8px;">Загрузка…</div>'+
-            '</div>';
-        if(hasTok) setTimeout(_loadPairedDevices, 0);
-    } else if(t==='profile'){
-        // Skipi Broker архитектурно использует ОДИН токен — broker_id.
-        // Он же выполняет роль Bearer для API. Раньше в UI было два поля
-        // (Bearer token + Team broker_id), одно значение в обоих. Это путало.
-        // Теперь — одно поле "Токен команды".
-        body.innerHTML =
-            // ── 1. Токен (главное и единственное) ──────────────────
-            '<h3>🔐 Токен команды</h3>'+
-            '<div class="sub">Один токен, без него приложение не открывается. Выдаёт руководитель команды.</div>'+
-            '<div class="field-grid" style="margin-top:10px;">'+
-                '<div class="field full"><label>Token (broker_id)</label><input id="set-team-bid" value="'+esc(s.broker_id||'')+'" placeholder="UUID, например 1d76abea-3c85-438c-82af-0bf3d8801651" style="font-family:monospace;"></div>'+
-            '</div>'+
-            (s.broker_id
-                ? '<div class="sub" style="margin:8px 0 4px 0;">Сейчас активен: <code>'+esc(s.broker_id)+'</code></div>'
-                : '<div class="sub" style="margin:8px 0 4px 0; color:#e55561;">Токен не введён</div>')+
-            '<div style="margin-top:10px;"><button class="btn btn-accent" onclick="overrideBrokerId()">Использовать этот токен</button></div>'+
-
-            // ── 1b. Доступ команды: триал + (для owner) токены членов ──
-            _accessSectionHtml()+
-
-            '<hr style="margin:22px 0; border:none; border-top:1px solid var(--border);">'+
-
-            // ── 2. Профиль (имя + email) ───────────────────────────
-            '<h3>👤 Профиль</h3>'+
-            '<div class="sub">Имя и email — для сигналов, подписей и .eml-писем.</div>'+
-            '<div class="field-grid" style="margin-top:10px;">'+
-                '<div class="field full"><label>Имя / Компания</label><input id="set-display" value="'+esc(s.display_name||'')+'"></div>'+
-                '<div class="field full"><label>Email (Reply-to)</label><input id="set-contact" value="'+esc(s.reply_to||'')+'"></div>'+
-                // hidden mirrors so saveReply() finds the same values
                 '<input type="hidden" id="set-fname" value="'+esc(s.display_name||'')+'">'+
                 '<input type="hidden" id="set-femail" value="'+esc(s.reply_to||'')+'">'+
             '</div>'+
@@ -11047,36 +11028,150 @@ function renderSettingsBody(){
                 '<button class="btn btn-accent" onclick="saveProfileCombined()">Сохранить</button>'+
                 '<button class="btn btn-outline" onclick="registerBroker()">'+(s.broker_id?'Перерегистрировать на сервере':'Зарегистрировать на сервере')+'</button>'+
             '</div>'+
-
-            // ── 3. Компанейская почта (фильтр входящих) ────────────
-            '<hr style="margin:22px 0; border:none; border-top:1px solid var(--border);">'+
-            '<h3>📧 Компанейская почта</h3>'+
-            '<div class="sub">В модуле Почта показываются только письма, адресованные этому ящику (в To/Cc). Массовые рассылки, где вас нет в прямых адресатах, скрываются.</div>'+
-            '<div class="field-grid" style="margin-top:10px;">'+
-                '<div class="field full"><label>Компанейский email</label><input id="set-company-email" value="'+esc(_companyEmail())+'" placeholder="drybulk@montlinechartering.com" style="font-family:monospace;"></div>'+
-            '</div>'+
-            '<div style="margin-top:10px;"><button class="btn btn-accent" onclick="saveCompanyEmail()">Сохранить</button></div>'+
-
-            // Server URL — спрятан в About вкладке как технический инфо
-            '<div class="sub" style="margin-top:24px; font-size:10px; color:var(--text3);">Сервер: '+esc(s.server_url||'https://api.skipi.app')+'</div>';
-        _afterProfileRender();
-    } else if(t==='appearance'){
-        var cur = localStorage.getItem('skipi-broker-theme') || 'light';
-        body.innerHTML = '<h3>Внешний вид</h3><div class="sub">Тема интерфейса.</div>'+
-            '<div style="margin-bottom:14px;"><label style="font-size:11px; color:var(--text2);">Тема</label><br>'+
-                ['dark','light','system'].map(function(x){
-                    return '<label style="margin-right:14px;"><input type="radio" name="theme" '+(cur===x?'checked':'')+' onclick="setTheme(\''+x+'\')"> '+x+'</label>';
-                }).join('')+
+            '<div class="settings-section" style="margin-top:24px;">'+
+                '<div class="set-section-title">Текущая команда</div>'+
+                '<div class="setting-row">'+
+                    '<div class="setting-info">'+
+                        '<div class="setting-label">Team ID</div>'+
+                        '<div class="setting-desc">'+(s.broker_id ? '<code>'+esc(s.broker_id)+'</code>' : 'Профиль команды ещё не подключён.')+'</div>'+
+                    '</div>'+
+                    '<div class="setting-control"><span class="set-status-pill">'+(state.access && state.access.role ? esc(state.access.role) : 'не подключено')+'</span></div>'+
+                '</div>'+
             '</div>';
-    } else {
-        body.innerHTML = '<h3>О программе</h3><div class="sub">Skipi - United Seafarers</div>'+
-            '<div class="detail-block"><div class="detail-row"><span class="k">Версия</span><span class="v">'+APP_VERSION+'</span></div>'+
-            '<div class="detail-row"><span class="k">Сервер</span><span class="v">'+esc(s.server_url||'—')+'</span></div></div>'+
-            '<div style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap;">'+
-                '<button class="btn btn-accent" onclick="checkForUpdatesManual()">Проверить обновления</button>'+
-                '<button class="btn btn-outline" onclick="openFeedbackDialog(\'about\')">Оценить Skipi</button>'+
+    } else if(t==='data'){
+        body.innerHTML =
+            '<div class="set-page-head"><div><h3>Данные команды</h3>'+
+                '<div class="sub">Рабочие данные Broker-приложения. Это не личный Vault: данные относятся к команде и её рынку.</div></div>'+
+                '<span class="set-status-pill">WORKSPACE</span></div>'+
+            '<div class="settings-section">'+
+                '<div class="set-section-title">Рабочие модули</div>'+
+                '<div class="setting-row">'+
+                    '<div class="setting-info"><div class="setting-label">Bazaar и совпадения</div>'+
+                    '<div class="setting-desc">Рыночные сигналы, совпадения и публичные DTO без источников/контактов.</div></div>'+
+                    '<div class="setting-control"><span class="set-status-pill">сервер</span></div>'+
+                '</div>'+
+                '<div class="setting-row">'+
+                    '<div class="setting-info"><div class="setting-label">Дела команды</div>'+
+                    '<div class="setting-desc">Рабочие кейсы и заметки команды. Синхронизация развивается отдельно.</div></div>'+
+                    '<div class="setting-control"><button class="btn" onclick="closeSettings(); showView(\'cases\')">Открыть</button></div>'+
+                '</div>'+
+                '<div class="setting-row">'+
+                    '<div class="setting-info"><div class="setting-label">Локальные черновики</div>'+
+                    '<div class="setting-desc">Черновики публикаций и локальные UI-состояния хранятся на устройстве.</div></div>'+
+                    '<div class="setting-control"><span class="set-status-pill">local</span></div>'+
+                '</div>'+
+            '</div>';
+    } else if(t==='mail'){
+        var mb = state.mail && state.mail.mailbox ? state.mail.mailbox : null;
+        var mbState = mb && mb.configured ? ('подключено: '+(mb.email_masked || 'почта')) : 'не подключено';
+        body.innerHTML =
+            '<div class="set-page-head"><div><h3>Почта / источники</h3>'+
+                '<div class="sub">Личный почтовый ящик участника команды и фильтры источников. Пароль хранится write-only и не показывается обратно.</div></div>'+
+                '<span class="set-status-pill">'+esc(mbState)+'</span></div>'+
+            '<div class="settings-section">'+
+                '<div class="set-section-title">Почтовый ящик</div>'+
+                '<div class="setting-row">'+
+                    '<div class="setting-info"><div class="setting-label">Личный mailbox</div>'+
+                    '<div class="setting-desc">'+(mb && mb.configured ? ('Подключён: '+esc(mb.email_masked || '')+(mb.last_error ? (' · последняя ошибка: '+esc(_mbShortReason(mb.last_error))) : '')) : 'Подключите IMAP/SMTP ящик в модуле Почта.')+'</div></div>'+
+                    '<div class="setting-control" style="display:flex; gap:8px;">'+
+                        '<button class="btn" onclick="closeSettings(); showView(\'mail\')">Открыть почту</button>'+
+                        '<button class="btn btn-accent" onclick="closeSettings(); showView(\'mail\'); setTimeout(openMailboxSettings,120)">Настроить</button>'+
+                    '</div>'+
+                '</div>'+
+                '<div class="setting-row">'+
+                    '<div class="setting-info"><div class="setting-label">Компанейский фильтр</div>'+
+                    '<div class="setting-desc">Если задан, INBOX показывает только письма, где этот адрес есть в To/Cc. Для личного ящика можно оставить пустым.</div></div>'+
+                    '<div class="setting-control"><input id="set-company-email" value="'+esc(_companyEmail())+'" placeholder="drybulk@montlinechartering.com" style="min-width:260px; font-family:monospace;"></div>'+
+                '</div>'+
+            '</div>'+
+            '<div style="margin-top:14px;"><button class="btn btn-accent" onclick="saveCompanyEmail()">Сохранить фильтр</button></div>';
+    } else if(t==='app'){
+        var cur = localStorage.getItem('skipi-broker-theme') || 'light';
+        body.innerHTML =
+            '<div class="set-page-head"><div><h3>Приложение</h3>'+
+                '<div class="sub">Язык, тема, версия и техническая информация.</div></div>'+
+                '<span class="set-status-pill">v'+esc(APP_VERSION)+'</span></div>'+
+            '<div class="settings-section">'+
+                '<div class="set-section-title">Интерфейс</div>'+
+                '<div class="setting-row">'+
+                    '<div class="setting-info">'+
+                        '<div class="setting-label">'+esc(tr('settings.lang.label'))+'</div>'+
+                        '<div class="setting-desc">'+esc(tr('settings.lang.desc'))+'</div>'+
+                    '</div>'+
+                    '<div class="setting-control">'+uiLanguageSelectHtml()+'</div>'+
+                '</div>'+
+                '<div class="setting-row">'+
+                    '<div class="setting-info"><div class="setting-label">Тема</div>'+
+                    '<div class="setting-desc">Светлая, тёмная или системная тема.</div></div>'+
+                    '<div class="setting-control">'+
+                        ['dark','light','system'].map(function(x){
+                            return '<label style="margin-left:12px;"><input type="radio" name="theme" '+(cur===x?'checked':'')+' onclick="setTheme(\''+x+'\')"> '+x+'</label>';
+                        }).join('')+
+                    '</div>'+
+                '</div>'+
+            '</div>'+
+            '<div class="settings-section" style="margin-top:22px;">'+
+                '<div class="set-section-title">О программе</div>'+
+                '<div class="setting-row"><div class="setting-info"><div class="setting-label">Версия</div><div class="setting-desc">'+esc(APP_VERSION)+'</div></div><div class="setting-control"><button class="btn" onclick="checkForUpdatesManual()">Проверить обновления</button></div></div>'+
+                '<div class="setting-row"><div class="setting-info"><div class="setting-label">Сервер</div><div class="setting-desc">'+esc(s.server_url||'https://api.skipi.app')+'</div></div><div class="setting-control"><button class="btn" onclick="openFeedbackDialog(\'about\')">Оценить Skipi</button></div></div>'+
             '</div>'+
             '<div class="sub" id="update-check-status" style="margin-top:10px;"></div>';
+    } else if(t==='devices'){
+        var role = (state.access && state.access.role) || '';
+        var plat = _deviceLabel();
+        var hasTok = !!(s.bearer_token || s.broker_id);
+        body.innerHTML =
+            '<div class="set-page-head"><div><h3>Сопряжённые устройства</h3>'+
+                '<div class="sub">Перенос профиля на другое устройство по одноразовому коду. Это <b>не</b> токен доступа команды.</div></div>'+
+                '<span class="set-status-pill">PAIRING</span></div>'+
+            // current device
+            '<div class="settings-section" style="margin-top:14px;">'+
+                '<div class="set-section-title">Это устройство</div>'+
+                '<div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--surface); margin-top:8px;">'+
+                    '<div><b>'+esc(plat)+'</b><div class="sub" style="margin-top:2px;">'+(role?('роль: '+esc(role)+' · '):'')+'активно сейчас</div></div>'+
+                    '<span style="font-size:10px; padding:2px 8px; border-radius:10px; border:1px solid var(--accent); color:var(--accent-text,#004564); white-space:nowrap;">текущее</span>'+
+                '</div>'+
+            '</div>'+
+            // issue a one-time pairing code (device migration — NOT the access token)
+            '<div class="settings-section" style="margin-top:14px;">'+
+                '<div class="set-section-title">Подключить новое устройство</div>'+
+                '<div class="sub" style="margin-top:4px; line-height:1.5;">Покажите одноразовый код переноса здесь, затем на новом устройстве: <b>Скопировать с другого устройства → Код</b>. Код короткоживущий и срабатывает один раз; в QR попадает только <code>skipi-pair:1:broker:&lt;код&gt;</code> — постоянный токен туда не кладётся.</div>'+
+                (hasTok
+                  ? '<button class="btn btn-accent" style="margin-top:10px;" onclick="_devShowPairingCode()">Показать код</button>'+
+                    '<div id="dev-pair-code" style="margin-top:12px;"></div>'
+                  : '<div class="sub" style="color:#e55561; margin-top:8px;">Сначала войдите в профиль (Доступ / токены).</div>')+
+            '</div>'+
+            // paired devices — real list + per-device revoke
+            '<div class="settings-section" style="margin-top:14px;">'+
+                '<div class="set-section-title">Список устройств</div>'+
+                '<div id="paired-devices-list" class="sub" style="margin-top:8px;">Загрузка…</div>'+
+            '</div>';
+        if(hasTok) setTimeout(_loadPairedDevices, 0);
+    } else if(t==='access'){
+        // Skipi Broker архитектурно использует ОДИН токен — broker_id или
+        // выданный per-device skb_ bearer. Это доступ команды, не код переноса.
+        body.innerHTML =
+            '<div class="set-page-head"><div><h3>Доступ / токены</h3>'+
+                '<div class="sub">Постоянный доступ команды, токены членов и локальный выход с этого устройства.</div></div>'+
+                '<span class="set-status-pill">'+(state.access && state.access.role ? esc(state.access.role) : 'нет доступа')+'</span></div>'+
+            // ── 1. Токен (главное и единственное) ──────────────────
+            '<div class="settings-section">'+
+                '<div class="set-section-title">Токен доступа команды</div>'+
+                '<div class="setting-row">'+
+                    '<div class="setting-info"><div class="setting-label">Team access token</div>'+
+                    '<div class="setting-desc">Постоянный токен доступа/приглашения. Не путать с одноразовым кодом переноса устройства.</div></div>'+
+                    '<div class="setting-control"><input id="set-team-bid" value="'+esc(s.broker_id||'')+'" placeholder="UUID или skb_ bearer" style="min-width:300px; font-family:monospace;"></div>'+
+                '</div>'+
+            '</div>'+
+            (s.broker_id
+                ? '<div class="sub" style="margin:8px 0 4px 0;">Сейчас активен: <code>'+esc(s.broker_id)+'</code></div>'
+                : '<div class="sub" style="margin:8px 0 4px 0; color:#e55561;">Токен не введён</div>')+
+            '<div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;"><button class="btn btn-accent" onclick="overrideBrokerId()">Использовать этот токен</button>'+
+                '<button class="btn btn-outline" onclick="leaveBrokerTeamLocal()">Выйти из команды на этом устройстве</button></div>'+
+
+            // ── 1b. Доступ команды: триал + (для owner) токены членов ──
+            _accessSectionHtml();
+        _afterProfileRender();
     }
 }
 
@@ -11128,7 +11223,7 @@ async function saveProfileCombined(){
 async function overrideBrokerId(){
     var newId = (val('set-team-bid')||'').trim();
     if(!newId || newId.length < 30){
-        showToast('Вставь полный UUID brokerа.', 'error'); return;
+        showToast('Вставь полный токен доступа команды.', 'error'); return;
     }
     var s = state.settings;
     s.broker_id = newId;
@@ -11145,6 +11240,44 @@ async function overrideBrokerId(){
         await refreshAll();
         renderSettingsBody();
     } catch(e){ showToast('Override: '+e, 'error'); }
+}
+
+async function leaveBrokerTeamLocal(){
+    if(!confirm('Выйти из команды на этом устройстве?\n\nБудет удалён только локальный токен доступа. Команда, данные на сервере и другие устройства не удаляются. Для серверного отзыва используйте раздел «Сопряжённые устройства».')) return;
+    var s = state.settings || {};
+    s.broker_id = '';
+    s.bearer_token = '';
+    state.access = null;
+    state.myCargo = [];
+    state.myTonnage = [];
+    state.selectedListing = null;
+    state.inbox = { own_matches:[], bazaar_matches:[] };
+    state.bazaarPairs = [];
+    state.selectedPair = null;
+    state.selectedMatch = null;
+    state.selectedSignal = null;
+    state.bxbMatches = [];
+    state.selectedBxbMatch = null;
+    state.pinnedLeads = [];
+    state.activeLeadId = null;
+    if(state.mail){
+        try { _disarmMailAutoRefresh(); } catch(_){}
+        state.mail.messages = [];
+        state.mail.loaded = false;
+        state.mail.selectedId = null;
+        state.mail.currentMsg = null;
+        state.mail.mailbox = { configured:false, status:'not_configured' };
+    }
+    try {
+        state.settings = await invoke('save_settings', { incoming:s });
+        refreshIdentityBadge();
+        closeSettings();
+        _authFresh = true;
+        _authGateShow();
+        showToast('Токен удалён с этого устройства.', 'ok');
+    } catch(e){
+        showToast('Не удалось выйти из команды: '+e, 'error');
+    }
 }
 
 // ---------- Team access: trial + member tokens (role-aware) ----------
