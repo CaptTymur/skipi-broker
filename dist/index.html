@@ -54,7 +54,7 @@ var UI_STRINGS={
         'top.notRegistered':'Не зарегистрирован','top.gear':'Настройки',
         'settings.title':'Настройки','settings.tab.general':'Общие','settings.tab.connection':'Подключение',
         'settings.tab.identity':'Профиль брокера','settings.tab.reply':'Reply-to','settings.tab.profile':'Профиль и доступ',
-        'settings.tab.appearance':'Внешний вид','settings.tab.about':'О программе',
+        'settings.tab.appearance':'Внешний вид','settings.tab.about':'О программе','settings.tab.devices':'Сопряжённые устройства',
         'settings.general.title':'Общие','settings.general.desc':'Основные настройки приложения.',
         'settings.lang.label':'Язык интерфейса',
         'settings.lang.desc':'Выбранный язык сохраняется и синхронизируется со Скипи Моряком на этом устройстве.',
@@ -66,7 +66,7 @@ var UI_STRINGS={
         'top.notRegistered':'Not registered','top.gear':'Settings',
         'settings.title':'Settings','settings.tab.general':'General','settings.tab.connection':'Connection',
         'settings.tab.identity':'Broker profile','settings.tab.reply':'Reply-to','settings.tab.profile':'Profile & access',
-        'settings.tab.appearance':'Appearance','settings.tab.about':'About',
+        'settings.tab.appearance':'Appearance','settings.tab.about':'About','settings.tab.devices':'Paired devices',
         'settings.general.title':'General','settings.general.desc':'Basic application settings.',
         'settings.lang.label':'Interface language',
         'settings.lang.desc':'Selected language is saved and synced with Skipi Seafarer on this device.',
@@ -78,7 +78,7 @@ var UI_STRINGS={
         'top.notRegistered':'Hindi naka-rehistro','top.gear':'Settings',
         'settings.title':'Settings','settings.tab.general':'Pangkalahatan','settings.tab.connection':'Connection',
         'settings.tab.identity':'Broker profile','settings.tab.reply':'Reply-to',
-        'settings.tab.appearance':'Hitsura','settings.tab.about':'Tungkol',
+        'settings.tab.appearance':'Hitsura','settings.tab.about':'Tungkol','settings.tab.devices':'Mga naka-pair na device',
         'settings.general.title':'Pangkalahatan','settings.general.desc':'Pangunahing settings ng application.',
         'settings.lang.label':'Wika ng interface',
         'settings.lang.desc':'Naka-save at naka-sync ang piniling wika sa Skipi Seafarer sa device na ito.',
@@ -90,7 +90,7 @@ var UI_STRINGS={
         'top.notRegistered':'पंजीकृत नहीं','top.gear':'सेटिंग्स',
         'settings.title':'सेटिंग्स','settings.tab.general':'सामान्य','settings.tab.connection':'कनेक्शन',
         'settings.tab.identity':'ब्रोकर प्रोफ़ाइल','settings.tab.reply':'Reply-to',
-        'settings.tab.appearance':'दिखावट','settings.tab.about':'के बारे में',
+        'settings.tab.appearance':'दिखावट','settings.tab.about':'के बारे में','settings.tab.devices':'युग्मित डिवाइस',
         'settings.general.title':'सामान्य','settings.general.desc':'Application की मूल settings.',
         'settings.lang.label':'Interface भाषा',
         'settings.lang.desc':'चयनित भाषा इस device पर Skipi Seafarer के साथ saved + synced रहती है.',
@@ -102,7 +102,7 @@ var UI_STRINGS={
         'top.notRegistered':'Belum terdaftar','top.gear':'Pengaturan',
         'settings.title':'Pengaturan','settings.tab.general':'Umum','settings.tab.connection':'Koneksi',
         'settings.tab.identity':'Profil broker','settings.tab.reply':'Reply-to',
-        'settings.tab.appearance':'Tampilan','settings.tab.about':'Tentang',
+        'settings.tab.appearance':'Tampilan','settings.tab.about':'Tentang','settings.tab.devices':'Perangkat terpasang',
         'settings.general.title':'Umum','settings.general.desc':'Pengaturan dasar aplikasi.',
         'settings.lang.label':'Bahasa antarmuka',
         'settings.lang.desc':'Bahasa yang dipilih disimpan dan disinkronkan dengan Skipi Seafarer di perangkat ini.',
@@ -1432,6 +1432,24 @@ body.dragging-split.col-resize { cursor:col-resize; }
 <!-- Auth gate (hard) — blocks the whole UI until a valid broker_id is entered.
      Shown by boot() when no broker_id is stored or when the stored one was
      revoked on the server. Cannot be dismissed without a valid token. -->
+<style>
+/* Unified launch + connect dialog (token/QR) — canonical primary #004564 */
+.auth-launch-btn { display:block; width:100%; padding:13px 14px; margin-bottom:10px; background:#004564; color:#fff;
+    border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:13px; text-align:left; line-height:1.3; box-sizing:border-box; }
+.auth-launch-btn:last-child { margin-bottom:0; }
+.auth-launch-btn:disabled { opacity:.6; cursor:default; }
+.auth-launch-sub { font-size:10px; font-weight:400; opacity:.85; margin-top:3px; }
+.auth-secondary-btn { padding:10px 14px; background:var(--surface,#0f141c); color:var(--text2,#aab);
+    border:1px solid var(--border,#2a3240); border-radius:6px; font-weight:600; cursor:pointer; font-size:12px; box-sizing:border-box; }
+.auth-tabs { display:flex; gap:6px; background:var(--surface,#0f141c); border:1px solid var(--border,#2a3240);
+    border-radius:8px; padding:4px; }
+.auth-tab { flex:1; text-align:center; padding:8px; font-size:12px; font-weight:600; color:var(--text3,#788);
+    border-radius:6px; cursor:pointer; }
+.auth-tab.active { background:#004564; color:#fff; }
+.auth-qr-area { border:1px dashed var(--border,#2a3240); border-radius:8px; padding:22px 14px; text-align:center;
+    background:var(--surface,#0f141c); margin-top:12px; }
+</style>
+
 <div id="auth-gate-overlay" style="display:none; position:fixed; inset:0; z-index:99999;
     background:rgba(10,15,25,0.85); backdrop-filter:blur(8px);
     align-items:center; justify-content:center; padding:20px;">
@@ -1441,40 +1459,24 @@ body.dragging-split.col-resize { cursor:col-resize; }
         <div style="font-size:18px; font-weight:700; color:var(--text, #fff); margin-bottom:4px;">⚓ Skipi Broker</div>
         <div style="font-size:11px; color:var(--text2,#aab); margin-bottom:12px;">Skipi - United Seafarers</div>
 
-        <!-- Pane: welcome (FIRST branch — use the app OR see a demo). Тимур:
-             «сначала ветвление пользоваться или демка, потом всё остальное». -->
+        <!-- Pane: welcome = unified launch screen. Three equal primary actions
+             (#004564) in the canonical order. Broker = team/profile of a broker. -->
         <div id="auth-pane-welcome">
             <div style="font-size:12px; color:var(--text2,#aab); margin-bottom:18px; line-height:1.5;">
-                Добро пожаловать. С чего начнём?
+                Профиль команды брокера. Выбери, как начать.
             </div>
-            <button onclick="_showAuthPane('choice')"
-                style="display:block; width:100%; padding:13px; margin-bottom:10px; background:var(--accent,#004564); color:#fff; border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:13px; text-align:left;">
-                🚀 Пользоваться приложением
-                <div style="font-size:10px; font-weight:400; opacity:.85; margin-top:3px;">Создать команду или войти по токену — для реальной работы.</div>
+            <button class="auth-launch-btn" onclick="_showAuthPane('connect')">
+                🔑 Открыть существующий профиль
+                <div class="auth-launch-sub">Подключиться по токену или QR-коду с другого устройства.</div>
             </button>
-            <button onclick="_authEnterDemo()"
-                style="display:block; width:100%; padding:13px; background:rgba(60,52,137,.12); color:#3C3489; border:1px solid #d9d6f7; border-radius:6px; font-weight:600; cursor:pointer; font-size:13px; text-align:left;">
-                🎬 Посмотреть демонстрацию
-                <div style="font-size:10px; font-weight:400; opacity:.85; margin-top:3px;">Без регистрации — увидеть, как приложение выглядит в работе на готовых данных.</div>
+            <button class="auth-launch-btn" onclick="_showAuthPane('create')">
+                ➕ Создать профиль
+                <div class="auth-launch-sub">Новая команда — 30 дней полного доступа бесплатно.</div>
             </button>
-        </div>
-
-        <!-- Pane: choice (step 2 — pick admin or join) -->
-        <div id="auth-pane-choice" style="display:none;">
-            <div style="font-size:12px; color:var(--text2,#aab); margin-bottom:18px; line-height:1.5;">
-                Кто ты?
-            </div>
-            <button onclick="_showAuthPane('create')"
-                style="display:block; width:100%; padding:13px; margin-bottom:10px; background:var(--accent,#004564); color:#fff; border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:13px; text-align:left;">
-                👑 Я администратор — создать команду
-                <div style="font-size:10px; font-weight:400; opacity:.85; margin-top:3px;">Первый месяц полный доступ бесплатно. Добавляешь членов команды.</div>
+            <button class="auth-launch-btn" onclick="_authEnterDemo()">
+                🎬 Показать демонстрацию
+                <div class="auth-launch-sub">Без регистрации — увидеть приложение на готовых данных.</div>
             </button>
-            <button onclick="_showAuthPane('join')"
-                style="display:block; width:100%; padding:13px; background:var(--surface,#0f141c); color:var(--text,#fff); border:1px solid var(--border,#2a3240); border-radius:6px; font-weight:600; cursor:pointer; font-size:13px; text-align:left;">
-                🔗 Присоединиться к команде
-                <div style="font-size:10px; font-weight:400; opacity:.7; margin-top:3px;">У меня есть токен от руководителя.</div>
-            </button>
-            <div onclick="_showAuthPane('welcome')" style="margin-top:14px; font-size:11px; color:var(--text3,#788); cursor:pointer;">← назад</div>
         </div>
 
         <!-- Pane: create team (admin path) -->
@@ -1489,7 +1491,7 @@ body.dragging-split.col-resize { cursor:col-resize; }
             <button id="auth-create-btn" onclick="_authCreateTeam()"
                 style="width:100%; padding:10px; background:var(--accent,#004564); color:#fff; border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:13px;">Создать команду</button>
             <div id="auth-create-err" style="margin-top:10px; font-size:11px; color:#e55561; min-height:14px;"></div>
-            <div onclick="_showAuthPane('choice')" style="margin-top:12px; font-size:11px; color:var(--text3,#788); cursor:pointer;">← назад</div>
+            <div onclick="_showAuthPane('welcome')" style="margin-top:12px; font-size:11px; color:var(--text3,#788); cursor:pointer;">← назад</div>
         </div>
 
         <!-- Pane: created (show admin token to save) -->
@@ -1502,25 +1504,47 @@ body.dragging-split.col-resize { cursor:col-resize; }
             <button onclick="_authEnterApp()" style="width:100%; padding:10px; background:var(--accent,#004564); color:#fff; border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:13px;">Войти в приложение →</button>
         </div>
 
-        <!-- Pane: join (member / existing token) -->
-        <div id="auth-pane-join" style="display:none;">
-            <div style="font-size:12px; color:var(--text2, #aab); margin-bottom:14px; line-height:1.5;">
-                Введи токен команды (broker_id), полученный от руководителя.
+        <!-- Pane: connect = Open existing profile (Token + QR methods). -->
+        <div id="auth-pane-connect" style="display:none;">
+            <div style="font-size:12px; color:var(--text2, #aab); margin-bottom:12px; line-height:1.5;">
+                Подключение к существующему профилю команды.
             </div>
-            <input id="auth-gate-input" type="text"
-                placeholder="например: 1d76abea-3c85-438c-82af-0bf3d8801651"
-                style="width:100%; padding:10px 12px; font-size:13px; font-family:monospace;
-                    background:var(--surface, #0f141c); color:var(--text, #fff);
-                    border:1px solid var(--border, #2a3240); border-radius:6px;
-                    margin-bottom:14px; box-sizing:border-box;"
-                onkeydown="if(event.key==='Enter') _authGateSubmit();" />
-            <button id="auth-gate-btn" onclick="_authGateSubmit()"
-                style="width:100%; padding:10px; background:var(--accent, #004564); color:#fff;
-                    border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:13px;">
-                Войти
-            </button>
-            <div id="auth-gate-err" style="margin-top:12px; font-size:11px; color:var(--text3, #788); min-height:14px;"></div>
-            <div onclick="_showAuthPane('choice')" style="margin-top:12px; font-size:11px; color:var(--text3,#788); cursor:pointer;">← назад</div>
+            <div class="auth-tabs">
+                <div id="auth-tab-token" class="auth-tab active" onclick="_authConnectTab('token')">Токен</div>
+                <div id="auth-tab-qr" class="auth-tab" onclick="_authConnectTab('qr')">QR-код</div>
+            </div>
+
+            <!-- Method 1: Token -->
+            <div id="auth-connect-token">
+                <div style="font-size:11px; color:var(--text3,#788); margin:12px 0 8px; line-height:1.5;">
+                    Токен показан на другом устройстве: Настройки → Сопряжённые устройства. Это не пароль — не пересылайте его публично.
+                </div>
+                <input id="auth-gate-input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
+                    placeholder="например: 1d76abea-3c85-438c-82af-0bf3d8801651"
+                    style="width:100%; padding:10px 12px; font-size:13px; font-family:monospace;
+                        background:var(--surface, #0f141c); color:var(--text, #fff);
+                        border:1px solid var(--border, #2a3240); border-radius:6px; box-sizing:border-box;"
+                    onkeydown="if(event.key==='Enter') _authGateSubmit();" />
+                <div style="display:flex; gap:8px; margin-top:10px;">
+                    <button id="auth-gate-btn" class="auth-launch-btn" style="flex:1; margin:0;" onclick="_authGateSubmit()">Подключить</button>
+                    <button class="auth-secondary-btn" onclick="_authClearToken()">Очистить</button>
+                </div>
+                <div id="auth-gate-err" style="margin-top:12px; font-size:11px; color:var(--text3, #788); min-height:14px;"></div>
+            </div>
+
+            <!-- Method 2: QR (honest shell — no native camera bridge yet) -->
+            <div id="auth-connect-qr" style="display:none;">
+                <div class="auth-qr-area">
+                    <div style="font-size:30px;">📷</div>
+                    <div style="font-size:12px; color:var(--text2,#aab); margin-top:8px;">Сканирование QR-кода</div>
+                    <div style="font-size:10px; color:var(--text3,#788); margin-top:6px; line-height:1.5;">
+                        Камера в этой сборке ещё не подключена (требуется native camera bridge). Пока подключайтесь по токену — он показан на другом устройстве в Настройках.
+                    </div>
+                    <button class="auth-secondary-btn" style="margin-top:12px;" onclick="_authConnectTab('token')">← Ввести токен вручную</button>
+                </div>
+            </div>
+
+            <div onclick="_showAuthPane('welcome')" style="margin-top:14px; font-size:11px; color:var(--text3,#788); cursor:pointer;">← назад</div>
         </div>
         <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border, #2a3240);
             font-size:10px; color:var(--text3, #788); line-height:1.5;">
@@ -6560,22 +6584,37 @@ function _authGateMessage(){
     if(_authLastReason==='expired') return 'Триал команды истёк. Свяжись с руководителем для продления доступа.';
     return 'Токен не найден или отозван. Уточни у руководителя.';
 }
-// Fresh install (no stored token) → show the role choice ('choice').
-// A stored token that failed validation → show 'join' with the error.
+// Fresh install (no stored token) → show the unified launch ('welcome').
+// A stored token that failed validation → show 'connect' (Token tab) with the error.
 var _authFresh = true;
 function _showAuthPane(name){
-    ['welcome','choice','create','created','join'].forEach(function(p){
+    ['welcome','create','created','connect'].forEach(function(p){
         var el=document.getElementById('auth-pane-'+p);
         if(el) el.style.display = (p===name)?'block':'none';
     });
-    if(name==='join'){ setTimeout(function(){ var i=document.getElementById('auth-gate-input'); if(i) i.focus(); },60); }
+    if(name==='connect'){ _authConnectTab('token'); }
+}
+// Connect dialog: switch Token / QR method.
+function _authConnectTab(tab){
+    var isTok = (tab !== 'qr');
+    var tt=document.getElementById('auth-tab-token'), tq=document.getElementById('auth-tab-qr');
+    var pt=document.getElementById('auth-connect-token'), pq=document.getElementById('auth-connect-qr');
+    if(tt) tt.classList.toggle('active', isTok);
+    if(tq) tq.classList.toggle('active', !isTok);
+    if(pt) pt.style.display = isTok ? 'block' : 'none';
+    if(pq) pq.style.display = isTok ? 'none' : 'block';
+    if(isTok){ setTimeout(function(){ var i=document.getElementById('auth-gate-input'); if(i) i.focus(); },40); }
+}
+function _authClearToken(){
+    var i=document.getElementById('auth-gate-input'); if(i){ i.value=''; i.focus(); }
+    var e=document.getElementById('auth-gate-err'); if(e){ e.textContent=''; e.style.color='var(--text3)'; }
 }
 function _authGateShow(){
     var el = document.getElementById('auth-gate-overlay');
     if(!el) return;
     el.style.display = 'flex';
-    // Fresh install → welcome (use OR demo) first; a failed stored token → join.
-    _showAuthPane(_authFresh ? 'welcome' : 'join');
+    // Fresh install → unified launch; a failed stored token → connect (Token tab).
+    _showAuthPane(_authFresh ? 'welcome' : 'connect');
 }
 function _authGateHide(){
     var el = document.getElementById('auth-gate-overlay');
@@ -10598,6 +10637,7 @@ function renderSettingsNav(){
     var tabs = [
         {id:'general',    label:tr('settings.tab.general')},
         {id:'profile',    label:tr('settings.tab.profile')},
+        {id:'devices',    label:tr('settings.tab.devices')},
         {id:'appearance', label:tr('settings.tab.appearance')},
         {id:'about',      label:tr('settings.tab.about')},
     ];
@@ -10610,6 +10650,28 @@ function renderSettingsNav(){
         return '<div class="set-nav-item '+(state.settingsTab===t.id?'active':'')
             +'" onclick="state.settingsTab=\''+t.id+'\'; renderSettingsNav(); renderSettingsBody();">'+esc(t.label)+'</div>';
     }).join('');
+}
+// Paired-devices helpers (Settings → Сопряжённые устройства).
+function _deviceLabel(){
+    try {
+        var ua = navigator.userAgent || '';
+        var os = /Macintosh|Mac OS/.test(ua) ? 'macOS'
+               : /Windows/.test(ua) ? 'Windows'
+               : /iPhone|iPad|iPod/.test(ua) ? 'iOS'
+               : /Android/.test(ua) ? 'Android'
+               : /Linux/.test(ua) ? 'Linux' : 'Устройство';
+        return 'Skipi Broker · ' + os;
+    } catch(_){ return 'Это устройство'; }
+}
+function _devToggleToken(){
+    var e=document.getElementById('dev-token'); if(!e) return;
+    e.style.display = (e.style.display==='none' || !e.style.display) ? 'block' : 'none';
+}
+async function _devCopyToken(){
+    var t=(state.settings && state.settings.broker_id) || '';
+    if(!t){ return; }
+    try { await navigator.clipboard.writeText(t); showToast('Токен скопирован','ok'); }
+    catch(_){ showToast('Не удалось скопировать','error'); }
 }
 function renderSettingsBody(){
     var body = document.getElementById('set-body');
@@ -10628,6 +10690,43 @@ function renderSettingsBody(){
                     '</div>'+
                     '<div class="setting-control">'+uiLanguageSelectHtml()+'</div>'+
                 '</div>'+
+            '</div>';
+    } else if(t==='devices'){
+        var tok = s.broker_id || '';
+        var role = (state.access && state.access.role) || '';
+        var plat = _deviceLabel();
+        body.innerHTML =
+            '<h3>📱 '+esc(tr('settings.tab.devices'))+'</h3>'+
+            '<div class="sub">Профиль команды можно открыть на нескольких устройствах по одному токену.</div>'+
+            // current device
+            '<div class="settings-section" style="margin-top:14px;">'+
+                '<div class="setting-label">Это устройство</div>'+
+                '<div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--surface); margin-top:8px;">'+
+                    '<div><b>'+esc(plat)+'</b><div class="sub" style="margin-top:2px;">'+(role?('роль: '+esc(role)+' · '):'')+'активно сейчас</div></div>'+
+                    '<span style="font-size:10px; padding:2px 8px; border-radius:10px; border:1px solid var(--accent); color:var(--accent-text,#004564); white-space:nowrap;">текущее</span>'+
+                '</div>'+
+            '</div>'+
+            // connect new device — show token (real) / QR (shell)
+            '<div class="settings-section" style="margin-top:14px;">'+
+                '<div class="setting-label">Подключить новое устройство</div>'+
+                '<div class="sub" style="margin-top:4px; line-height:1.5;">Покажите этот токен на новом устройстве: <b>Открыть существующий профиль → Токен</b>. Это не пароль — не пересылайте публично.</div>'+
+                (tok
+                  ? '<div id="dev-token" style="display:none; font-family:monospace; font-size:12px; word-break:break-all; background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:10px; margin-top:10px;"><code>'+esc(tok)+'</code></div>'+
+                    '<div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">'+
+                        '<button class="btn btn-accent" onclick="_devToggleToken()">Показать токен на этом устройстве</button>'+
+                        '<button class="btn" onclick="_devCopyToken()">📋 Скопировать</button>'+
+                    '</div>'+
+                    '<div style="border:1px dashed var(--border); border-radius:8px; padding:18px 14px; text-align:center; background:var(--surface); margin-top:12px;">'+
+                        '<div style="font-size:24px;">🔳</div>'+
+                        '<div class="sub" style="margin-top:6px; line-height:1.5;">QR-код для сопряжения появится после подключения QR / native camera bridge. Пока используйте токен.</div>'+
+                    '</div>'
+                  : '<div class="sub" style="color:#e55561; margin-top:8px;">Токен не задан — сначала войдите в профиль (Профиль и доступ).</div>')+
+            '</div>'+
+            // paired devices list — honest backend-missing state (no fake list/revoke)
+            '<div class="settings-section" style="margin-top:14px;">'+
+                '<div class="setting-label">Сопряжённые устройства</div>'+
+                '<div class="sub" style="margin-top:6px; line-height:1.5;">Список устройств и серверный отзыв доступа появятся, когда будет готов pairing API (<code>/api/devices</code>). Сейчас подключение идёт по токену команды — без пер-устройственного учёта и серверного отзыва.</div>'+
+                '<button class="btn" disabled title="Будет доступно с серверным pairing API" style="margin-top:10px; opacity:.55; cursor:default;">Отозвать устройство — недоступно</button>'+
             '</div>';
     } else if(t==='profile'){
         // Skipi Broker архитектурно использует ОДИН токен — broker_id.
