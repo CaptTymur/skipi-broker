@@ -180,6 +180,8 @@ document.addEventListener('DOMContentLoaded', function(){
     --border:#333; --hover:rgba(255,255,255,0.05);
     --green:#4ec970; --red:#e55561; --yellow:#e2b93d; --orange:#d89b65; --blue:#004564;
     --statusbar:#1a1a1a;
+    --auth-backdrop:rgba(10,15,25,0.85);
+    --auth-shadow:rgba(0,0,0,0.5);
     --font-ui:-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
     --font-mono:"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
     --font-size-ui:13px;
@@ -192,6 +194,8 @@ document.addEventListener('DOMContentLoaded', function(){
     --border:#ddd; --hover:rgba(0,0,0,0.04);
     --green:#27ae60; --red:#e74c3c; --yellow:#f39c12; --orange:#e67e22; --blue:#004564;
     --statusbar:#f0f0f0;
+    --auth-backdrop:rgba(245,248,251,0.92);
+    --auth-shadow:rgba(15,23,42,0.18);
 }
 body { background:var(--bg); color:var(--text); font-family:var(--font-ui);
     font-size:var(--font-size-ui); height:100vh; display:flex; flex-direction:column; overflow:hidden; }
@@ -1433,12 +1437,12 @@ body.dragging-split.col-resize { cursor:col-resize; }
      Shown by boot() when no broker_id is stored or when the stored one was
      revoked on the server. Cannot be dismissed without a valid token. -->
 <div id="auth-gate-overlay" style="display:none; position:fixed; inset:0; z-index:99999;
-    background:rgba(10,15,25,0.85); backdrop-filter:blur(8px);
+    background:var(--auth-backdrop, rgba(245,248,251,0.92)); backdrop-filter:blur(8px);
     align-items:center; justify-content:center; padding:20px;">
-    <div style="background:var(--bg, #1a1f28); border:1px solid var(--border, #2a3240);
+    <div style="background:var(--bg, #fff); border:1px solid var(--border, #ddd);
         border-radius:12px; max-width:480px; width:100%; padding:32px;
-        box-shadow:0 20px 60px rgba(0,0,0,0.5);">
-        <div style="font-size:18px; font-weight:700; color:var(--text, #fff); margin-bottom:4px;">⚓ Skipi Broker</div>
+        box-shadow:0 20px 60px var(--auth-shadow, rgba(15,23,42,0.18));">
+        <div style="font-size:18px; font-weight:700; color:var(--text, #1e1e1e); margin-bottom:4px;">⚓ Skipi Broker</div>
         <div style="font-size:11px; color:var(--text2,#aab); margin-bottom:12px;">Skipi - United Seafarers</div>
 
         <!-- Pane: welcome (FIRST branch — use the app OR see a demo). Тимур:
