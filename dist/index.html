@@ -439,10 +439,10 @@ body.mobile-mode .view-match-stack { max-width:none; }
    so #app simply fills the gap between them (see media query below). */
 .mobile-topbar, .mobile-bottom-rail-wrap { display:none; }
 body.mobile-mode .mobile-topbar {
-    display:flex; align-items:center; gap:10px;
+    display:flex; align-items:center; gap:8px;
     position:fixed; top:0; left:0; right:0; z-index:60;
     height:calc(var(--m-top-inset) + var(--mtop-h));
-    padding:var(--m-top-inset) 12px 0;
+    padding:var(--m-top-inset) 10px 0;
     background:var(--surface, #1a1d26);
     border-bottom:1px solid var(--border, #2a2e3a);
     box-sizing:border-box;
@@ -460,6 +460,14 @@ body.mobile-mode .mobile-topbar .mtop-gear {
 body.mobile-mode .mobile-topbar .mtop-assistant {
     border-color:#3C3489; background:#3C3489; color:#fff; font-size:18px;
 }
+body.mobile-mode .mobile-topbar .mtop-home.app-header-logo {
+    width:44px; height:44px; padding:0;
+    border:0; border-radius:13px; background:transparent;
+    overflow:hidden;
+}
+body.mobile-mode .mobile-topbar .mtop-home.app-header-logo img {
+    width:100%; height:100%; display:block; object-fit:cover;
+}
 body.mobile-mode .mobile-topbar .mtop-home:active,
 body.mobile-mode .mobile-topbar .mtop-assistant:active,
 body.mobile-mode .mobile-topbar .mtop-gear:active { transform:translateY(1px); }
@@ -473,9 +481,19 @@ body.mobile-mode #ctx-chat-bar .ctx-history { min-height:0; }
 body.mobile-mode .mobile-topbar .mtop-home.active {
     border-color:var(--accent, #004564); background:var(--accent, #004564); color:#fff;
 }
+body.mobile-mode .mobile-topbar .mtop-home.app-header-logo.active {
+    border-color:transparent; background:transparent; color:inherit;
+}
 body.mobile-mode .mobile-topbar .mtop-brand {
     flex:1; min-width:0; font-size:16px; font-weight:800; color:var(--text, #e6e6e6);
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+@media (max-width:380px) {
+    body.mobile-mode .mobile-topbar { gap:6px; padding-left:8px; padding-right:8px; }
+    body.mobile-mode .mobile-topbar .mtop-home.app-header-logo { width:40px; height:40px; border-radius:12px; }
+    body.mobile-mode .mobile-topbar .mtop-assistant,
+    body.mobile-mode .mobile-topbar .mtop-gear { width:38px; height:38px; }
+    body.mobile-mode .mobile-topbar .mtop-brand { font-size:14px; }
 }
 
 /* Bottom module rail — horizontally scrollable, scroll-snap, edge hints */
@@ -777,7 +795,57 @@ body.mobile-mode .mrail-badge {
     body.mobile-mode .set-nav-head { display:none; }
     body.mobile-mode .set-nav-item { flex:0 0 auto; grid-template-columns:minmax(0,1fr); min-height:34px; padding:7px 11px; }
     body.mobile-mode .set-nav-icon { display:none; }
-    body.mobile-mode .set-body { flex:1; min-height:0; overflow-y:auto; }
+    body.mobile-mode .set-body { flex:1; min-height:0; overflow-y:auto; padding:16px; }
+    body.mobile-mode .set-page-head {
+        flex-direction:column;
+        gap:10px;
+    }
+    body.mobile-mode .set-page-head .set-status-pill {
+        align-self:flex-start;
+    }
+    body.mobile-mode .settings-section { margin-bottom:22px; }
+    body.mobile-mode .settings-section h3 { font-size:18px; }
+    body.mobile-mode .setting-row {
+        align-items:stretch;
+        flex-direction:column;
+        gap:9px;
+        padding:12px 14px;
+    }
+    body.mobile-mode .setting-info {
+        min-width:0;
+        margin-right:0;
+    }
+    body.mobile-mode .setting-control {
+        width:100%;
+        min-width:0;
+    }
+    body.mobile-mode .setting-control input,
+    body.mobile-mode .setting-control select,
+    body.mobile-mode .setting-control button {
+        max-width:100%;
+        min-width:0 !important;
+        box-sizing:border-box;
+    }
+    body.mobile-mode .setting-control input,
+    body.mobile-mode .setting-control select {
+        width:100%;
+    }
+    body.mobile-mode .setting-control[style*="display:flex"] {
+        flex-wrap:wrap;
+    }
+    body.mobile-mode .setting-control[style*="display:flex"] > * {
+        flex:1 1 140px;
+    }
+    body.mobile-mode .settings-actions {
+        display:flex;
+        flex-wrap:wrap;
+        gap:8px;
+    }
+    body.mobile-mode .settings-actions .btn {
+        flex:1 1 150px;
+        min-width:0;
+        white-space:normal;
+    }
     /* Long-press copy hint on team messages */
     body.mobile-mode .team-msg { -webkit-touch-callout:none; }
     /* Touch-friendly context menu (Ответить / Копировать) */
@@ -3979,13 +4047,13 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
 </div>
 
 <!-- Mobile-only top bar (visible only on body.mobile-mode). Matches the
-     Skipi Seafarer pattern: home button (left) + brand + settings gear
-     (right). Home → Совпадения. -->
+     Skipi AppHeader pattern: app logo (left) + brand + settings gear
+     (right). Logo tap returns to Совпадения. -->
 <div class="mobile-topbar" id="mobile-topbar">
-    <button class="mtop-home" id="mtop-home" type="button" onclick="mobileSwitchView('match')" title="Домой — Совпадения" aria-label="Домой">&#8962;</button>
+    <button class="mtop-home app-header-logo" id="mtop-home" data-qa="app-header-logo" type="button" onclick="mobileSwitchView('match')" title="Домой — Совпадения" aria-label="Домой — Совпадения"><img src="assets/skipi-broker-icon.png" alt="" draggable="false"></button>
     <div class="mtop-brand">Skipi Broker</div>
     <button class="mtop-assistant" id="mtop-assistant" type="button" onclick="showCtxBar()" title="AI-ассистент" aria-label="AI-ассистент">&#10022;</button>
-    <button class="mtop-gear" type="button" onclick="openSettings()" title="Настройки" aria-label="Настройки">&#9881;</button>
+    <button class="mtop-gear" data-qa="app-header-settings" type="button" onclick="openSettings()" title="Настройки" aria-label="Настройки">&#9881;</button>
 </div>
 
 <!-- Mobile-only bottom module rail (visible only on body.mobile-mode).
@@ -13513,7 +13581,7 @@ function renderSettingsBody(){
                 '<input type="hidden" id="set-fname" value="'+esc(s.display_name||'')+'">'+
                 '<input type="hidden" id="set-femail" value="'+esc(s.reply_to||'')+'">'+
             '</div>'+
-            '<div style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap;">'+
+            '<div class="settings-actions" style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap;">'+
                 '<button class="btn btn-accent" onclick="saveProfileCombined()">Сохранить</button>'+
                 '<button class="btn btn-outline" onclick="registerBroker()">'+(s.broker_id?'Перерегистрировать на сервере':'Зарегистрировать на сервере')+'</button>'+
             '</div>'+
