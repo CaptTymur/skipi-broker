@@ -1473,7 +1473,29 @@ body.dragging-split.col-resize { cursor:col-resize; }
 .auth-tab.active { background:#004564; color:#fff; }
 .auth-qr-area { border:1px dashed var(--border,#2a3240); border-radius:8px; padding:22px 14px; text-align:center;
     background:var(--surface,#0f141c); margin-top:12px; }
+/* Native QR scan (mobile): the barcode-scanner plugin renders the camera BEHIND
+   the webview, so the page must paint transparent and hide all other content. */
+html.qr-scanning, body.qr-scanning { background:transparent !important; }
+body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
+#qr-scan-overlay { display:none; position:fixed; inset:0; z-index:2147483000;
+    flex-direction:column; align-items:center; justify-content:center; pointer-events:none; }
+#qr-scan-overlay .qr-reticle { width:240px; height:240px; border:3px solid #2dd4bf; border-radius:18px;
+    box-shadow:0 0 0 4000px rgba(0,0,0,0.28); }
+#qr-scan-overlay .qr-hint { margin-top:22px; color:#fff; font-size:14px; text-shadow:0 1px 3px rgba(0,0,0,0.8); }
+#qr-scan-overlay .qr-cancel { margin-top:18px; pointer-events:auto; padding:10px 26px; border-radius:8px;
+    border:1px solid #fff; background:rgba(0,0,0,0.55); color:#fff; font-size:14px; cursor:pointer; }
+#migrate-qr-video { width:100%; max-width:280px; border-radius:8px; background:#000; }
 </style>
+
+<!-- Native QR scan overlay (mobile). While the barcode-scanner plugin runs, the
+     page is made transparent (body.qr-scanning) so the camera shows through; this
+     minimal frame + Cancel are the only painted UI. No fake success: the code is
+     only consumed from a real plugin scan result. -->
+<div id="qr-scan-overlay">
+    <div class="qr-reticle"></div>
+    <div class="qr-hint">Наведите камеру на QR-код переноса</div>
+    <button class="qr-cancel" onclick="_qrScanCancel()">Отмена</button>
+</div>
 
 <div id="auth-gate-overlay" style="display:none; position:fixed; inset:0; z-index:99999;
     background:var(--auth-backdrop, rgba(245,248,251,0.92)); backdrop-filter:blur(8px);
@@ -1587,15 +1609,25 @@ body.dragging-split.col-resize { cursor:col-resize; }
                 </div>
                 <div id="migrate-err" style="margin-top:12px; font-size:11px; color:var(--text3, #788); min-height:14px;"></div>
             </div>
-            <!-- Method 2: QR scan (honest shell — needs native camera bridge) -->
+            <!-- Method 2: QR scan via native camera bridge (mobile: barcode-scanner
+                 plugin; desktop: WebView BarcodeDetector). Manual code stays the
+                 fallback. Only skipi-pair:1:broker:<code> is accepted; the scanned
+                 code is fed into the SAME redeem path as manual entry. -->
             <div id="migrate-pane-qr" style="display:none;">
+                <div style="font-size:11px; color:var(--text3,#788); margin:12px 0 8px; line-height:1.5;">
+                    Отсканируйте QR-код переноса с доверенного устройства (Настройки → Сопряжённые устройства → «Показать код»). Принимается только код Брокера; постоянный токен команды в QR не передаётся.
+                </div>
                 <div class="auth-qr-area">
                     <div style="font-size:30px;">📷</div>
-                    <div style="font-size:12px; color:var(--text2,#aab); margin-top:8px;">Сканирование QR-кода переноса</div>
-                    <div style="font-size:10px; color:var(--text3,#788); margin-top:6px; line-height:1.5;">
-                        Камера в этой сборке ещё не подключена (требуется native camera bridge). Пока введите одноразовый код вручную — он показан на доверенном устройстве.
+                    <!-- Desktop live preview (WebView BarcodeDetector); hidden until a scan starts -->
+                    <div id="migrate-qr-live" style="display:none; margin-top:10px;">
+                        <video id="migrate-qr-video" playsinline muted></video>
                     </div>
-                    <button class="auth-secondary-btn" style="margin-top:12px;" onclick="_migrateTab('code')">← Ввести код вручную</button>
+                    <div style="display:flex; gap:8px; margin-top:12px; justify-content:center; flex-wrap:wrap;">
+                        <button id="migrate-qr-btn" class="auth-launch-btn" style="margin:0; width:auto; flex:0 1 auto;" onclick="_migrateScan()">Сканировать QR</button>
+                        <button class="auth-secondary-btn" onclick="_migrateTab('code')">← Ввести код вручную</button>
+                    </div>
+                    <div id="migrate-qr-status" style="margin-top:12px; font-size:11px; color:var(--text3,#788); min-height:14px;"></div>
                 </div>
             </div>
             <div onclick="_showAuthPane('welcome')" style="margin-top:14px; font-size:11px; color:var(--text3,#788); cursor:pointer;">← назад</div>
@@ -6648,6 +6680,7 @@ function _authGateMessage(){
 // A stored token that failed validation → show 'connect' (Token tab) with the error.
 var _authFresh = true;
 function _showAuthPane(name){
+    try { _migrateStopWebview(); } catch(_){}   // tear down any live camera when leaving/switching panes
     ['welcome','create','created','connect','migrate'].forEach(function(p){
         var el=document.getElementById('auth-pane-'+p);
         if(el) el.style.display = (p===name)?'block':'none';
@@ -6741,6 +6774,7 @@ function _deviceId(){
 function _platformTag(){ try { return String(navigator.platform||navigator.userAgent||'').slice(0,16); } catch(_){ return ''; } }
 function _migrateTab(tab){
     var isCode=(tab!=='qr');
+    try { _migrateStopWebview(); } catch(_){}   // tear down any live camera when switching tabs
     var tc=document.getElementById('migrate-tab-code'), tq=document.getElementById('migrate-tab-qr');
     var pc=document.getElementById('migrate-pane-code'), pq=document.getElementById('migrate-pane-qr');
     if(tc) tc.classList.toggle('active', isCode);
@@ -6748,10 +6782,13 @@ function _migrateTab(tab){
     if(pc) pc.style.display=isCode?'block':'none';
     if(pq) pq.style.display=isCode?'none':'block';
     if(isCode){ setTimeout(function(){ var i=document.getElementById('migrate-code-input'); if(i) i.focus(); },40); }
+    else { var qs=document.getElementById('migrate-qr-status'); if(qs){ qs.textContent=''; qs.style.color='var(--text3)'; } }
 }
 function _migrateClear(){
+    try { _migrateStopWebview(); } catch(_){}
     var i=document.getElementById('migrate-code-input'); if(i){ i.value=''; }
     var e=document.getElementById('migrate-err'); if(e){ e.textContent=''; e.style.color='var(--text3)'; }
+    var qs=document.getElementById('migrate-qr-status'); if(qs){ qs.textContent=''; qs.style.color='var(--text3)'; }
 }
 // Map the Rust "HTTP <code>: <body>" error string to a fail-closed message.
 function _pairErrorMessage(es){
@@ -6764,19 +6801,20 @@ function _pairErrorMessage(es){
                             return 'Нет связи с сервером — проверьте интернет.';
     return 'Не удалось подключить устройство. Повторите.';
 }
-// Redeem a one-time code on this (new) device, store the returned skb_ bearer in
-// the normal auth slot, then reuse the existing validate gate.
-async function _migrateSubmit(){
-    var inp=document.getElementById('migrate-code-input');
-    var err=document.getElementById('migrate-err');
-    var btn=document.getElementById('migrate-btn');
-    if(!inp||!err) return;
-    var code=(inp.value||'').trim();
-    if(!code){ err.style.color='#e55561'; err.textContent='Введите одноразовый код переноса.'; return; }
-    err.style.color='var(--text3)'; err.textContent='Подключаю устройство…'; if(btn) btn.disabled=true;
+// Shared redeem core — used by BOTH manual code entry and QR scan so the pairing
+// path is byte-for-byte identical. Stores the returned skb_ bearer in the normal
+// auth slot, then reuses the existing validate gate. Returns true on success.
+// `statusEl` is where progress/error text is written (manual: #migrate-err, QR:
+// #migrate-qr-status).
+async function _migrateRedeem(code, statusEl){
+    var err=statusEl||document.getElementById('migrate-err');
+    function fail(msg){ if(err){ err.style.color='#e55561'; err.textContent=msg; } return false; }
+    code=(code==null?'':String(code)).trim();
+    if(!code){ return fail('Введите одноразовый код переноса.'); }
+    if(err){ err.style.color='var(--text3)'; err.textContent='Подключаю устройство…'; }
     try {
         var d=await invoke('device_pair', { code:code, deviceId:_deviceId(), deviceLabel:_deviceLabel(), platform:_platformTag() });
-        inp.value=''; code=null;                 // scrub the one-time code from the DOM immediately
+        code=null;                               // scrub the one-time code immediately
         if(!d || !d.access_token){ throw new Error('Пустой ответ сервера (нет access_token)'); }
         var tok=d.access_token;
         state.settings=state.settings||{};
@@ -6784,18 +6822,145 @@ async function _migrateSubmit(){
         state.settings.broker_id=(d.principal_id||state.settings.broker_id||'');
         try { state.settings=await invoke('save_settings',{ incoming: state.settings }); } catch(_){}
         var ok=false; try { ok=await _authGateValidate(tok); } catch(_){}
-        if(!ok){ if(btn) btn.disabled=false; err.style.color='#e55561'; err.textContent=_authGateMessage(); return; }
+        if(!ok){ return fail(_authGateMessage()); }
         if(state.access && state.access.team_id){
             state.settings.broker_id=state.access.team_id;
             try { state.settings=await invoke('save_settings',{ incoming: state.settings }); } catch(_){}
         }
-        if(btn) btn.disabled=false;
         _authGateHide(); await _bootContinue();
+        return true;
     } catch(e){
-        if(btn) btn.disabled=false;
-        inp.value='';                            // never leave the code in the DOM on error
-        err.style.color='#e55561'; err.textContent=_pairErrorMessage(String(e||''));
+        return fail(_pairErrorMessage(String(e||'')));
     }
+}
+// Manual entry — primary path / fallback.
+async function _migrateSubmit(){
+    var inp=document.getElementById('migrate-code-input');
+    var btn=document.getElementById('migrate-btn');
+    if(!inp) return;
+    var code=(inp.value||'').trim();
+    if(btn) btn.disabled=true;
+    try { await _migrateRedeem(code, document.getElementById('migrate-err')); }
+    finally { inp.value=''; code=null; if(btn) btn.disabled=false; }   // never leave the code in the DOM
+}
+
+// ---------- QR scan (native camera bridge) ----------
+// Strict: only a `skipi-pair:1:broker:<code>` payload is accepted. Returns the
+// bare <code> (same shape manual entry produces) or null. Rejects other apps
+// (e.g. crew/onboard, seafarer), other versions, and bare codes — no fake success.
+function _qrExtractBrokerCode(text){
+    var s=String(text==null?'':text).trim();
+    var m=/^skipi-pair:1:broker:([A-Za-z0-9-]{1,64})$/.exec(s);
+    return m ? m[1] : null;
+}
+function _isMobileUA(){ try { return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent||''); } catch(_){ return false; } }
+function _qrSetStatus(msg, bad){
+    var st=document.getElementById('migrate-qr-status');
+    if(st){ st.style.color=bad?'#e55561':'var(--text3)'; st.textContent=msg; }
+}
+// Entry point — picks the native plugin on mobile, WebView BarcodeDetector on
+// desktop, and falls back to manual code entry when neither is available.
+async function _migrateScan(){
+    var btn=document.getElementById('migrate-qr-btn');
+    if(btn) btn.disabled=true;
+    try {
+        if(_isMobileUA()) await _migrateScanNative();
+        else await _migrateScanWebview();
+    } finally { if(btn) btn.disabled=false; }
+}
+// Native mobile camera bridge: tauri-plugin-barcode-scanner. The camera renders
+// behind a transparent webview while scanning (body.qr-scanning).
+async function _migrateScanNative(){
+    _qrSetStatus('Запрашиваю доступ к камере…');
+    var perm;
+    try { perm=await invoke('plugin:barcode-scanner|check_permissions'); }
+    catch(e){ _qrSetStatus('Сканер недоступен в этой сборке. Введите код вручную.', true); return; }
+    var cam=(perm && perm.camera)?perm.camera:perm;
+    if(cam!=='granted'){
+        try { var rp=await invoke('plugin:barcode-scanner|request_permissions'); cam=(rp&&rp.camera)?rp.camera:rp; } catch(_){}
+    }
+    if(cam==='denied' || cam==='permanentlyDenied'){
+        _qrSetStatus('Доступ к камере запрещён. Разрешите камеру в настройках устройства или введите код вручную.', true); return;
+    }
+    _qrScanUIOn();
+    var content=null, scanErr=null;
+    try {
+        var r=await invoke('plugin:barcode-scanner|scan', { windowed:true, formats:['QR_CODE'], cameraDirection:'back' });
+        content=(r && r.content!==undefined) ? r.content : r;
+    } catch(e){ scanErr=e; }
+    _qrScanUIOff();
+    if(scanErr){
+        var es=String(scanErr||'');
+        if(/cancel/i.test(es)){ _qrSetStatus('Сканирование отменено.', false); return; }
+        if(/denied|permission|unauthorized/i.test(es)){ _qrSetStatus('Доступ к камере запрещён. Введите код вручную.', true); return; }
+        _qrSetStatus('Не удалось включить камеру. Введите код вручную.', true); return;
+    }
+    if(!content){ _qrSetStatus('QR-код не распознан. Повторите или введите код вручную.', true); return; }
+    var code=_qrExtractBrokerCode(content); content=null;
+    if(!code){ _qrSetStatus('Это не QR переноса Брокера. Покажите код Брокера или введите вручную.', true); return; }
+    _qrSetStatus('Код распознан. Подключаю устройство…');
+    await _migrateRedeem(code, document.getElementById('migrate-qr-status')); code=null;
+}
+function _qrScanUIOn(){
+    try { document.documentElement.classList.add('qr-scanning'); } catch(_){}
+    document.body.classList.add('qr-scanning');
+    var ov=document.getElementById('qr-scan-overlay'); if(ov) ov.style.display='flex';
+}
+function _qrScanUIOff(){
+    try { document.documentElement.classList.remove('qr-scanning'); } catch(_){}
+    document.body.classList.remove('qr-scanning');
+    var ov=document.getElementById('qr-scan-overlay'); if(ov) ov.style.display='none';
+}
+async function _qrScanCancel(){ try { await invoke('plugin:barcode-scanner|cancel'); } catch(_){} }
+
+// Desktop WebView path: getUserMedia + BarcodeDetector (Chromium/WebView2). No
+// heavyweight decoder is bundled, so platforms whose webview lacks BarcodeDetector
+// (Linux WebKitGTK, macOS WKWebView) honestly fall back to manual entry.
+var _qrStream=null, _qrTimer=null, _qrDetector=null, _qrStop=false, _qrWrongNs=false;
+async function _migrateScanWebview(){
+    if(typeof window.BarcodeDetector==='undefined'){
+        _qrSetStatus('Сканирование QR недоступно на этой платформе — введите одноразовый код вручную.', true); return;
+    }
+    var video=document.getElementById('migrate-qr-video');
+    var box=document.getElementById('migrate-qr-live');
+    _qrSetStatus('Запрашиваю доступ к камере…');
+    try { _qrStream=await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } }); }
+    catch(e){
+        var en=String((e&&e.name)||e||'');
+        if(/NotAllowed|Security|Permission/i.test(en)) _qrSetStatus('Доступ к камере запрещён. Введите код вручную.', true);
+        else if(/NotFound|Devices|Overconstrained/i.test(en)) _qrSetStatus('Камера не найдена. Введите код вручную.', true);
+        else _qrSetStatus('Не удалось включить камеру. Введите код вручную.', true);
+        return;
+    }
+    try { _qrDetector=new window.BarcodeDetector({ formats:['qr_code'] }); }
+    catch(_){ try { _qrDetector=new window.BarcodeDetector(); } catch(__){ _migrateStopWebview(); _qrSetStatus('Сканирование QR недоступно. Введите код вручную.', true); return; } }
+    if(box) box.style.display='block';
+    if(video){ video.srcObject=_qrStream; try { await video.play(); } catch(_){} }
+    _qrSetStatus('Наведите камеру на QR-код переноса…');
+    _qrStop=false; _qrWrongNs=false;
+    var loop=async function(){
+        if(_qrStop) return;
+        try {
+            var codes=await _qrDetector.detect(video);
+            if(codes && codes.length){
+                for(var i=0;i<codes.length;i++){
+                    var code=_qrExtractBrokerCode(codes[i].rawValue);
+                    if(code){ _migrateStopWebview(); await _migrateRedeem(code, document.getElementById('migrate-qr-status')); code=null; return; }
+                }
+                if(!_qrWrongNs){ _qrWrongNs=true; _qrSetStatus('Это не QR переноса Брокера. Покажите код Брокера или введите вручную.', true); }
+            }
+        } catch(_){}
+        _qrTimer=setTimeout(loop, 220);
+    };
+    _qrTimer=setTimeout(loop, 220);
+}
+function _migrateStopWebview(){
+    _qrStop=true;
+    if(_qrTimer){ clearTimeout(_qrTimer); _qrTimer=null; }
+    try { if(_qrStream){ _qrStream.getTracks().forEach(function(t){ try { t.stop(); } catch(_){} }); } } catch(_){}
+    _qrStream=null; _qrDetector=null;
+    var v=document.getElementById('migrate-qr-video'); if(v){ try { v.pause(); } catch(_){} v.srcObject=null; }
+    var box=document.getElementById('migrate-qr-live'); if(box) box.style.display='none';
 }
 // ----- Settings → Сопряжённые устройства: issue code / list / revoke -----
 function _devFmtWhen(iso){ try { return new Date(iso).toLocaleString(); } catch(_){ return String(iso||''); } }

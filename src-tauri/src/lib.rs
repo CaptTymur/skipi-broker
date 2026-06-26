@@ -1892,6 +1892,11 @@ pub fn run() {
     let builder = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init());
+    // barcode-scanner is the native camera bridge for device-migration QR scan —
+    // mobile only. The frontend reuses the SAME redeem path as manual code entry;
+    // only `skipi-pair:1:broker:<code>` payloads are accepted (validated in JS).
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
     builder
         .manage(AppState {
             settings: Mutex::new(Settings::load()),
