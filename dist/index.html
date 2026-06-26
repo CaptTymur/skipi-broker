@@ -9183,10 +9183,14 @@ async function _migrateScanNative(){
     catch(e){ _qrSetStatus('Сканер недоступен в этой сборке. Введите код вручную.', true); return; }
     var cam=(perm && perm.camera)?perm.camera:perm;
     if(cam!=='granted'){
-        try { var rp=await invoke('plugin:barcode-scanner|request_permissions'); cam=(rp&&rp.camera)?rp.camera:rp; } catch(_){}
+        // Surfaces the Android permission dialog. If unavailable, keep cam non-granted.
+        try { var rp=await invoke('plugin:barcode-scanner|request_permissions'); cam=(rp&&rp.camera)?rp.camera:rp; } catch(e){ /* request failed → stays not granted */ }
     }
-    if(cam==='denied' || cam==='permanentlyDenied'){
-        _qrSetStatus('Доступ к камере запрещён. Разрешите камеру в настройках устройства или введите код вручную.', true); return;
+    // The plugin's scan() THROWS unless the OS camera permission is already granted, so
+    // gate strictly on 'granted' (states: granted/denied/prompt/prompt-with-rationale).
+    if(cam!=='granted'){
+        _qrSetStatus('Нужен доступ к камере. Разрешите «Камера» для приложения (диалог Android или Настройки → Приложения → Skipi Broker → Разрешения), затем снова нажмите «Сканировать QR» — или введите код вручную.', true);
+        return;
     }
     _qrScanUIOn();
     var content=null, scanErr=null;
@@ -9196,10 +9200,11 @@ async function _migrateScanNative(){
     } catch(e){ scanErr=e; }
     _qrScanUIOff();
     if(scanErr){
-        var es=String(scanErr||'');
+        // Tauri rejects with an object {message}; read .message (String(obj) === "[object Object]").
+        var es=(scanErr && scanErr.message) ? String(scanErr.message) : String(scanErr||'');
         if(/cancel/i.test(es)){ _qrSetStatus('Сканирование отменено.', false); return; }
-        if(/denied|permission|unauthorized/i.test(es)){ _qrSetStatus('Доступ к камере запрещён. Введите код вручную.', true); return; }
-        _qrSetStatus('Не удалось включить камеру. Введите код вручную.', true); return;
+        if(/permission|denied|unauthorized/i.test(es)){ _qrSetStatus('Доступ к камере не предоставлен. Разрешите «Камера» в настройках и повторите.', true); return; }
+        _qrSetStatus('Не удалось включить камеру: '+es+'. Введите код вручную.', true); return;
     }
     if(!content){ _qrSetStatus('QR-код не распознан. Повторите или введите код вручную.', true); return; }
     var code=_qrExtractBrokerCode(content); content=null;
