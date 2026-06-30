@@ -428,6 +428,37 @@ body.mobile-mode .view-match-stack { max-width:none; }
 .take-lead-btn:disabled { opacity:.5; cursor:default; }
 .view-team-stack { flex-direction:column; }
 
+/* Apps / plugin host (bundled first-party). Broker keeps domain data out of
+   the plugin boundary; plugins run through the shared SkipiPluginRuntime. */
+.apps-wrap { padding:16px; max-width:980px; overflow:auto; }
+.apps-head h2 { margin:0 0 4px; font-size:21px; }
+.apps-muted { color:var(--text2); font-size:12px; line-height:1.45; }
+.apps-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:12px; margin-top:14px; }
+.apps-tile { text-align:left; border:1px solid var(--border); border-radius:8px; background:var(--surface); padding:14px; cursor:pointer; display:flex; flex-direction:column; gap:6px; min-width:0; color:var(--text); }
+.apps-tile:hover { border-color:var(--accent); }
+.apps-tile .at-name { font-weight:700; font-size:14px; }
+.apps-tile .at-cat { font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--text3); }
+.apps-tile .at-sum { font-size:12px; color:var(--text2); line-height:1.4; }
+.apps-badge { align-self:flex-start; font-size:10px; font-weight:800; padding:2px 8px; border-radius:999px; border:1px solid var(--border); color:var(--text2); }
+.apps-badge.installed { color:#fff; background:var(--accent); border-color:var(--accent); }
+.apps-badge.available { color:var(--accent-text); border-color:var(--accent); }
+.apps-badge.disabled { color:var(--text3); }
+.apps-detail { padding:16px; max-width:760px; overflow:auto; }
+.apps-detail h2 { margin:6px 0 2px; font-size:21px; }
+.apps-section { margin-top:16px; }
+.apps-section h3 { font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--text3); margin:0 0 6px; }
+.apps-perm { display:inline-block; font-size:11px; padding:3px 9px; border:1px solid var(--border); border-radius:999px; margin:0 6px 6px 0; color:var(--text); }
+.apps-guard { border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:8px; padding:10px 12px; font-size:12px; color:var(--text2); line-height:1.5; background:var(--surface); }
+.apps-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:18px; }
+.apps-btn { min-height:40px; padding:0 16px; border-radius:8px; border:1px solid var(--accent); background:var(--accent); color:#fff; font-weight:700; font-size:13px; cursor:pointer; }
+.apps-btn.secondary { background:transparent; color:var(--text); border-color:var(--border); }
+.apps-back { background:transparent; border:0; color:var(--text2); font-size:13px; cursor:pointer; padding:4px 0; }
+.apps-host { height:100%; min-height:0; display:flex; flex-direction:column; }
+.apps-host-bar { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 16px; border-bottom:1px solid var(--border); flex:0 0 auto; }
+.apps-host-bar .aht { font-weight:700; }
+.apps-host-container { padding:16px; overflow:auto; }
+.apps-demo p { margin:6px 0; font-size:13px; }
+
 /* ============================================================
    Mobile mode (≤720px) — collapse the app to a phone-friendly UX.
    Activated on app start by mobileInitIfNeeded() in JS.
@@ -553,7 +584,8 @@ body.mobile-mode .mrail-badge {
     body.mobile-mode #view-match[data-mobile-active="1"],
     body.mobile-mode #view-cases[data-mobile-active="1"],
     body.mobile-mode #view-viz[data-mobile-active="1"],
-    body.mobile-mode #view-ex[data-mobile-active="1"] { display:flex !important; }
+    body.mobile-mode #view-ex[data-mobile-active="1"],
+    body.mobile-mode #view-apps[data-mobile-active="1"] { display:flex !important; }
     /* Initial state: Совпадения is the active mobile view (home) */
     body.mobile-mode #view-match:not([data-mobile-inactive="1"]) { display:flex !important; }
 
@@ -608,6 +640,13 @@ body.mobile-mode .mrail-badge {
     body.mobile-mode #view-viz .viz-tl-btn { min-width:42px; min-height:38px; font-size:15px; }
     body.mobile-mode #view-viz .viz-tl-meta { min-width:auto; flex:1; }
     body.mobile-mode #view-viz .viz-tl-slider { flex-basis:100%; min-width:100%; order:5; margin-top:2px; height:28px; }
+
+    body.mobile-mode #view-apps { flex-direction:column; min-height:0; }
+    body.mobile-mode #view-apps .apps-wrap,
+    body.mobile-mode #view-apps .apps-detail { padding:12px; max-width:none; }
+    body.mobile-mode #view-apps .apps-grid { grid-template-columns:1fr; }
+    body.mobile-mode #view-apps .apps-host { min-height:0; }
+    body.mobile-mode #view-apps .apps-host-container { padding:12px; }
 
     /* ----- view-match mobile layout (2026-06-12) -----
        3-row grid with a draggable horizontal splitter between list and details:
@@ -4065,6 +4104,7 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
         <button class="mrail-btn" id="mrail-cases" type="button" onclick="mobileSwitchView('cases')"><span>&#128194;</span>Дела<span id="mrail-cases-badge" class="mrail-badge" style="display:none;"></span></button>
         <button class="mrail-btn" id="mrail-ex" type="button" onclick="mobileSwitchView('ex')"><span>&#128203;</span>Эксклюзивы</button>
         <button class="mrail-btn" id="mrail-viz" type="button" onclick="mobileSwitchView('viz')"><span>&#128506;</span>Карта</button>
+        <button class="mrail-btn" id="mrail-apps" type="button" onclick="mobileSwitchView('apps')"><span>&#129513;</span>Apps</button>
     </div>
 </div>
 
@@ -4082,6 +4122,7 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
     <div class="mod-tab" id="nav-mail" onclick="showView('mail')"><span data-i18n="nav.mail">📧 Почта</span> <span id="mail-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-cases" onclick="showView('cases')"><span data-i18n="nav.cases">📂 Дела</span> <span id="cases-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-team" onclick="showView('team')"><span data-i18n="nav.team">💬 Команда</span> <span id="team-nav-badge" class="count" style="display:none;"></span></div>
+    <div class="mod-tab" id="nav-apps" data-qa="broker-module-apps" onclick="showView('apps')"><span>🧩 Apps</span></div>
     <div id="lead-tabs-host" style="display:flex; align-items:center; gap:4px;"></div>
     <div class="mb-spacer"></div>
     <div class="mb-identity" id="mb-identity" data-i18n="top.notRegistered">Не зарегистрирован</div>
@@ -4693,6 +4734,11 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
         </div>
     </div>
 
+    <!-- Apps / Plugins — first-party plugin host skeleton. -->
+    <div class="view-pane view-team-stack" id="view-apps" style="display:none;">
+        <div id="apps-root" style="height:100%; min-height:0;"></div>
+    </div>
+
     <div class="statusbar" id="statusbar">
         <span class="sb-pill"><span>Базар</span>: <span class="v" id="sb-bazaar-total">0</span></span>
         <span class="sb-pill ok"><span>Покрытие</span>: <span class="v" id="sb-coverage">0%</span></span>
@@ -4753,6 +4799,7 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
 
 <div class="toast-host" id="toast-host"></div>
 
+<script src="plugin-host-bridge.js"></script>
 <script>
 "use strict";
 
@@ -5211,8 +5258,354 @@ function applyTheme(){
     document.documentElement.setAttribute('data-theme', resolved);
     var fs = parseInt(localStorage.getItem('skipi-broker-font-size')||'13',10);
     document.documentElement.style.setProperty('--font-size-ui', fs+'px');
+    if(typeof brokerPluginNotifyTheme === 'function') brokerPluginNotifyTheme();
 }
 function setTheme(t){ localStorage.setItem('skipi-broker-theme', t); applyTheme(); renderSettingsBody(); }
+
+// ===================== Apps / Plugin host (bundled first-party, isolated) =====================
+// Broker as a HOST for bundled first-party plugins. Apps shell + local
+// Install/Open/Disable stay in Broker; plugin code runs only through the shared
+// SkipiPluginRuntime sandbox iframe. GUARDRAIL: plugins get NO broker domain
+// data by default (no bearer token, team token, mail, cases, bazaar/source data,
+// contacts/counterparties, pairing code, or chat). No remote code. No marketplace.
+var BROKER_PLUGIN_HOST_RUNTIME_VERSION = '1.0.1';
+var BROKER_PLUGIN_HOST_RUNTIME_SHA256 = 'edd0ba5f8b21f05fcf55485b13b1dafc963173b2d2aa79e261611297283c307a';
+var BROKER_PLUGIN_ALLOWED_PERMISSIONS = ['local_storage', 'theme'];
+var BROKER_PLUGIN_SCOPE_DENY = /^(broker|bazaar|match|signal|case|mail|team|contact|counterparty|token|device|pairing|chat)[._:-]/i;
+
+var BROKER_PLUGINS = [
+  { id:'broker-host-demo', name:'Host Demo', category:'Developer', version:'0.1.0',
+    summary:'Sample plugin that verifies the Apps host (theme bridge, plugin storage, mount/unmount). Placeholder until reviewed Broker plugins ship.',
+    state:'available', permissions:['local_storage','theme'],
+    safety:'Sample/developer tile. Runs locally in an isolated Broker plugin frame. No access to market signals, cases, mailbox, contacts, team tokens, pairing codes, or chat.' },
+  { id:'fixture-quality-checker', name:'Fixture quality checker', category:'Broker', state:'coming_soon',
+    summary:'Checks cargo/tonnage fixture details before a broker shares them.' },
+  { id:'case-checklist', name:'Case checklist', category:'Workflow', state:'coming_soon',
+    summary:'Step-by-step checklist for brokerage case handling.' },
+  { id:'mail-redaction-export', name:'Mail redaction / export', category:'Privacy', state:'coming_soon',
+    summary:'Helper to redact and export a message thread by explicit user action.' },
+  { id:'counterparty-watchlist', name:'Counterparty watchlist', category:'Risk', state:'coming_soon',
+    summary:'Local review aid for counterparty notes; no silent contact export.' }
+];
+
+var brokerAppsState = { screen: 'list', pluginId: null };
+var __brokerPluginMounted = null;     // { id, runtime }
+var __brokerPluginMountSeq = 0;
+var __brokerPluginThemeSubs = [];
+var __brokerPluginRuntime = null;
+
+function brokerPluginMeta(id){ for(var i=0;i<BROKER_PLUGINS.length;i++){ if(BROKER_PLUGINS[i].id===id) return BROKER_PLUGINS[i]; } return null; }
+function brokerPluginsLoadState(){ try { return JSON.parse(localStorage.getItem('skipi_broker_plugins') || '{}'); } catch(e){ return {}; } }
+function brokerPluginsSaveState(s){ try { localStorage.setItem('skipi_broker_plugins', JSON.stringify(s)); } catch(e){} }
+function brokerPluginInstall(id){
+  if(!brokerHasBundledPlugin(id)){ showToast('Plugin not bundled in this build', 'error'); return; }
+  var s = brokerPluginsLoadState();
+  s[id] = Object.assign({ installed_at:'local' }, s[id], { installed:true, enabled:true, version:(brokerPluginMeta(id)||{}).version||'' });
+  brokerPluginsSaveState(s);
+}
+function brokerPluginSetEnabled(id, on){ var s=brokerPluginsLoadState(); if(s[id]){ s[id].enabled=!!on; brokerPluginsSaveState(s); } }
+function brokerPluginTileState(p){
+  if(p.state === 'coming_soon') return 'coming_soon';
+  var st = brokerPluginsLoadState()[p.id];
+  if(st && st.installed && st.enabled) return 'installed';
+  if(st && st.installed && !st.enabled) return 'disabled';
+  return 'available';
+}
+function brokerPluginStateLabel(s){ return s==='installed'?'Installed':s==='disabled'?'Disabled':s==='coming_soon'?'Coming soon':'Available'; }
+
+var BROKER_HOST_DEMO_JS = `
+/* BROKER_HOST_DEMO_PLUGIN: sandbox fixture only, no Broker domain logic. */
+(function(){
+  'use strict';
+  window.SkipiPlugins = window.SkipiPlugins || {};
+  window.SkipiPlugins['broker-host-demo'] = {
+    manifest: { id:'broker-host-demo', name:'Host Demo', version:'0.1.0' },
+    mount: function(container, host){
+      var plugin = this;
+      var alive = true;
+      var themeEl = null;
+      function escapeText(v){
+        return String(v == null ? '' : v).replace(/[<>&"]/g, function(c){ return {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]; });
+      }
+      function paint(count){
+        if(!alive) return;
+        container.innerHTML =
+          '<div class="apps-demo" data-broker-host-demo="1">'
+          + '<p>Sample plugin running inside the isolated Broker Apps host.</p>'
+          + '<p>Host id: <b>'+escapeText(host.host && host.host.id)+'</b></p>'
+          + '<p>Host theme (live): <b data-demo-theme>'+escapeText(host.theme.get())+'</b></p>'
+          + '<p>Times opened (plugin-scoped storage): <b data-demo-opens>'+escapeText(count)+'</b></p>'
+          + '<p class="apps-muted">This plugin has no access to market signals, cases, mailbox, contacts, team tokens, pairing codes, or chat.</p>'
+          + '<button class="apps-btn secondary" id="apps-demo-close">Close</button>'
+          + '</div>';
+        themeEl = container.querySelector('[data-demo-theme]');
+        var close = container.querySelector('#apps-demo-close');
+        if(close) close.onclick = function(){ host.navigation.closePlugin(); };
+      }
+      function setTheme(t){ if(themeEl) themeEl.textContent = t || 'light'; }
+      plugin._unsub = host.theme.subscribe(setTheme);
+      Promise.resolve(host.storage.get('opens')).then(function(v){
+        var n = (parseInt(v, 10) || 0) + 1;
+        host.storage.set('opens', String(n));
+        paint(n);
+      }, function(){ paint(1); });
+    },
+    unmount: function(){ if(this._unsub){ try { this._unsub(); } catch(e){} this._unsub = null; } }
+  };
+})();
+`;
+
+var BROKER_HOST_DEMO_CSS = `
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #172033; background: transparent; }
+.apps-demo { box-sizing: border-box; border: 1px solid rgba(91, 110, 132, 0.28); border-radius: 8px; padding: 14px; background: rgba(255,255,255,0.92); }
+.apps-demo p { margin: 6px 0; font-size: 13px; line-height: 1.45; }
+.apps-demo .apps-muted { color: #5f6b7a; }
+.apps-demo .apps-btn { min-height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid rgba(91, 110, 132, 0.34); background: #fff; color: #172033; font-weight: 700; cursor: pointer; }
+`;
+
+var BROKER_PLUGIN_BUNDLES = {
+  'broker-host-demo': {
+    id:'broker-host-demo',
+    fqid:'app.skipi.plugins.broker-host-demo',
+    name:'Host Demo',
+    version:'0.1.0',
+    developer:'Skipi (first-party)',
+    kind:'utility',
+    distribution:{ mode:'bundled_first_party', remote_code:false },
+    supported_hosts:['broker'],
+    entrypoints:{ ui:'index.js', style:'index.css' },
+    roles:{ broker:{ role:'host_check', context:'broker_apps_host', capabilities:['local_storage','theme'] } },
+    network:'none',
+    data_access:'none',
+    safety:{ requires_disclaimer:false, no_fake_sent:true, strip_metadata_default:true, no_raw_sql:true, no_plaintext_passwords:true },
+    permissions:['local_storage','theme'],
+    files:{ 'index.js': BROKER_HOST_DEMO_JS, 'index.css': BROKER_HOST_DEMO_CSS },
+    checksums:{
+      'index.js':'7c93ed4af83e413767f197e932f548cb583565e276ab7d340d71c3237729e8f0',
+      'index.css':'6ec6a186ea0fbd93444d8fbb902e1139eda8a19bf809b66b3335ffd9215b0338'
+    }
+  }
+};
+
+function brokerHasBundledPlugin(id){ return !!BROKER_PLUGIN_BUNDLES[id]; }
+function brokerPluginStorageKey(slug, k){ return 'skipi_broker_plugin_' + slug + '_' + k; }
+function brokerCurrentTheme(){ return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'; }
+function brokerPermissionAllowed(perm){
+  return BROKER_PLUGIN_ALLOWED_PERMISSIONS.indexOf(perm) !== -1 && !BROKER_PLUGIN_SCOPE_DENY.test(String(perm || ''));
+}
+function brokerClonePack(pack){
+  if(!pack) return null;
+  return Object.assign({}, pack, {
+    distribution: Object.assign({}, pack.distribution || {}),
+    supported_hosts: (pack.supported_hosts || []).slice(),
+    entrypoints: Object.assign({}, pack.entrypoints || {}),
+    roles: JSON.parse(JSON.stringify(pack.roles || {})),
+    safety: Object.assign({}, pack.safety || {}),
+    permissions: (pack.permissions || []).slice(),
+    files: Object.assign({}, pack.files || {}),
+    checksums: Object.assign({}, pack.checksums || {})
+  });
+}
+function brokerManifestFailure(stage, reason){ return { ok:false, stage:stage || 'manifest', reason:reason || 'invalid plugin manifest' }; }
+function brokerValidateManifest(slug, pack){
+  if(!pack || typeof pack !== 'object') return brokerManifestFailure('manifest', 'missing manifest');
+  if(pack.id !== slug || !pack.name || !pack.version) return brokerManifestFailure('manifest', 'manifest id/name/version mismatch');
+  if(!pack.entrypoints || !pack.entrypoints.ui || !pack.entrypoints.style) return brokerManifestFailure('manifest', 'missing entrypoints');
+  if(!pack.files || typeof pack.files[pack.entrypoints.ui] !== 'string' || typeof pack.files[pack.entrypoints.style] !== 'string') return brokerManifestFailure('manifest', 'missing entrypoint files');
+  if(!Array.isArray(pack.supported_hosts) || pack.supported_hosts.indexOf('broker') === -1) return brokerManifestFailure('compat', 'plugin does not support broker');
+  if(!pack.distribution || pack.distribution.mode !== 'bundled_first_party' || pack.distribution.remote_code !== false) return brokerManifestFailure('policy', 'only bundled first-party local code is allowed');
+  if(pack.network !== 'none' && pack.network !== 'host-mediated') return brokerManifestFailure('policy', 'direct plugin network is not allowed');
+  if(pack.data_access !== 'none') return brokerManifestFailure('policy', 'broker domain data grants are not allowed for this fixture');
+  if(!Array.isArray(pack.permissions)) return brokerManifestFailure('manifest', 'missing permissions');
+  var metaPerms = ((brokerPluginMeta(slug) || {}).permissions || []);
+  for(var i=0;i<pack.permissions.length;i++){
+    var perm = String(pack.permissions[i] || '');
+    if(!brokerPermissionAllowed(perm)) return brokerManifestFailure('policy', 'permission denied: ' + perm);
+    if(metaPerms.indexOf(perm) === -1) return brokerManifestFailure('policy', 'permission not granted by Broker: ' + perm);
+  }
+  return { ok:true };
+}
+function brokerSha256Text(text){
+  if(!window.crypto || !crypto.subtle || typeof TextEncoder === 'undefined'){
+    return Promise.reject(new Error('sha256 unavailable'));
+  }
+  return crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(text))).then(function(buf){
+    return Array.prototype.map.call(new Uint8Array(buf), function(b){ return b.toString(16).padStart(2, '0'); }).join('');
+  });
+}
+async function brokerVerifyIntegrity(pack){
+  var ep = pack.entrypoints || {};
+  var names = [ep.ui, ep.style];
+  for(var i=0;i<names.length;i++){
+    var name = names[i];
+    if(!pack.checksums || !pack.checksums[name]) return { ok:false, stage:'integrity', reason:'missing checksum: ' + name };
+    var actual;
+    try { actual = await brokerSha256Text(pack.files[name]); }
+    catch(e){ return { ok:false, stage:'integrity', reason:e.message || 'sha256 unavailable' }; }
+    if(actual !== pack.checksums[name]) return { ok:false, stage:'integrity', reason:'sha256 mismatch: ' + name };
+  }
+  return { ok:true };
+}
+async function brokerInstallBundledPack(slug, pack, source){
+  var manifest = brokerValidateManifest(slug, pack);
+  if(!manifest.ok) return manifest;
+  var integrity = await brokerVerifyIntegrity(pack);
+  if(!integrity.ok) return integrity;
+  return { ok:true, source:source || 'bundled:first-party:broker', pack:pack };
+}
+var brokerBundledLoader = {
+  install: function(slug){
+    var pack = brokerClonePack(BROKER_PLUGIN_BUNDLES[slug]);
+    if(!pack) return Promise.resolve({ ok:false, stage:'install', reason:'unknown plugin' });
+    return brokerInstallBundledPack(slug, pack, 'bundled:first-party:broker');
+  }
+};
+
+function brokerRuntimeHost(){
+  return {
+    id:'broker',
+    storage:{
+      get: function(slug, k){ try { return localStorage.getItem(brokerPluginStorageKey(slug, k)); } catch(e){ return null; } },
+      set: function(slug, k, v){ try { localStorage.setItem(brokerPluginStorageKey(slug, k), String(v)); } catch(e){} },
+      remove: function(slug, k){ try { localStorage.removeItem(brokerPluginStorageKey(slug, k)); } catch(e){} }
+    },
+    theme:{
+      get: brokerCurrentTheme,
+      subscribe: function(cb){ __brokerPluginThemeSubs.push(cb); return function(){ __brokerPluginThemeSubs = __brokerPluginThemeSubs.filter(function(fn){ return fn !== cb; }); }; }
+    },
+    navigation:{
+      closePlugin: function(){ brokerPluginCloseHost(); },
+      setTitle: function(t){ var el=document.getElementById('apps-host-title'); if(el) el.textContent = t || ''; }
+    }
+  };
+}
+function brokerGetPluginRuntime(create){
+  if(!__brokerPluginRuntime && create !== false && window.SkipiPluginRuntime && typeof window.SkipiPluginRuntime.create === 'function'){
+    __brokerPluginRuntime = window.SkipiPluginRuntime.create({
+      enabled:true,
+      loader:brokerBundledLoader,
+      host:brokerRuntimeHost(),
+      bridgeTimeoutMs:6000
+    });
+  }
+  return __brokerPluginRuntime;
+}
+function brokerPluginRuntime(){ return brokerGetPluginRuntime(true); }
+function brokerPluginNotifyTheme(){
+  var t = brokerCurrentTheme();
+  __brokerPluginThemeSubs.forEach(function(cb){ try { cb(t); } catch(e){} });
+  var rt = brokerGetPluginRuntime(false);
+  if(rt && rt.pushTheme) rt.pushTheme(t);
+}
+
+function brokerAppsRoot(){ return document.getElementById('apps-root'); }
+function brokerAppsRender(){
+  var host = brokerAppsRoot();
+  if(!host) return;
+  if(brokerAppsState.screen === 'detail' && brokerAppsState.pluginId){ host.innerHTML = brokerAppsDetailHtml(brokerAppsState.pluginId); return; }
+  if(brokerAppsState.screen === 'host' && brokerAppsState.pluginId){ host.innerHTML = brokerAppsHostHtml(brokerAppsState.pluginId); brokerPluginMountCurrent(); return; }
+  host.innerHTML = brokerAppsListHtml();
+}
+function brokerAppsListHtml(){
+  var tiles = BROKER_PLUGINS.map(function(p){
+    var st = brokerPluginTileState(p);
+    return '<div class="apps-tile" data-qa="plugin-tile-'+esc(p.id)+'" onclick="brokerAppsOpenDetail(\''+p.id+'\')">'
+      + '<span class="apps-badge '+st+'">'+esc(brokerPluginStateLabel(st))+'</span>'
+      + '<div class="at-name">'+esc(p.name)+'</div>'
+      + '<div class="at-cat">'+esc(p.category || '')+'</div>'
+      + '<div class="at-sum">'+esc(p.summary || '')+'</div>'
+      + '</div>';
+  }).join('');
+  return '<div class="apps-wrap" data-qa="broker-apps-module">'
+    + '<div class="apps-head"><h2>Apps</h2>'
+    + '<div class="apps-muted">First-party tools for your broker desk. Plugins run locally in an isolated frame and get no market, mail, case, contact, team token, pairing, or chat data by default.</div></div>'
+    + '<div class="apps-grid">'+tiles+'</div>'
+    + '</div>';
+}
+function brokerAppsDetailHtml(id){
+  var p = brokerPluginMeta(id); if(!p) return brokerAppsListHtml();
+  var st = brokerPluginTileState(p);
+  var perms = (p.permissions && p.permissions.length)
+    ? p.permissions.map(function(x){ return '<span class="apps-perm">'+esc(x)+'</span>'; }).join('')
+    : '<span class="apps-muted">No special permissions requested.</span>';
+  var actions;
+  if(st === 'coming_soon') actions = '<div class="apps-muted">This plugin is coming soon.</div>';
+  else if(st === 'installed') actions = '<button class="apps-btn" data-qa="plugin-open-'+esc(id)+'" onclick="brokerAppsOpen(\''+id+'\')">Open</button><button class="apps-btn secondary" onclick="brokerAppsDisable(\''+id+'\')">Disable</button>';
+  else if(st === 'disabled') actions = '<button class="apps-btn" onclick="brokerAppsEnable(\''+id+'\')">Enable</button>';
+  else actions = '<button class="apps-btn" onclick="brokerAppsInstall(\''+id+'\')">Install</button>';
+  return '<div class="apps-detail">'
+    + '<button class="apps-back" onclick="brokerAppsBackToList()">‹ Apps</button>'
+    + '<span class="apps-badge '+st+'">'+esc(brokerPluginStateLabel(st))+'</span>'
+    + '<h2>'+esc(p.name)+'</h2>'
+    + '<div class="apps-muted">'+esc(p.category || '')+(p.version ? (' · v'+esc(p.version)) : '')+'</div>'
+    + '<div class="apps-section"><div class="at-sum">'+esc(p.summary || '')+'</div></div>'
+    + '<div class="apps-section"><h3>Permissions</h3>'+perms+'</div>'
+    + (p.safety ? '<div class="apps-section"><h3>Safety</h3><div class="apps-muted">'+esc(p.safety)+'</div></div>' : '')
+    + '<div class="apps-section"><h3>Data access</h3><div class="apps-guard">This plugin runs in a sandboxed iframe through the shared Skipi plugin runtime. It cannot read broker bearer/team tokens, market signals, cases, mailbox, contacts, pairing codes, or chat.</div></div>'
+    + '<div class="apps-actions">'+actions+'</div>'
+    + '</div>';
+}
+function brokerAppsHostHtml(id){
+  var p = brokerPluginMeta(id) || { name:id };
+  return '<div class="apps-host">'
+    + '<div class="apps-host-bar"><span class="aht" id="apps-host-title">'+esc(p.name)+'</span>'
+    + '<button class="apps-btn secondary" onclick="brokerPluginCloseHost()">Close</button></div>'
+    + '<div class="apps-host-container" id="apps-host-container"><div class="apps-muted">Starting isolated app...</div></div>'
+    + '</div>';
+}
+function brokerAppsOpenDetail(id){ brokerAppsState = { screen:'detail', pluginId:id }; brokerAppsRender(); }
+function brokerAppsResetToList(){ brokerPluginUnmountCurrent(); brokerAppsState = { screen:'list', pluginId:null }; }
+function brokerAppsBackToList(){ brokerAppsResetToList(); brokerAppsRender(); }
+function brokerAppsInstall(id){ brokerPluginInstall(id); showToast('Installed', 'ok'); brokerAppsState = { screen:'detail', pluginId:id }; brokerAppsRender(); }
+function brokerAppsDisable(id){ brokerPluginUnmountCurrent(); brokerPluginSetEnabled(id, false); brokerAppsState = { screen:'detail', pluginId:id }; brokerAppsRender(); }
+function brokerAppsEnable(id){ brokerPluginSetEnabled(id, true); brokerAppsState = { screen:'detail', pluginId:id }; brokerAppsRender(); }
+function brokerAppsOpen(id){
+  if(!brokerHasBundledPlugin(id)){ showToast('Plugin not bundled in this build', 'error'); return; }
+  if(brokerPluginTileState(brokerPluginMeta(id) || {}) !== 'installed'){ showToast('Install and enable the plugin first', 'error'); return; }
+  brokerAppsState = { screen:'host', pluginId:id };
+  brokerAppsRender();
+}
+function brokerPluginMountCurrent(){
+  var id = brokerAppsState.pluginId;
+  var c = document.getElementById('apps-host-container');
+  if(!brokerHasBundledPlugin(id) || !c) return;
+  brokerPluginUnmountCurrent();
+  var rt = brokerPluginRuntime();
+  if(!rt){ c.innerHTML = '<div class="apps-muted">Plugin runtime is unavailable.</div>'; return; }
+  var seq = ++__brokerPluginMountSeq;
+  __brokerPluginMounted = { id:id, runtime:rt };
+  rt.open(id, c).then(function(res){
+    if(seq !== __brokerPluginMountSeq || brokerAppsState.screen !== 'host' || brokerAppsState.pluginId !== id) return;
+    if(!res || !res.ok){
+      __brokerPluginMounted = null;
+      c.innerHTML = '<div class="apps-muted">Plugin failed closed: '+esc((res && (res.stage || res.reason)) || 'mount')+'</div>';
+    }
+  }).catch(function(e){
+    if(seq !== __brokerPluginMountSeq) return;
+    __brokerPluginMounted = null;
+    c.innerHTML = '<div class="apps-muted">Plugin failed to mount: '+esc(''+e)+'</div>';
+  });
+}
+function brokerPluginUnmountCurrent(){
+  __brokerPluginMountSeq++;
+  if(__brokerPluginMounted && __brokerPluginMounted.runtime && __brokerPluginMounted.runtime.close){
+    try { __brokerPluginMounted.runtime.close(); } catch(e){}
+  }
+  __brokerPluginMounted = null;
+}
+function brokerPluginCloseHost(){ brokerPluginUnmountCurrent(); brokerAppsState = { screen:'detail', pluginId:brokerAppsState.pluginId }; brokerAppsRender(); }
+function renderAppsView(){ brokerAppsRender(); }
+
+window.__SKIPI_BROKER_PLUGIN_TEST__ = {
+  runtimeVersion: BROKER_PLUGIN_HOST_RUNTIME_VERSION,
+  runtimeSha256: BROKER_PLUGIN_HOST_RUNTIME_SHA256,
+  loader: brokerBundledLoader,
+  installPack: brokerInstallBundledPack,
+  clonePack: brokerClonePack,
+  bundles: BROKER_PLUGIN_BUNDLES,
+  runtime: brokerPluginRuntime,
+  host: brokerRuntimeHost
+};
 
 // ---------- Identity badge ----------
 function refreshIdentityBadge(){
@@ -5737,6 +6130,7 @@ var MOBILE_VIEWS = {
     cases: { pane:'view-cases', btn:'mrail-cases' },
     ex:    { pane:'view-ex',    btn:'mrail-ex'    },
     viz:   { pane:'view-viz',   btn:'mrail-viz'   },
+    apps:  { pane:'view-apps',  btn:'mrail-apps'  },
 };
 function mobileSwitchView(name){
     if(!MOBILE_VIEWS[name]) return;
@@ -9647,6 +10041,11 @@ async function closeLead(matchId){
 // handlers. The hidden view stays stale on purpose; showView() repaints
 // it on switch, so we save the per-action DOM work.
 function renderActiveView(){
+    if(state.view === 'apps'){
+        renderAppsView();
+        if(typeof _refreshCtxInfo === 'function') try { _refreshCtxInfo(); } catch(_){}
+        return;
+    }
     if(state.view === 'ex'){
         renderP0();
         renderP1();
@@ -11028,7 +11427,8 @@ function openSignalDetail(kind, id){
 
 // ---------- View switching (Эксклюзивы ↔ Совпадения ↔ Сигналы) ----------
 function showView(name){
-    if(name !== 'ex' && name !== 'match' && name !== 'signals' && name !== 'dedup' && name !== 'partners' && name !== 'viz' && name !== 'mail' && name !== 'team' && name !== 'leads2' && name !== 'cases') return;
+    if(name !== 'ex' && name !== 'match' && name !== 'signals' && name !== 'dedup' && name !== 'partners' && name !== 'viz' && name !== 'mail' && name !== 'team' && name !== 'leads2' && name !== 'cases' && name !== 'apps') return;
+    if(state.view === 'apps' && name !== 'apps') brokerAppsResetToList();
     state.view = name;
     // Manage the assistant orb + Desk unread badge for the new view.
     setTimeout(updateCtxBarVisibility, 0);
@@ -11054,6 +11454,8 @@ function showView(name){
     if(vmail) vmail.style.display = (name === 'mail') ? '' : 'none';
     var vteam = document.getElementById('view-team');
     if(vteam) vteam.style.display = (name === 'team') ? '' : 'none';
+    var vapps = document.getElementById('view-apps');
+    if(vapps) vapps.style.display = (name === 'apps') ? '' : 'none';
     var vleads2 = document.getElementById('view-leads2');
     if(vleads2) vleads2.style.display = (name === 'leads2') ? '' : 'none';
     var vcases = document.getElementById('view-cases');
@@ -11066,6 +11468,7 @@ function showView(name){
     var navViz = document.getElementById('nav-viz');
     var navMail = document.getElementById('nav-mail');
     var navTeam = document.getElementById('nav-team');
+    var navApps = document.getElementById('nav-apps');
     var navLeads2 = document.getElementById('nav-leads2');
     if(navLeads2) navLeads2.classList.toggle('active', name === 'leads2');
     var navCases = document.getElementById('nav-cases');
@@ -11078,6 +11481,7 @@ function showView(name){
     if(navViz) navViz.classList.toggle('active', name === 'viz');
     if(navMail) navMail.classList.toggle('active', name === 'mail');
     if(navTeam) navTeam.classList.toggle('active', name === 'team');
+    if(navApps) navApps.classList.toggle('active', name === 'apps');
 
     // Team chat now lives ONLY on the «Команда» tab (spec §4) — no corner dock
     // in ex/match. Migrate the team-block into team-mount-team and keep it there.
@@ -11145,6 +11549,9 @@ function showView(name){
     // 📂 Дела — render cases
     if(name === 'cases'){
         renderCasesView();
+    }
+    if(name === 'apps'){
+        renderAppsView();
     }
     // Визуализатор: карта рендерится из state.bazaarPairs (bxb pairs из
     // /api/bazaar-pairs) — это глобальная картина базара. Дополняем
