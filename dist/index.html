@@ -5554,7 +5554,8 @@ function brokerAppsHostHtml(id){
     + '</div>';
 }
 function brokerAppsOpenDetail(id){ brokerAppsState = { screen:'detail', pluginId:id }; brokerAppsRender(); }
-function brokerAppsBackToList(){ brokerPluginUnmountCurrent(); brokerAppsState = { screen:'list', pluginId:null }; brokerAppsRender(); }
+function brokerAppsResetToList(){ brokerPluginUnmountCurrent(); brokerAppsState = { screen:'list', pluginId:null }; }
+function brokerAppsBackToList(){ brokerAppsResetToList(); brokerAppsRender(); }
 function brokerAppsInstall(id){ brokerPluginInstall(id); showToast('Installed', 'ok'); brokerAppsState = { screen:'detail', pluginId:id }; brokerAppsRender(); }
 function brokerAppsDisable(id){ brokerPluginUnmountCurrent(); brokerPluginSetEnabled(id, false); brokerAppsState = { screen:'detail', pluginId:id }; brokerAppsRender(); }
 function brokerAppsEnable(id){ brokerPluginSetEnabled(id, true); brokerAppsState = { screen:'detail', pluginId:id }; brokerAppsRender(); }
@@ -5593,7 +5594,7 @@ function brokerPluginUnmountCurrent(){
   __brokerPluginMounted = null;
 }
 function brokerPluginCloseHost(){ brokerPluginUnmountCurrent(); brokerAppsState = { screen:'detail', pluginId:brokerAppsState.pluginId }; brokerAppsRender(); }
-function renderAppsView(){ brokerAppsState = { screen:'list', pluginId:null }; brokerAppsRender(); }
+function renderAppsView(){ brokerAppsRender(); }
 
 window.__SKIPI_BROKER_PLUGIN_TEST__ = {
   runtimeVersion: BROKER_PLUGIN_HOST_RUNTIME_VERSION,
@@ -11427,7 +11428,7 @@ function openSignalDetail(kind, id){
 // ---------- View switching (Эксклюзивы ↔ Совпадения ↔ Сигналы) ----------
 function showView(name){
     if(name !== 'ex' && name !== 'match' && name !== 'signals' && name !== 'dedup' && name !== 'partners' && name !== 'viz' && name !== 'mail' && name !== 'team' && name !== 'leads2' && name !== 'cases' && name !== 'apps') return;
-    if(state.view === 'apps' && name !== 'apps') brokerPluginUnmountCurrent();
+    if(state.view === 'apps' && name !== 'apps') brokerAppsResetToList();
     state.view = name;
     // Manage the assistant orb + Desk unread badge for the new view.
     setTimeout(updateCtxBarVisibility, 0);

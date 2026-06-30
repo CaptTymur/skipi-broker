@@ -107,6 +107,8 @@ ok(/BROKER_PLUGIN_HOST_RUNTIME_VERSION\s*=\s*'1\.0\.1'/.test(appsBlock), 'Broker
 ok(/BROKER_PLUGIN_HOST_RUNTIME_SHA256\s*=\s*'edd0ba5f8b21f05fcf55485b13b1dafc963173b2d2aa79e261611297283c307a'/.test(appsBlock), 'Broker records shared runtime sha256');
 ok(/SkipiPluginRuntime\.create/.test(appsBlock) && /rt\.open\(id, c\)/.test(appsBlock), 'Broker mount path uses shared runtime open()');
 ok(!/function brokerHostApi/.test(appsBlock) && !/reg\.mount\(c/.test(appsBlock), 'no old inline host API or direct reg.mount path');
+ok(!/function\s+renderAppsView\(\)\s*\{\s*brokerAppsState\s*=/.test(appsBlock), 'renderAppsView preserves Apps detail/host substate');
+ok(/state\.view === 'apps' && name !== 'apps'\) brokerAppsResetToList\(\)/.test(HTML), 'leaving Apps explicitly unmounts and resets the plugin host');
 ok(/enabled:true/.test(appsBlock.replace(/\s/g, '')), 'bundled runtime is enabled for the local Apps path');
 ok(!/noCsp\s*:/.test(appsBlock), 'production runtime config does not enable noCsp');
 ok(!/permissions\s*:\s*\[[^\]]*(broker|bazaar|match|signal|case|mail|team|contact|counterparty|token|device|pairing|chat)/i.test(appsBlock), 'demo plugin grants no Broker domain/token permissions');
