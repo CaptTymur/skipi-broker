@@ -64,10 +64,11 @@ jobs:
       - name: Run skipi-guard
         env:
           SKIPI_GUARD_HOME: broker
-          SKIPI_GUARD_TASK: plugin-host
+          SKIPI_GUARD_DEFAULT_TASK: plugin-host
           BASE: ${{ steps.refs.outputs.base }}
         run: |
           set -euo pipefail
+          GUARD_TASK="$SKIPI_GUARD_DEFAULT_TASK"
           OVERRIDE_ARGS=()
           mapfile -t GUARD_CHANGED_FILES < <(
             git diff --name-only --diff-filter=ACDMRTUXB "$BASE...$GITHUB_SHA" 2>/dev/null ||
@@ -76,9 +77,26 @@ jobs:
           if [[ "${#GUARD_CHANGED_FILES[@]}" -eq 1 && "${GUARD_CHANGED_FILES[0]}" == ".github/workflows/skipi-guard.yml" ]]; then
             OVERRIDE_ARGS=(--override-protected skipi-guard-workflow-bootstrap)
           fi
+          release_candidate=1
+          has_release_html=0
+          has_release_cargo=0
+          has_release_conf=0
+          for changed_file in "${GUARD_CHANGED_FILES[@]}"; do
+            case "$changed_file" in
+              dist/index.html) has_release_html=1 ;;
+              src-tauri/Cargo.toml) has_release_cargo=1 ;;
+              src-tauri/tauri.conf.json) has_release_conf=1 ;;
+              src-tauri/Cargo.lock) ;;
+              *) release_candidate=0 ;;
+            esac
+          done
+          if [[ "$release_candidate" -eq 1 && "$has_release_html" -eq 1 && "$has_release_cargo" -eq 1 && "$has_release_conf" -eq 1 ]]; then
+            GUARD_TASK=release
+          fi
+          echo "skipi-guard task: $GUARD_TASK"
           .skipi-guard/bin/skipi-guard verify \
             --home "$SKIPI_GUARD_HOME" \
-            --task "$SKIPI_GUARD_TASK" \
+            --task "$GUARD_TASK" \
             "${OVERRIDE_ARGS[@]}" \
             --run-harness \
             --repo "$GITHUB_WORKSPACE" \
