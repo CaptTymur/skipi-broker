@@ -25,8 +25,21 @@ function setBuildInfo(info){
     updateBuildLabels();
 }
 async function loadBuildInfo(){
-    try{ if(typeof invoke==='function')setBuildInfo(await invoke('get_build_info')); }
-    catch(e){ updateBuildLabels(); }
+    for(var i=0;i<30;i++){
+        try{
+            var liveInvoke = (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke)
+                || (window.__TAURI__ && window.__TAURI__.invoke);
+            if(liveInvoke){
+                invoke = liveInvoke;
+                setBuildInfo(await invoke('get_build_info'));
+                return;
+            }
+        }catch(e){
+            // Tauri bridge can be injected just after this inline script runs.
+        }
+        await new Promise(function(resolve){ setTimeout(resolve, 100); });
+    }
+    updateBuildLabels();
 }
 function updateTitlebar(){
     var t = 'Skipi Broker '+appVersionLabel()+' - United Seafarers';
