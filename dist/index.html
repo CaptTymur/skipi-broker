@@ -6,8 +6,30 @@
 <title>Skipi Broker - United Seafarers</title>
 <script>
 var APP_VERSION='0.1.145';
+var APP_BUILD_SHA='unknown';
+function buildShortSha(){
+    return APP_BUILD_SHA && APP_BUILD_SHA !== 'unknown' ? APP_BUILD_SHA.slice(0,7) : '';
+}
+function appVersionLabel(){
+    var sha=buildShortSha();
+    return APP_VERSION+(sha?' · '+sha:'');
+}
+function updateBuildLabels(){
+    updateTitlebar();
+    try{ if(typeof state!=='undefined' && state && state.settingsTab==='app') renderSettingsBody(); }catch(e){}
+}
+function setBuildInfo(info){
+    if(info&&info.version)APP_VERSION=String(info.version);
+    if(info&&info.sha)APP_BUILD_SHA=String(info.sha);
+    else if(info&&info.short_sha)APP_BUILD_SHA=String(info.short_sha);
+    updateBuildLabels();
+}
+async function loadBuildInfo(){
+    try{ if(typeof invoke==='function')setBuildInfo(await invoke('get_build_info')); }
+    catch(e){ updateBuildLabels(); }
+}
 function updateTitlebar(){
-    var t = 'Skipi Broker '+APP_VERSION+' - United Seafarers';
+    var t = 'Skipi Broker '+appVersionLabel()+' - United Seafarers';
     document.title = t;
     // Tauri 2 window title is separate from <title>. Push it via the
     // window API so the OS-level titlebar updates after auto-update.
@@ -4807,6 +4829,7 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
 var invoke = (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke)
     || (window.__TAURI__ && window.__TAURI__.invoke)
     || function(){ return Promise.reject(new Error("Tauri bridge unavailable — open via Skipi Broker app, not file://")); };
+loadBuildInfo();
 
 // ---------- Demo mode ----------
 // «Посмотреть демо» logs into a real, pre-seeded demo team on the server, so every
@@ -14054,7 +14077,7 @@ function renderSettingsBody(){
         body.innerHTML =
             '<div class="set-page-head"><div><h3>Приложение</h3>'+
                 '<div class="sub">Язык, тема, версия и техническая информация.</div></div>'+
-                '<span class="set-status-pill">v'+esc(APP_VERSION)+'</span></div>'+
+                '<span class="set-status-pill" data-qa="app-build-sha">v'+esc(appVersionLabel())+'</span></div>'+
             '<div class="settings-section">'+
                 '<div class="set-section-title">Интерфейс</div>'+
                 '<div class="setting-row">'+
@@ -14076,7 +14099,7 @@ function renderSettingsBody(){
             '</div>'+
             '<div class="settings-section" style="margin-top:22px;">'+
                 '<div class="set-section-title">О программе</div>'+
-                '<div class="setting-row"><div class="setting-info"><div class="setting-label">Версия</div><div class="setting-desc">'+esc(APP_VERSION)+'</div></div><div class="setting-control"><button class="btn" onclick="checkForUpdatesManual()">Проверить обновления</button></div></div>'+
+                '<div class="setting-row"><div class="setting-info"><div class="setting-label">Версия</div><div class="setting-desc" data-qa="app-build-sha">'+esc(appVersionLabel())+'</div></div><div class="setting-control"><button class="btn" onclick="checkForUpdatesManual()">Проверить обновления</button></div></div>'+
                 '<div class="setting-row"><div class="setting-info"><div class="setting-label">Сервер</div><div class="setting-desc">'+esc(s.server_url||'https://api.skipi.app')+'</div></div><div class="setting-control"><button class="btn" onclick="openFeedbackDialog(\'about\')">Оценить Skipi</button></div></div>'+
             '</div>'+
             '<div class="sub" id="update-check-status" style="margin-top:10px;"></div>';
