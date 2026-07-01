@@ -23,6 +23,27 @@ jobs:
           ref: d3402d3911cdacbd40a416bf2759575dced6e615
           path: .skipi-guard
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Checkout skipi-host-runtime
+        uses: actions/checkout@v4
+        with:
+          repository: CaptTymur/skipi-host-runtime
+          ref: d6238191c554bc370983366672c41b41116754ce
+          path: .skipi-host-runtime
+
+      - name: Prepare host runtime for guard harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/../skipi-plugins"
+          ln -sfn "$GITHUB_WORKSPACE/.skipi-host-runtime" "$GITHUB_WORKSPACE/../skipi-plugins/_host-runtime"
+          sudo mkdir -p /home/linux/Developer/skipi-plugins
+          sudo ln -sfn "$GITHUB_WORKSPACE/.skipi-host-runtime" /home/linux/Developer/skipi-plugins/_host-runtime
+
       - name: Resolve guard base
         id: refs
         shell: bash
