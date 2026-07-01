@@ -18,6 +18,7 @@ import { installFakeDom } from '../../skipi-plugins/_host-runtime/harness/fake-d
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 const HTML = fs.readFileSync(path.join(ROOT, 'dist', 'index.html'), 'utf8');
+const RUST_SOURCE = fs.readFileSync(path.join(ROOT, 'src-tauri', 'src', 'lib.rs'), 'utf8');
 const RUNTIME_SOURCE = fs.readFileSync(path.join(ROOT, 'dist', 'plugin-host-bridge.js'), 'utf8');
 const SHARED_RUNTIME_SOURCE = fs.readFileSync('/home/linux/Developer/skipi-plugins/_host-runtime/dist/plugin-host-bridge.js', 'utf8');
 const RUNTIME_VERSION = fs.readFileSync('/home/linux/Developer/skipi-plugins/_host-runtime/dist/RUNTIME_VERSION', 'utf8').trim();
@@ -36,6 +37,20 @@ function extractAppsBlock() {
   const start = HTML.indexOf('// ===================== Apps / Plugin host');
   const end = HTML.indexOf('// ---------- Identity badge ----------', start);
   if (start < 0 || end < 0) throw new Error('Broker Apps/plugin block not found');
+  return HTML.slice(start, end);
+}
+
+function extractCounterpartiesBlock() {
+  const start = HTML.indexOf('// ---------- View 🤝 Контрагенты');
+  const end = HTML.indexOf('function renderSignalsBrowse', start);
+  if (start < 0 || end < 0) throw new Error('Broker Counterparties block not found');
+  return HTML.slice(start, end);
+}
+
+function extractPartnersOpenBlock() {
+  const start = HTML.indexOf("if(name === 'partners')");
+  const end = HTML.indexOf('// 📧 Почта', start);
+  if (start < 0 || end < 0) throw new Error('Broker partners-open block not found');
   return HTML.slice(start, end);
 }
 
@@ -83,6 +98,8 @@ function makeSharedHost() {
 }
 
 const appsBlock = extractAppsBlock();
+const counterpartiesBlock = extractCounterpartiesBlock();
+const partnersOpenBlock = extractPartnersOpenBlock();
 
 section('shared _host-runtime isolation contract');
 const shared = await runIsolationContract({
@@ -102,7 +119,21 @@ ok(RUNTIME_SOURCE === SHARED_RUNTIME_SOURCE, 'Broker runtime file is byte-identi
 ok(RUNTIME_VERSION === EXPECTED_RUNTIME_VERSION + '\nsha256:' + EXPECTED_RUNTIME_SHA, 'shared RUNTIME_VERSION is the expected 1.0.1 artifact');
 ok(HTML.includes('id="nav-apps"') && /showView\('apps'\)/.test(HTML), 'desktop Apps tab remains reachable');
 ok(HTML.includes('id="mrail-apps"') && /mobileSwitchView\('apps'\)/.test(HTML), 'mobile bottom Apps rail item remains reachable');
+ok(HTML.includes('id="nav-dedup"') && /id="nav-dedup"[^>]*showView\('dedup'\)/.test(HTML), 'desktop Deduplicator tab remains reachable');
+ok(HTML.includes('id="nav-partners"') && /id="nav-partners"[^>]*showView\('partners'\)/.test(HTML), 'desktop Counterparties tab remains reachable');
+ok(!/id="nav-dedup"[^>]*(?:display\s*:\s*none|internal-tool)/.test(HTML), 'desktop Deduplicator tab is not hidden as an internal-only tool');
+ok(!/id="nav-partners"[^>]*(?:display\s*:\s*none|internal-tool)/.test(HTML), 'desktop Counterparties tab is not hidden as an internal-only tool');
+ok(HTML.includes('id="mrail-dedup"') && /mobileSwitchView\('dedup'\)/.test(HTML), 'mobile bottom Deduplicator rail item remains reachable');
+ok(HTML.includes('id="mrail-partners"') && /mobileSwitchView\('partners'\)/.test(HTML), 'mobile bottom Counterparties rail item remains reachable');
+ok(/dedup:\s*\{\s*pane:'view-dedup',\s*btn:'mrail-dedup'\s*\}/.test(HTML), 'mobile router maps Deduplicator to its view pane');
+ok(/partners:\s*\{\s*pane:'view-partners',\s*btn:'mrail-partners'\s*\}/.test(HTML), 'mobile router maps Counterparties to its view pane');
 ok(/id="view-apps"/.test(HTML), 'Apps view pane exists');
+ok(/fn sanitize_public_signals/.test(RUST_SOURCE) && /PRIVATE_SIGNAL_KEYS/.test(RUST_SOURCE), 'normal Broker signal sanitizer remains in place');
+ok(!/id="signals-cargo-counterpart"/.test(HTML) && !/id="signals-tonnage-counterpart"/.test(HTML), 'normal Signals view still has no counterpart filter dropdowns');
+ok(/fetch_counterparts/.test(counterpartiesBlock) || /counterpartsCRM/.test(counterpartiesBlock), 'Counterparties uses the dedicated counterparts profile model');
+ok(!/posted_by_email|posted_by_name/.test(counterpartiesBlock), 'Counterparties no longer derives rows from stripped source fields');
+ok(!/partnersOpenSignalsFor|_populateCounterpartDropdowns|signals-.*-counterpart/.test(counterpartiesBlock), 'Counterparties has no dead jump to removed Signals counterpart filters');
+ok(/refreshCounterpartsCRM/.test(partnersOpenBlock) && !/refreshSignalsBrowse/.test(partnersOpenBlock), 'opening Counterparties refreshes CRM profiles, not normal Signals');
 ok(/BROKER_PLUGIN_HOST_RUNTIME_VERSION\s*=\s*'1\.0\.1'/.test(appsBlock), 'Broker records shared runtime version');
 ok(/BROKER_PLUGIN_HOST_RUNTIME_SHA256\s*=\s*'edd0ba5f8b21f05fcf55485b13b1dafc963173b2d2aa79e261611297283c307a'/.test(appsBlock), 'Broker records shared runtime sha256');
 ok(/SkipiPluginRuntime\.create/.test(appsBlock) && /rt\.open\(id, c\)/.test(appsBlock), 'Broker mount path uses shared runtime open()');
