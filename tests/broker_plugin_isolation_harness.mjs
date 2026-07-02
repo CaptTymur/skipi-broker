@@ -54,6 +54,13 @@ function extractPartnersOpenBlock() {
   return HTML.slice(start, end);
 }
 
+function extractThemeBlock() {
+  const start = HTML.indexOf('// ---------- Theme ----------');
+  const end = HTML.indexOf('// ===================== Apps / Plugin host', start);
+  if (start < 0 || end < 0) throw new Error('Broker theme block not found');
+  return HTML.slice(start, end);
+}
+
 function esc(s) {
   return String(s == null ? '' : s).replace(/[<>&"]/g, (c) => ({ '<':'&lt;', '>':'&gt;', '&':'&amp;', '"':'&quot;' }[c]));
 }
@@ -225,6 +232,90 @@ try { ctx.emit({ ch: 'skipi-plugin', v: 1, token, type: 'nav.close' }); } catch 
 await tick();
 ok(!navCloseError, 'plugin nav.close does not throw after host-side close/unmount');
 ok(rt._active() === null, 'plugin nav.close tears down the active frame');
+
+section('fresh-install light theme defaults');
+
+const themeBlock = extractThemeBlock();
+
+function makeThemeEnv(saved, osPrefersLight) {
+  const store = new Map();
+  if (saved != null) store.set('skipi-broker-theme', saved);
+  const mediaQueries = [];
+  const docEl = {
+    attrs: new Map([['data-theme', 'light']]),
+    style: { setProperty() {} },
+    setAttribute(k, v) { this.attrs.set(k, v); },
+    getAttribute(k) { return this.attrs.has(k) ? this.attrs.get(k) : null; },
+  };
+  return {
+    store, mediaQueries, docEl,
+    localStorage: {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => { store.set(k, String(v)); },
+      removeItem: (k) => { store.delete(k); },
+    },
+    window: {
+      matchMedia(q) {
+        mediaQueries.push(q);
+        const wantsLight = q.indexOf('light') !== -1;
+        return { matches: wantsLight ? !!osPrefersLight : !osPrefersLight };
+      },
+    },
+    document: { documentElement: docEl },
+  };
+}
+
+function loadThemeApi(env) {
+  return new Function('window', 'document', 'localStorage', 'renderSettingsBody',
+    themeBlock + '\nreturn { applyTheme: applyTheme, setTheme: setTheme };')(
+    env.window, env.document, env.localStorage, function () {});
+}
+
+ok(HTML.includes('<html lang="ru" data-theme="light">'), 'static markup boots with data-theme="light" before any JS runs');
+ok(HTML.indexOf('[data-theme="light"] {') > HTML.indexOf(':root, [data-theme="dark"] {'), 'light token block overrides the shared :root/dark token block for the static light attribute');
+ok(/async function boot\(\)\{\s*applyTheme\(\);/.test(HTML), 'boot() applies the theme first, before settings/backend calls');
+
+const freshDarkOs = makeThemeEnv(null, false);
+loadThemeApi(freshDarkOs).applyTheme();
+ok(freshDarkOs.docEl.getAttribute('data-theme') === 'light', 'fresh empty localStorage resolves to light');
+ok(freshDarkOs.mediaQueries.length === 0, 'fresh install never consults prefers-color-scheme (OS dark cannot flip the default)');
+ok(!freshDarkOs.store.has('skipi-broker-theme'), 'applyTheme does not silently persist a theme value on fresh install');
+
+const savedDark = makeThemeEnv('dark', true);
+loadThemeApi(savedDark).applyTheme();
+ok(savedDark.docEl.getAttribute('data-theme') === 'dark', 'explicitly saved dark preference still starts dark');
+const savedLight = makeThemeEnv('light', false);
+loadThemeApi(savedLight).applyTheme();
+ok(savedLight.docEl.getAttribute('data-theme') === 'light', 'explicitly saved light preference starts light');
+const sysDark = makeThemeEnv('system', false);
+loadThemeApi(sysDark).applyTheme();
+ok(sysDark.docEl.getAttribute('data-theme') === 'dark' && sysDark.mediaQueries.length === 1, 'system is honored only as an explicit saved user choice (OS dark -> dark)');
+const sysLight = makeThemeEnv('system', true);
+loadThemeApi(sysLight).applyTheme();
+ok(sysLight.docEl.getAttribute('data-theme') === 'light', 'explicit system choice with OS light resolves light');
+
+const switchEnv = makeThemeEnv(null, true);
+const switchApi = loadThemeApi(switchEnv);
+switchApi.setTheme('dark');
+ok(switchEnv.store.get('skipi-broker-theme') === 'dark' && switchEnv.docEl.getAttribute('data-theme') === 'dark', 'setTheme persists dark and applies it (dark stays available as a user choice)');
+switchApi.setTheme('light');
+ok(switchEnv.store.get('skipi-broker-theme') === 'light' && switchEnv.docEl.getAttribute('data-theme') === 'light', 'setTheme switches back to light');
+
+ok(HTML.includes("var cur = localStorage.getItem('skipi-broker-theme') || 'light';"), 'settings theme picker resolves fresh install to light');
+ok(HTML.includes("['dark','light','system'].map") && HTML.includes("(cur===x?'checked':'')"), 'picker keeps dark/light/system options and checks the resolved value (light on fresh)');
+ok(!/'skipi-broker-theme'\)\s*\|\|\s*'(?:dark|system)'/.test(HTML), 'no code path falls back to dark or system for the theme key');
+ok((HTML.match(/setItem\('skipi-broker-theme'/g) || []).length === 1, 'only the explicit setTheme user action writes the theme key (nothing seeds dark/system)');
+ok((HTML.match(/prefers-color-scheme/g) || []).length === 1 && /t==='system'/.test(themeBlock), 'prefers-color-scheme is consulted only inside the explicit system branch');
+
+const curThemeSrc = (HTML.match(/function brokerCurrentTheme\(\)\{[^\n]*\}/) || [''])[0];
+ok(!!curThemeSrc, 'brokerCurrentTheme (plugin host theme source) is present');
+const curTheme = (attr) => new Function('document', curThemeSrc + '\nreturn brokerCurrentTheme();')({ documentElement: { getAttribute: () => attr } });
+ok(curTheme('light') === 'light', 'plugin host theme bridge reports light on fresh launch');
+ok(curTheme(null) === 'light', 'plugin host theme source fails open to light, never dark, if the attribute is missing');
+ok(curTheme('dark') === 'dark', 'plugin host theme bridge still reports an explicit dark preference');
+ok(/theme:\{\s*get: brokerCurrentTheme,/.test(HTML), 'host glue always supplies theme.get (shared runtime dark fallback is unreachable in Broker)');
+ok(RUNTIME_SOURCE.includes('theme: themeApi.get()'), 'runtime init message always carries the host-resolved theme to the plugin frame');
+ok(themeBlock.includes('brokerPluginNotifyTheme'), 'applyTheme pushes every resolved theme change to plugin subscribers');
 
 console.log('\n' + (fail === 0 ? 'ALL GREEN' : 'FAILURES') + ': ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);
