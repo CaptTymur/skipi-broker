@@ -54,6 +54,13 @@ function extractPartnersOpenBlock() {
   return HTML.slice(start, end);
 }
 
+function extractVesselsBlock() {
+  const start = HTML.indexOf('// ===================== Vessels / Vessel Database Core v0');
+  const end = HTML.indexOf('// ===================== end Vessels / Vessel Database Slice 1');
+  if (start < 0 || end < 0) throw new Error('Broker Vessels (Vessel Database Slice 1) block not found');
+  return HTML.slice(start, end);
+}
+
 function esc(s) {
   return String(s == null ? '' : s).replace(/[<>&"]/g, (c) => ({ '<':'&lt;', '>':'&gt;', '&':'&amp;', '"':'&quot;' }[c]));
 }
@@ -225,6 +232,98 @@ try { ctx.emit({ ch: 'skipi-plugin', v: 1, token, type: 'nav.close' }); } catch 
 await tick();
 ok(!navCloseError, 'plugin nav.close does not throw after host-side close/unmount');
 ok(rt._active() === null, 'plugin nav.close tears down the active frame');
+
+// ===================== Vessel Database Slice 1 — read-only vessel lookup =====================
+// Broker is the first consumer of the shared Vessel Database module
+// (contract pin a5537e3). Slice 1 = read-only search/identity surface on
+// synthetic fixture data. These checks prove: the surface exists on desktop
+// and mobile, every contract QA hook renders, the adapter fails closed per
+// the contract denial vocabulary, redaction never leaks licensed/forbidden
+// fields, and NO attach/write path exists anywhere in the artifact.
+section('Vessel Database Slice 1: static surface');
+const vesselsBlock = extractVesselsBlock();
+ok(/id="nav-vessels"[^>]*onclick="showView\('vessels'\)"/.test(HTML), 'desktop Vessels tab exists and routes to the vessels view');
+ok(/id="mrail-vessels"[^>]*onclick="mobileSwitchView\('vessels'\)"/.test(HTML), 'mobile bottom Vessels rail item exists');
+ok(/vessels:\s*\{\s*pane:'view-vessels',\s*btn:'mrail-vessels'\s*\}/.test(HTML), 'mobile router maps Vessels to its view pane');
+ok(/id="view-vessels"/.test(HTML), 'Vessels view pane exists');
+ok(HTML.includes('#view-vessels[data-mobile-active="1"]'), 'Vessels pane has a mobile display rule (unlike the known dedup/partners gap)');
+ok(/name !== 'vessels'/.test(HTML), 'showView allowlist accepts the vessels view');
+for (const hook of ['vessel-search-input', 'vessel-search-result', 'vessel-identity-card', 'vessel-provenance-chip',
+                    'vessel-cache-state', 'vessel-conflict-state', 'vessel-readonly-state', 'vessel-field-locked',
+                    'vessel-fail-closed']) {
+  ok(HTML.includes('data-qa="' + hook + '"'), 'QA hook present: ' + hook);
+}
+ok(!HTML.includes('vessel-local-attach'), 'vessel-local-attach control is ABSENT everywhere (Slice 1 has no attach)');
+ok(!/fetch\(|XMLHttpRequest|WebSocket|__TAURI__|invoke\(|localStorage|sessionStorage/.test(vesselsBlock), 'Vessels block makes no network/invoke/storage calls (fixture-only)');
+ok(!/bazaar|counterpart|state\.team|state\.inbox|refreshMail|bearer|skipi-broker-token|case-seed|pairing/i.test(vesselsBlock), 'Vessels block has no coupling to other Broker domain modules');
+ok(!/<button[^>]*(save|edit|attach)/i.test(vesselsBlock), 'Vessels UI has no save/edit/attach buttons');
+
+section('Vessel Database Slice 1: adapter contract behavior');
+const V = new Function('esc', vesselsBlock
+  + '\nreturn { BROKER_VESSEL_SLICE1_GRANTS, VDB_REQUEST_CAPABILITIES, VDB_CACHE_SEMANTICS,'
+  + ' VDB_SEARCH_RESULT_FIELDS, VDB_LICENSED_INTERNAL_KEYS, VDB_FORBIDDEN_CANONICAL_KEYS,'
+  + ' VDB_FIXTURE_IDENTITIES, brokerVesselContext, vdbAuthorize, BrokerVesselAdapter };')(esc);
+
+const ctx1 = V.brokerVesselContext();
+const ctx2 = V.brokerVesselContext();
+ok(ctx1.home === 'broker' && (ctx1.role === 'broker_user' || ctx1.role === 'broker_admin'), 'AdapterContextV0: home=broker with a broker role');
+ok(ctx1.tenant_id === null && ctx1.fleet_id === null, 'AdapterContextV0: tenant_id/fleet_id are null for Broker');
+ok(typeof ctx1.actor_ref === 'string' && !/@|victoria|tymur|sasha|andre/i.test(ctx1.actor_ref), 'actor_ref is opaque, not person-resolvable');
+ok(ctx1.request_id && ctx2.request_id && ctx1.request_id !== ctx2.request_id, 'request_id is generated per call');
+ok(JSON.stringify(ctx1.capability_grants.slice().sort()) === JSON.stringify(['vessel.cache.read', 'vessel.identity.read', 'vessel.provenance.read', 'vessel.search.read']), 'Slice 1 grants are exactly the four read capabilities');
+ok(V.BROKER_VESSEL_SLICE1_GRANTS.indexOf('vessel.local_attach.write') < 0 && V.BROKER_VESSEL_SLICE1_GRANTS.indexOf('vessel.licensed.display.read') < 0, 'no write grant and no licensed-display grant in Slice 1');
+ok(typeof V.BrokerVesselAdapter.attachLocalVesselRef === 'undefined' && typeof V.BrokerVesselAdapter.writeCanonicalVesselIdentity === 'undefined', 'adapter exposes no attach/write methods');
+
+const sr = V.BrokerVesselAdapter.searchVessels('1234567');
+ok(sr.ok && sr.results.length === 1 && sr.results[0].imo === '1234567', 'searchVessels finds the fixture bulk carrier by IMO');
+const allowedKeys = new Set(V.VDB_SEARCH_RESULT_FIELDS);
+const badKeys = Object.keys(sr.results[0]).filter((k) => !allowedKeys.has(k));
+ok(badKeys.length === 0, 'search result is redacted to VesselSearchResultV0 fields only (extra: ' + badKeys.join(',') + ')');
+ok(V.BrokerVesselAdapter.searchVessels('contract bulk').results.length === 1, 'searchVessels finds by name fragment');
+ok(V.BrokerVesselAdapter.searchVessels('995123456').results.length === 1, 'searchVessels finds by MMSI');
+ok(V.BrokerVesselAdapter.searchVessels('skp1').results.length === 1, 'searchVessels finds by call sign');
+ok(V.BrokerVesselAdapter.searchVessels('').results.length === 0, 'empty query returns no rows');
+ok(V.BrokerVesselAdapter.searchVessels('no-such-vessel-xyz').results.length === 0, 'no-hit query returns no rows');
+ok(V.BrokerVesselAdapter.searchVessels('venus').results.length === 0, 'license-blocked record is NOT findable by hidden name (no search oracle)');
+const blockedRow = V.BrokerVesselAdapter.searchVessels('9990001').results[0];
+ok(blockedRow && blockedRow.record_id === 'imo:9990001' && blockedRow.name_current === null && blockedRow.type_display === null, 'license-blocked record found by identifier is an envelope row without public display fields');
+
+const idOk = V.BrokerVesselAdapter.getVesselIdentity('imo:1234567');
+ok(idOk.ok && idOk.fail_closed === false && idOk.identity.name_current === 'SKIPI CONTRACT BULK', 'getVesselIdentity returns the fixture identity');
+const leakKeys = Object.keys(idOk.identity).filter((k) => V.VDB_LICENSED_INTERNAL_KEYS.includes(k) || V.VDB_FORBIDDEN_CANONICAL_KEYS.includes(k));
+ok(leakKeys.length === 0, 'identity never contains licensed_internal or forbidden canonical fields (leak: ' + leakKeys.join(',') + ')');
+ok(V.BrokerVesselAdapter.getVesselIdentity('imo:7654321').ui.must_show_staleness === true, 'stale record: cache semantics require a staleness indicator');
+ok(V.BrokerVesselAdapter.getVesselIdentity('local:broker:alias-014').ui.must_show_staleness === true, 'offline-cached record: cache semantics require an offline/staleness indicator');
+ok(V.BrokerVesselAdapter.getVesselIdentity('local:broker:alias-014').identity.identity_status === 'local_alias_only', 'non-IMO record stays local_alias_only, not canonical truth');
+
+const conf = V.BrokerVesselAdapter.resolveConflictCandidates('imo:9111222');
+ok(conf.ok && conf.candidates.length === 2, 'conflicted record resolves its conflict candidates');
+ok(conf.candidates.every((c) => Object.keys(c).every((k) => allowedKeys.has(k))), 'conflict candidates are redacted search projections');
+
+const blocked = V.BrokerVesselAdapter.getVesselIdentity('imo:9990001');
+ok(blocked.ok && blocked.fail_closed === true && blocked.identity.name_current === undefined && blocked.identity.gross_tonnage === undefined, 'blocked_by_license identity fails closed to the envelope (no public fields)');
+ok(V.BrokerVesselAdapter.getVesselIdentity('imo:8880001').fail_closed === true, 'error cache state fails closed');
+const missing = V.BrokerVesselAdapter.getVesselIdentity('imo:0000000');
+ok(missing.ok && missing.fail_closed === true && missing.identity.cache_state === 'missing', 'unknown record id fails closed as missing');
+
+const prov = V.BrokerVesselAdapter.getVesselProvenance('imo:1234567');
+ok(prov.ok && prov.chips.length === 1 && prov.chips[0].source_name === 'Skipi user-generated', 'provenance chips return display-safe source data');
+ok(prov.chips.every((c) => Object.keys(c).every((k) => !V.VDB_LICENSED_INTERNAL_KEYS.includes(k))), 'provenance chips contain no licensed_internal fields');
+const provBlocked = V.BrokerVesselAdapter.getVesselProvenance('imo:9990001');
+ok(provBlocked.ok && provBlocked.fail_closed === true && provBlocked.chips.length === 0, 'provenance for a fail-closed record returns no chips');
+
+section('Vessel Database Slice 1: fail-closed denials');
+const noGrants = { ...V.brokerVesselContext(), capability_grants: [] };
+ok(V.vdbAuthorize('searchVessels', noGrants) === 'missing_host_or_home_capability', 'missing grant denies with missing_host_or_home_capability');
+const deniedSearch = V.BrokerVesselAdapter.searchVessels('1234567', noGrants);
+ok(deniedSearch.ok === false && deniedSearch.denied === true && deniedSearch.reason === 'missing_host_or_home_capability', 'adapter surfaces the denial, not data');
+ok(V.BrokerVesselAdapter.request('writeCanonicalVesselIdentity', {}).reason === 'canonical_write_denied_in_v0', 'canonical write is always denied in v0');
+ok(V.BrokerVesselAdapter.request('attachLocalVesselRef', {}).denied === true, 'attachLocalVesselRef is denied in Slice 1 (write capability not granted)');
+ok(V.BrokerVesselAdapter.request('unknownRequestType', {}).denied === true, 'unknown request types fail closed');
+ok(V.vdbAuthorize('searchVessels', { ...V.brokerVesselContext(), home: 'onboard' }) === 'onboard_not_v0_consumer', 'onboard context is denied as not a v0 consumer');
+ok(V.vdbAuthorize('searchVessels', { ...V.brokerVesselContext(), home: 'crewing' }) === 'unknown_home', 'non-broker home is denied by the Broker adapter');
+ok(V.vdbAuthorize('searchVessels', { ...V.brokerVesselContext(), role: 'guest' }) === 'missing_or_wrong_role', 'unknown role is denied');
+ok(V.vdbAuthorize('searchVessels', { ...V.brokerVesselContext(), platform: 'watch' }) === 'unsupported_platform', 'unsupported platform is denied');
 
 console.log('\n' + (fail === 0 ? 'ALL GREEN' : 'FAILURES') + ': ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);

@@ -317,6 +317,34 @@ code { background:var(--surface2); padding:1px 5px; border-radius:3px; font:11px
 .p2-refresh.spinning { animation: spin 1s linear infinite; color:var(--accent); }
 @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
 .row .r-pin { color:var(--accent); font-size:11px; margin-right:4px; }
+
+/* 🚢 Суда — Vessel Database Slice 1 (read-only lookup) */
+.vdb-readonly-pill { font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
+    padding:2px 7px; border-radius:9px; color:var(--text2); background:var(--surface2);
+    border:1px solid var(--border); white-space:nowrap; }
+.vdb-foot { flex-shrink:0; padding:5px 12px; font-size:10px; color:var(--text3);
+    border-top:1px solid var(--border); background:var(--surface); }
+.vdb-row { display:flex; align-items:center; gap:8px; padding:7px 9px; border-radius:8px;
+    cursor:pointer; border:1px solid transparent; }
+.vdb-row:hover { background:var(--hover); }
+.vdb-row.sel { background:var(--surface2); border-color:var(--border); }
+.vdb-row .vdb-r-name { font-weight:600; font-size:12px; color:var(--text); }
+.vdb-row .vdb-r-sub { font-size:10.5px; color:var(--text3); }
+.vdb-empty { padding:22px 14px; text-align:center; color:var(--text3); font-size:12px; line-height:1.5; }
+.vdb-chip { display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:600;
+    padding:2px 8px; border-radius:9px; background:var(--surface2); color:var(--text2);
+    border:1px solid var(--border); margin:0 6px 6px 0; }
+.vdb-chip.warn { color:#8a6d00; background:rgba(240,190,0,0.12); border-color:rgba(240,190,0,0.4); }
+.vdb-chip.bad { color:#a33; background:rgba(200,40,40,0.10); border-color:rgba(200,40,40,0.35); }
+.vdb-chip.ok { color:#2b7a3d; background:rgba(50,160,80,0.10); border-color:rgba(50,160,80,0.35); }
+.vdb-kv { display:grid; grid-template-columns:150px 1fr; gap:4px 12px; font-size:12px; margin:10px 0; }
+.vdb-kv .k { color:var(--text3); }
+.vdb-kv .v { color:var(--text); }
+.vdb-kv .v.locked { color:var(--text3); font-style:italic; }
+.vdb-conflict-box { margin:10px 0; padding:9px 11px; border:1px solid rgba(240,190,0,0.45);
+    background:rgba(240,190,0,0.08); border-radius:9px; font-size:11.5px; }
+.vdb-failclosed { margin:14px 0; padding:16px 14px; border:1px solid rgba(200,40,40,0.35);
+    background:rgba(200,40,40,0.06); border-radius:10px; font-size:12px; line-height:1.55; color:var(--text2); }
 .row .r-hot { font-size:12px; margin-right:2px; }
 .row.hot { box-shadow: inset 3px 0 0 var(--red); }
 .row.pinned { background:linear-gradient(90deg, var(--accent-bg) 0%, transparent 60%); }
@@ -623,6 +651,11 @@ body.mobile-mode .mrail-badge {
     body.mobile-mode #view-apps[data-mobile-active="1"] { display:flex !important; }
     /* Initial state: Совпадения is the active mobile view (home) */
     body.mobile-mode #view-match:not([data-mobile-inactive="1"]) { display:flex !important; }
+
+    /* 🚢 Суда (Vessel Database Slice 1): show when active, stack columns vertically */
+    body.mobile-mode #view-vessels[data-mobile-active="1"] { display:flex !important; }
+    body.mobile-mode #view-vessels .signals-cols { flex-direction:column; }
+    body.mobile-mode #view-vessels .splitter { display:none; }
 
     /* ----- view-cases (📂 Дела) mobile layout (2026-06-13) -----
        Single-column card list; desk-mode tab hidden (desktop-only); meta
@@ -4140,6 +4173,7 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
         <button class="mrail-btn" id="mrail-ex" type="button" onclick="mobileSwitchView('ex')"><span>&#128203;</span>Эксклюзивы</button>
         <button class="mrail-btn" id="mrail-dedup" type="button" onclick="mobileSwitchView('dedup')" data-qa="broker-mobile-module-dedup"><span>&#128269;</span>Дубли</button>
         <button class="mrail-btn" id="mrail-partners" type="button" onclick="mobileSwitchView('partners')" data-qa="broker-mobile-module-counterparties"><span>&#129309;</span>Контрагенты</button>
+        <button class="mrail-btn" id="mrail-vessels" type="button" onclick="mobileSwitchView('vessels')" data-qa="broker-mobile-module-vessels"><span>&#128674;</span>Суда</button>
         <button class="mrail-btn" id="mrail-viz" type="button" onclick="mobileSwitchView('viz')"><span>&#128506;</span>Карта</button>
         <button class="mrail-btn" id="mrail-apps" type="button" onclick="mobileSwitchView('apps')"><span>&#129513;</span>Apps</button>
     </div>
@@ -4152,6 +4186,7 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
     <div class="mod-tab" id="nav-signals" onclick="showView('signals')"><span data-i18n="nav.signals">🛒 Сигналы</span> <span id="signals-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-dedup" data-qa="broker-module-dedup" onclick="showView('dedup')"><span data-i18n="nav.duplicates">🔍 Дедупликатор</span> <span id="dedup-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-partners" data-qa="broker-module-counterparties" onclick="showView('partners')"><span data-i18n="nav.counterparts">🤝 Контрагенты</span> <span id="partners-badge" class="count" style="display:none;"></span></div>
+    <div class="mod-tab" id="nav-vessels" data-qa="broker-module-vessels" onclick="showView('vessels')"><span>🚢 Суда</span></div>
     <div class="mod-tab" id="nav-viz" onclick="showView('viz')"><span data-i18n="nav.map">🗺 Визуализатор</span></div>
     <div class="mod-tab" id="nav-mail" onclick="showView('mail')"><span data-i18n="nav.mail">📧 Почта</span> <span id="mail-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-cases" onclick="showView('cases')"><span data-i18n="nav.cases">📂 Дела</span> <span id="cases-badge" class="count" style="display:none;"></span></div>
@@ -4463,6 +4498,33 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
                     <span id="partners-dossier-title">📇 Досье контрагента</span>
                 </div>
                 <div id="partners-dossier" style="padding:14px 16px; overflow:auto; flex:1;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- View 3c: Суда — Vessel Database Core v0, Slice 1: read-only lookup.
+         First consumer of the shared Vessel Database module (contract pin a5537e3).
+         Synthetic fixture/contract data only — no server calls, no seed/provider
+         data, no attach/write path. BrokerVesselAdapter (see the Vessels JS block)
+         is the only data source for this pane. -->
+    <div class="view-pane view-signals-stack" id="view-vessels" style="display:none;">
+        <div class="signals-cols">
+            <div class="signals-col" style="flex:1;">
+                <div class="col-head">
+                    <span>🚢 Суда</span>
+                    <span class="count" id="vdb-count">0</span>
+                    <span class="vdb-readonly-pill" data-qa="vessel-readonly-state" title="База судов в этом срезе доступна только для чтения: без правок, без привязки к делам, без публикации">🔒 только чтение</span>
+                </div>
+                <div class="signals-filter-row">
+                    <input id="vdb-q" data-qa="vessel-search-input" placeholder="поиск: IMO / название / MMSI / позывной…" oninput="vdbOnSearchInput()" autocomplete="off">
+                </div>
+                <div class="signals-table-wrap" id="vdb-results" style="padding:8px 10px; overflow-y:auto;"></div>
+                <div class="vdb-foot">фикстурные данные контракта Vessel Database Core v0 · кэш: TTL 24ч (display-only default этого среза)</div>
+            </div>
+            <div class="splitter splitter-v" onmousedown="startSplitDrag(event, 'vessels-v')"></div>
+            <div class="signals-col" style="flex:1.3; overflow:auto;">
+                <div class="col-head"><span id="vdb-card-title">📇 Карточка судна</span></div>
+                <div id="vdb-card" style="padding:14px 16px; overflow:auto; flex:1;"></div>
             </div>
         </div>
     </div>
@@ -5294,6 +5356,514 @@ function applyTheme(){
     if(typeof brokerPluginNotifyTheme === 'function') brokerPluginNotifyTheme();
 }
 function setTheme(t){ localStorage.setItem('skipi-broker-theme', t); applyTheme(); renderSettingsBody(); }
+
+// ===================== Vessels / Vessel Database Core v0 — Slice 1 read-only lookup =====================
+// Broker is the FIRST consumer of the shared Vessel Database module.
+// Contract surface pinned at module commit a5537e3 (local path pin, Placement Pack v1 §P.2).
+// Slice 1 scope: search -> result rows -> read-only identity card. Synthetic
+// fixture/contract data only. NO writes, NO local attach, NO licensed display,
+// NO network/invoke/storage — this block is intentionally self-contained and
+// never reads other Broker modules' state.
+
+// -- Slice 1 grants: the four read capabilities ONLY. vessel.local_attach.write
+//    is deliberately absent (attach = Slice 2, separate GO).
+var BROKER_VESSEL_SLICE1_GRANTS = ['vessel.search.read', 'vessel.identity.read', 'vessel.provenance.read', 'vessel.cache.read'];
+var VDB_ROLE = 'broker_user';
+var VDB_CACHE_TTL_HOURS = 24; // display-only fixture default for this slice, NOT a global product policy
+
+// -- contract/request-capability-map-v0.json (embedded verbatim at pin a5537e3)
+var VDB_REQUEST_CAPABILITIES = {
+    requests: {
+        searchVessels:             { required_capability: 'vessel.search.read',       write: false },
+        getVesselIdentity:         { required_capability: 'vessel.identity.read',     write: false },
+        getVesselProvenance:       { required_capability: 'vessel.provenance.read',   write: false },
+        resolveConflictCandidates: { required_capability: 'vessel.identity.read',     write: false },
+        attachLocalVesselRef:      { required_capability: 'vessel.local_attach.write', write: true, write_scope: 'home_private' }
+    },
+    denied_requests: {
+        writeCanonicalVesselIdentity: { denied_in_v0: true, reason: 'canonical_write_denied_in_v0' }
+    }
+};
+
+// -- contract/cache-semantics-v0.json states (embedded verbatim at pin a5537e3)
+var VDB_CACHE_SEMANTICS = {
+    fresh:              { display_public_fields: true,  must_show_staleness: false, licensed_display: 'per_grant',                    fail_closed: false },
+    stale:              { display_public_fields: true,  must_show_staleness: true,  licensed_display: 'only_if_retention_permits',    fail_closed: false },
+    offline_cached:     { display_public_fields: true,  must_show_staleness: true,  licensed_display: 'only_if_cached_rights_allow',  fail_closed: false },
+    missing:            { display_public_fields: false, must_show_staleness: false, licensed_display: 'never',                        fail_closed: true },
+    blocked_by_license: { display_public_fields: false, must_show_staleness: false, licensed_display: 'never',                        fail_closed: true },
+    error:              { display_public_fields: false, must_show_staleness: false, licensed_display: 'never',                        fail_closed: true }
+};
+var VDB_CACHE_LABELS = {
+    fresh: 'кэш: свежий', stale: 'кэш: устарел', offline_cached: 'офлайн-кэш',
+    missing: 'нет в кэше', blocked_by_license: 'закрыто лицензией', error: 'ошибка источника'
+};
+var VDB_STATUS_LABELS = {
+    confirmed: '✓ подтверждено', probable: '≈ вероятно', conflicted: '⚠ конфликт',
+    local_alias_only: 'локальный алиас', unknown: 'не определено'
+};
+
+// -- Redaction contract: field whitelists/blacklists per contract field classes.
+var VDB_SEARCH_RESULT_FIELDS = ['schema_version', 'record_id', 'identity_status', 'imo', 'name_current', 'flag_current', 'primary_type_code', 'type_display', 'cache_state', 'conflict_ids', 'license_visibility'];
+var VDB_LICENSED_INTERNAL_KEYS = ['source_agreement_id', 'display_rules_id', 'fetched_at', 'raw_hash', 'licensed_fields_internal', 'blocked_reason'];
+var VDB_FORBIDDEN_CANONICAL_KEYS = ['crew_id', 'candidate_id', 'vacancy_id', 'application_id', 'seafarer_id', 'document_id', 'review_id', 'contract_id', 'report_id', 'broker_match_id', 'home_notes', 'private_workflow_status'];
+// Dimension/tonnage fields that render as locked placeholders when the record's
+// license_visibility is redacted (licensed values exist upstream but Broker has
+// no display grant in v0 — and never renders them).
+var VDB_LICENSED_LOCKED_FIELDS = ['gross_tonnage', 'deadweight_tonnage', 'net_tonnage', 'length_overall_m', 'breadth_m'];
+
+// -- Synthetic fixture identities (VesselIdentityV0-shaped, contract-valid).
+//    First record mirrors the module fixture imo-confirmed-bulk-carrier.json.
+var VDB_FIXTURE_IDENTITIES = [
+    { schema_version: 1, record_id: 'imo:1234567', identity_status: 'confirmed', imo: '1234567', non_imo_key: null,
+      name_current: 'SKIPI CONTRACT BULK', name_aliases: [], flag_current: 'GE', flag_history: [],
+      mmsi: '995123456', call_sign: 'SKP1', primary_type_code: 'BULK_CARRIER', type_display: 'Bulk carrier',
+      capability_codes: ['CARGO_DRY_BULK'], built_year: 2024, gross_tonnage: 30000, deadweight_tonnage: 52000,
+      net_tonnage: 18000, length_overall_m: 190.5, breadth_m: 32.2,
+      source_primary_id: 'src:skipi-user-generated:imo-1234567', source_count: 1, confidence: 0.95,
+      last_checked_at: '2026-07-01T00:00:00.000Z', last_changed_at: null,
+      cache_state: 'fresh', cache_checked_at: '2026-07-01T00:00:00.000Z', stale_after_at: '2026-08-01T00:00:00.000Z',
+      conflict_ids: [], license_visibility: 'public', created_at: '2026-07-01T00:00:00.000Z', updated_at: '2026-07-01T00:00:00.000Z' },
+    { schema_version: 1, record_id: 'imo:7654321', identity_status: 'probable', imo: '7654321', non_imo_key: null,
+      name_current: 'FIXTURE HORIZON STAR', name_aliases: ['HORIZON STAR I'], flag_current: 'PA', flag_history: ['CY'],
+      mmsi: '995765432', call_sign: 'FHS7', primary_type_code: 'GENERAL_CARGO', type_display: 'General cargo',
+      capability_codes: ['CARGO_GENERAL'], built_year: 2009, gross_tonnage: 9800, deadweight_tonnage: 12400,
+      net_tonnage: 5400, length_overall_m: 132.0, breadth_m: 19.8,
+      source_primary_id: 'src:skipi-user-generated:imo-7654321', source_count: 2, confidence: 0.71,
+      last_checked_at: '2026-06-25T08:00:00.000Z', last_changed_at: null,
+      cache_state: 'stale', cache_checked_at: '2026-06-25T08:00:00.000Z', stale_after_at: '2026-06-26T08:00:00.000Z',
+      conflict_ids: [], license_visibility: 'public', created_at: '2026-06-20T00:00:00.000Z', updated_at: '2026-06-25T08:00:00.000Z' },
+    { schema_version: 1, record_id: 'imo:9111222', identity_status: 'conflicted', imo: '9111222', non_imo_key: null,
+      name_current: 'FIXTURE TWIN CREST', name_aliases: [], flag_current: 'MT', flag_history: [],
+      mmsi: '995911122', call_sign: 'FTC9', primary_type_code: 'BULK_CARRIER', type_display: 'Bulk carrier',
+      capability_codes: ['CARGO_DRY_BULK'], built_year: 2015, gross_tonnage: 21500, deadweight_tonnage: 34000,
+      net_tonnage: 12800, length_overall_m: 179.9, breadth_m: 28.4,
+      source_primary_id: 'src:skipi-user-generated:imo-9111222', source_count: 3, confidence: 0.52,
+      last_checked_at: '2026-07-01T09:00:00.000Z', last_changed_at: '2026-06-28T00:00:00.000Z',
+      cache_state: 'fresh', cache_checked_at: '2026-07-01T09:00:00.000Z', stale_after_at: '2026-08-01T09:00:00.000Z',
+      conflict_ids: ['imo:9111223', 'local:broker:alias-777'], license_visibility: 'public',
+      created_at: '2026-06-15T00:00:00.000Z', updated_at: '2026-07-01T09:00:00.000Z' },
+    { schema_version: 1, record_id: 'imo:9111223', identity_status: 'probable', imo: '9111223', non_imo_key: null,
+      name_current: 'FIXTURE TWIN CREST II', name_aliases: [], flag_current: 'MT', flag_history: [],
+      mmsi: '995911123', call_sign: 'FTC2', primary_type_code: 'BULK_CARRIER', type_display: 'Bulk carrier',
+      capability_codes: ['CARGO_DRY_BULK'], built_year: 2016, gross_tonnage: 21600, deadweight_tonnage: 34200,
+      net_tonnage: 12900, length_overall_m: 179.9, breadth_m: 28.4,
+      source_primary_id: 'src:skipi-user-generated:imo-9111223', source_count: 1, confidence: 0.61,
+      last_checked_at: '2026-07-01T09:00:00.000Z', last_changed_at: null,
+      cache_state: 'fresh', cache_checked_at: '2026-07-01T09:00:00.000Z', stale_after_at: '2026-08-01T09:00:00.000Z',
+      conflict_ids: ['imo:9111222'], license_visibility: 'public',
+      created_at: '2026-06-15T00:00:00.000Z', updated_at: '2026-07-01T09:00:00.000Z' },
+    { schema_version: 1, record_id: 'local:broker:alias-777', identity_status: 'local_alias_only', imo: null,
+      non_imo_key: 'broker:local-vessel-alias-777', name_current: 'TWIN CREST (LOCAL NOTE)', name_aliases: [],
+      flag_current: null, flag_history: [], mmsi: null, call_sign: null,
+      primary_type_code: 'UNKNOWN', type_display: 'Unknown', capability_codes: [],
+      built_year: null, gross_tonnage: null, deadweight_tonnage: null, net_tonnage: null,
+      length_overall_m: null, breadth_m: null, source_primary_id: null, source_count: 0, confidence: 0.2,
+      last_checked_at: null, last_changed_at: null,
+      cache_state: 'fresh', cache_checked_at: '2026-07-01T00:00:00.000Z', stale_after_at: null,
+      conflict_ids: ['imo:9111222'], license_visibility: 'public',
+      created_at: '2026-06-15T00:00:00.000Z', updated_at: '2026-07-01T00:00:00.000Z' },
+    { schema_version: 1, record_id: 'local:broker:alias-014', identity_status: 'local_alias_only', imo: null,
+      non_imo_key: 'broker:local-vessel-alias-014', name_current: 'BOSPHORUS DAY TENDER', name_aliases: ['BDT'],
+      flag_current: null, flag_history: [], mmsi: null, call_sign: null,
+      primary_type_code: 'UNKNOWN', type_display: 'Unknown', capability_codes: [],
+      built_year: null, gross_tonnage: null, deadweight_tonnage: null, net_tonnage: null,
+      length_overall_m: null, breadth_m: null, source_primary_id: null, source_count: 0, confidence: 0.2,
+      last_checked_at: null, last_changed_at: null,
+      cache_state: 'offline_cached', cache_checked_at: '2026-07-01T00:00:00.000Z', stale_after_at: null,
+      conflict_ids: [], license_visibility: 'public', created_at: '2026-07-01T00:00:00.000Z', updated_at: '2026-07-01T00:00:00.000Z' },
+    { schema_version: 1, record_id: 'imo:5550001', identity_status: 'confirmed', imo: '5550001', non_imo_key: null,
+      name_current: 'FIXTURE NORTH GATE', name_aliases: [], flag_current: 'LR', flag_history: [],
+      mmsi: '995555001', call_sign: 'FNG5', primary_type_code: 'OIL_TANKER', type_display: 'Oil tanker',
+      capability_codes: ['CARGO_LIQUID_BULK'], built_year: 2018, gross_tonnage: null, deadweight_tonnage: null,
+      net_tonnage: null, length_overall_m: null, breadth_m: null,
+      source_primary_id: 'src:restricted-provider:imo-5550001', source_count: 2, confidence: 0.88,
+      last_checked_at: '2026-07-01T06:00:00.000Z', last_changed_at: null,
+      cache_state: 'fresh', cache_checked_at: '2026-07-01T06:00:00.000Z', stale_after_at: '2026-08-01T06:00:00.000Z',
+      conflict_ids: [], license_visibility: 'mixed_redacted', created_at: '2026-06-30T00:00:00.000Z', updated_at: '2026-07-01T06:00:00.000Z' },
+    { schema_version: 1, record_id: 'imo:9990001', identity_status: 'confirmed', imo: '9990001', non_imo_key: null,
+      name_current: 'FIXTURE BLOCKED VENUS', name_aliases: [], flag_current: 'GR', flag_history: [],
+      mmsi: '995999001', call_sign: 'FBV9', primary_type_code: 'CONTAINER_SHIP', type_display: 'Container ship',
+      capability_codes: ['CARGO_CONTAINER'], built_year: 2020, gross_tonnage: 48000, deadweight_tonnage: 55000,
+      net_tonnage: 26000, length_overall_m: 255.0, breadth_m: 37.3,
+      source_primary_id: 'src:restricted-provider:imo-9990001', source_count: 1, confidence: 0.9,
+      last_checked_at: '2026-07-01T00:00:00.000Z', last_changed_at: null,
+      cache_state: 'blocked_by_license', cache_checked_at: '2026-07-01T00:00:00.000Z', stale_after_at: null,
+      conflict_ids: [], license_visibility: 'licensed_internal_redacted', created_at: '2026-06-30T00:00:00.000Z', updated_at: '2026-07-01T00:00:00.000Z' },
+    { schema_version: 1, record_id: 'imo:8880001', identity_status: 'probable', imo: '8880001', non_imo_key: null,
+      name_current: 'FIXTURE ERROR BEACON', name_aliases: [], flag_current: 'TR', flag_history: [],
+      mmsi: '995888001', call_sign: 'FEB8', primary_type_code: 'GENERAL_CARGO', type_display: 'General cargo',
+      capability_codes: ['CARGO_GENERAL'], built_year: 2001, gross_tonnage: 4200, deadweight_tonnage: 6100,
+      net_tonnage: 2300, length_overall_m: 99.9, breadth_m: 15.8,
+      source_primary_id: 'src:skipi-user-generated:imo-8880001', source_count: 1, confidence: 0.4,
+      last_checked_at: '2026-06-30T00:00:00.000Z', last_changed_at: null,
+      cache_state: 'error', cache_checked_at: '2026-06-30T00:00:00.000Z', stale_after_at: null,
+      conflict_ids: [], license_visibility: 'public', created_at: '2026-06-29T00:00:00.000Z', updated_at: '2026-06-30T00:00:00.000Z' }
+];
+
+// -- Synthetic provenance chips per record (display-safe VesselSourceRecordV0
+//    projection: PUBLIC-classed fields only; licensed_internal keys never appear).
+var VDB_FIXTURE_PROVENANCE = {
+    'imo:1234567': [{ source_name: 'Skipi user-generated', source_license: 'skipi_user_generated', visibility: 'public', confidence: 0.95, last_checked_at: '2026-07-01T00:00:00.000Z', provenance_note: 'внесено участником Skipi, спот-проверка' }],
+    'imo:7654321': [
+        { source_name: 'Skipi user-generated', source_license: 'skipi_user_generated', visibility: 'public', confidence: 0.7, last_checked_at: '2026-06-25T08:00:00.000Z', provenance_note: null },
+        { source_name: 'Manual spot check', source_license: 'manual_spot_check', visibility: 'public', confidence: 0.72, last_checked_at: '2026-06-24T00:00:00.000Z', provenance_note: 'ручная сверка позывного' }],
+    'imo:9111222': [
+        { source_name: 'Skipi user-generated', source_license: 'skipi_user_generated', visibility: 'public', confidence: 0.5, last_checked_at: '2026-07-01T09:00:00.000Z', provenance_note: 'два источника расходятся по MMSI' },
+        { source_name: 'Manual spot check', source_license: 'manual_spot_check', visibility: 'public', confidence: 0.55, last_checked_at: '2026-06-28T00:00:00.000Z', provenance_note: null }],
+    'imo:9111223': [{ source_name: 'Skipi user-generated', source_license: 'skipi_user_generated', visibility: 'public', confidence: 0.61, last_checked_at: '2026-07-01T09:00:00.000Z', provenance_note: null }],
+    'local:broker:alias-777': [],
+    'local:broker:alias-014': [],
+    'imo:5550001': [
+        { source_name: 'Skipi user-generated', source_license: 'skipi_user_generated', visibility: 'public', confidence: 0.8, last_checked_at: '2026-07-01T06:00:00.000Z', provenance_note: null },
+        { source_name: 'Restricted provider', source_license: 'unknown_restricted', visibility: 'public', confidence: 0.9, last_checked_at: '2026-07-01T06:00:00.000Z', provenance_note: 'размеры закрыты условиями источника' }],
+    'imo:9990001': [],
+    'imo:8880001': [{ source_name: 'Skipi user-generated', source_license: 'skipi_user_generated', visibility: 'public', confidence: 0.4, last_checked_at: '2026-06-30T00:00:00.000Z', provenance_note: null }]
+};
+
+// -- AdapterContextV0 builder (Placement Pack P.2). actor_ref is opaque by
+//    contract: never a person-resolvable id.
+var _vdbReqSeq = 0;
+function brokerVesselContext(){
+    var mobile = false, online = true;
+    try { mobile = !!(typeof document !== 'undefined' && document.body && document.body.classList.contains('mobile-mode')); } catch(_){}
+    try { online = (typeof navigator === 'undefined' || navigator.onLine !== false); } catch(_){}
+    return {
+        home: 'broker',
+        role: VDB_ROLE,
+        platform: mobile ? 'mobile' : 'desktop',
+        tenant_id: null,
+        fleet_id: null,
+        actor_ref: 'actor:broker:local-user',
+        locale: 'ru',
+        offline_state: online ? 'online' : 'offline',
+        capability_grants: BROKER_VESSEL_SLICE1_GRANTS.slice(),
+        request_id: 'vdb-req-' + (++_vdbReqSeq) + '-' + Math.random().toString(36).slice(2, 8)
+    };
+}
+
+// -- Fail-closed authorization: returns a denial reason string or null.
+//    Reason vocabulary comes from the contract denial list.
+function vdbAuthorize(requestType, ctx){
+    var denied = VDB_REQUEST_CAPABILITIES.denied_requests[requestType];
+    if(denied) return denied.reason || 'canonical_write_denied_in_v0';
+    var spec = VDB_REQUEST_CAPABILITIES.requests[requestType];
+    if(!spec) return 'missing_host_or_home_capability';
+    if(!ctx || typeof ctx !== 'object') return 'missing_host_or_home_capability';
+    if(ctx.home === 'onboard') return 'onboard_not_v0_consumer';
+    if(ctx.home !== 'broker') return 'unknown_home';
+    if(ctx.role !== 'broker_user' && ctx.role !== 'broker_admin') return 'missing_or_wrong_role';
+    if(ctx.platform !== 'desktop' && ctx.platform !== 'web' && ctx.platform !== 'mobile') return 'unsupported_platform';
+    var grants = ctx.capability_grants || [];
+    if(grants.indexOf(spec.required_capability) < 0) return 'missing_host_or_home_capability';
+    return null;
+}
+
+function _vdbFind(recordId){
+    for(var i = 0; i < VDB_FIXTURE_IDENTITIES.length; i++){
+        if(VDB_FIXTURE_IDENTITIES[i].record_id === recordId) return VDB_FIXTURE_IDENTITIES[i];
+    }
+    return null;
+}
+
+// -- Redaction: search projection (VesselSearchResultV0 whitelist). Fail-closed
+//    cache states additionally strip public display fields to the envelope.
+function vdbProjectSearchResult(rec){
+    var sem = VDB_CACHE_SEMANTICS[rec.cache_state] || VDB_CACHE_SEMANTICS.error;
+    var out = {};
+    for(var i = 0; i < VDB_SEARCH_RESULT_FIELDS.length; i++){
+        var k = VDB_SEARCH_RESULT_FIELDS[i];
+        out[k] = (rec[k] === undefined) ? null : rec[k];
+    }
+    out.conflict_ids = (rec.conflict_ids || []).slice();
+    if(!sem.display_public_fields){
+        out.imo = null; out.name_current = null; out.flag_current = null;
+        out.primary_type_code = null; out.type_display = null;
+    }
+    return out;
+}
+
+// -- Redaction: identity projection. Strips licensed_internal + forbidden
+//    canonical keys defensively; fail-closed states return the envelope only.
+function vdbRedactIdentity(rec){
+    var sem = VDB_CACHE_SEMANTICS[rec.cache_state] || VDB_CACHE_SEMANTICS.error;
+    if(!sem.display_public_fields){
+        return { schema_version: rec.schema_version, record_id: rec.record_id, identity_status: rec.identity_status,
+                 cache_state: rec.cache_state, license_visibility: rec.license_visibility, conflict_ids: [] };
+    }
+    var out = {};
+    for(var k in rec){
+        if(!Object.prototype.hasOwnProperty.call(rec, k)) continue;
+        if(VDB_LICENSED_INTERNAL_KEYS.indexOf(k) >= 0) continue;
+        if(VDB_FORBIDDEN_CANONICAL_KEYS.indexOf(k) >= 0) continue;
+        out[k] = rec[k];
+    }
+    return out;
+}
+
+function _vdbDeny(reason, ctx){ return { ok: false, denied: true, reason: reason, request_id: ctx.request_id }; }
+
+// -- BrokerVesselAdapter: the ONLY data path of the Vessels pane.
+var BrokerVesselAdapter = {
+    searchVessels: function(query, ctxOverride){
+        var ctx = ctxOverride || brokerVesselContext();
+        var reason = vdbAuthorize('searchVessels', ctx);
+        if(reason) return _vdbDeny(reason, ctx);
+        var q = String(query == null ? '' : query).trim().toLowerCase();
+        if(!q) return { ok: true, request_id: ctx.request_id, results: [] };
+        var hits = [];
+        for(var i = 0; i < VDB_FIXTURE_IDENTITIES.length; i++){
+            var r = VDB_FIXTURE_IDENTITIES[i];
+            var sem = VDB_CACHE_SEMANTICS[r.cache_state] || VDB_CACHE_SEMANTICS.error;
+            // Fail-closed records are findable ONLY by their identifiers
+            // (record_id / IMO), never by hidden display fields — otherwise
+            // name search would become an oracle for license-blocked records.
+            var hay = sem.display_public_fields
+                ? [r.record_id, r.imo || '', r.name_current || '', (r.name_aliases || []).join(' '), r.mmsi || '', r.call_sign || ''].join(' ').toLowerCase()
+                : [r.record_id, r.imo || ''].join(' ').toLowerCase();
+            if(hay.indexOf(q) >= 0) hits.push(vdbProjectSearchResult(r));
+        }
+        return { ok: true, request_id: ctx.request_id, results: hits };
+    },
+    getVesselIdentity: function(recordId, ctxOverride){
+        var ctx = ctxOverride || brokerVesselContext();
+        var reason = vdbAuthorize('getVesselIdentity', ctx);
+        if(reason) return _vdbDeny(reason, ctx);
+        var rec = _vdbFind(recordId);
+        if(!rec){
+            return { ok: true, request_id: ctx.request_id, fail_closed: true,
+                     ui: VDB_CACHE_SEMANTICS.missing,
+                     identity: { schema_version: 1, record_id: String(recordId || ''), identity_status: 'unknown',
+                                 cache_state: 'missing', license_visibility: 'public', conflict_ids: [] } };
+        }
+        var sem = VDB_CACHE_SEMANTICS[rec.cache_state] || VDB_CACHE_SEMANTICS.error;
+        return { ok: true, request_id: ctx.request_id, fail_closed: !!sem.fail_closed, ui: sem, identity: vdbRedactIdentity(rec) };
+    },
+    getVesselProvenance: function(recordId, ctxOverride){
+        var ctx = ctxOverride || brokerVesselContext();
+        var reason = vdbAuthorize('getVesselProvenance', ctx);
+        if(reason) return _vdbDeny(reason, ctx);
+        var rec = _vdbFind(recordId);
+        var sem = rec ? (VDB_CACHE_SEMANTICS[rec.cache_state] || VDB_CACHE_SEMANTICS.error) : VDB_CACHE_SEMANTICS.missing;
+        if(!rec || sem.fail_closed) return { ok: true, request_id: ctx.request_id, fail_closed: true, chips: [] };
+        var chips = (VDB_FIXTURE_PROVENANCE[recordId] || []).map(function(c){
+            return { source_name: c.source_name, source_license: c.source_license, visibility: c.visibility,
+                     confidence: c.confidence, last_checked_at: c.last_checked_at, provenance_note: c.provenance_note };
+        });
+        return { ok: true, request_id: ctx.request_id, fail_closed: false, chips: chips };
+    },
+    resolveConflictCandidates: function(recordId, ctxOverride){
+        var ctx = ctxOverride || brokerVesselContext();
+        var reason = vdbAuthorize('resolveConflictCandidates', ctx);
+        if(reason) return _vdbDeny(reason, ctx);
+        var rec = _vdbFind(recordId);
+        if(!rec) return { ok: true, request_id: ctx.request_id, candidates: [] };
+        var out = [];
+        for(var i = 0; i < (rec.conflict_ids || []).length; i++){
+            var cand = _vdbFind(rec.conflict_ids[i]);
+            if(cand) out.push(vdbProjectSearchResult(cand));
+        }
+        return { ok: true, request_id: ctx.request_id, candidates: out };
+    },
+    // Slice 1 has no write path. Any attempt is routed through authorization
+    // and fails closed (write capability is not granted; canonical writes are
+    // denied by contract for every home in v0).
+    request: function(requestType, arg, ctxOverride){
+        var ctx = ctxOverride || brokerVesselContext();
+        var reason = vdbAuthorize(requestType, ctx);
+        if(reason) return _vdbDeny(reason, ctx);
+        switch(requestType){
+            case 'searchVessels': return BrokerVesselAdapter.searchVessels(arg, ctx);
+            case 'getVesselIdentity': return BrokerVesselAdapter.getVesselIdentity(arg, ctx);
+            case 'getVesselProvenance': return BrokerVesselAdapter.getVesselProvenance(arg, ctx);
+            case 'resolveConflictCandidates': return BrokerVesselAdapter.resolveConflictCandidates(arg, ctx);
+        }
+        return _vdbDeny('missing_host_or_home_capability', ctx);
+    }
+};
+
+// ---------- Vessels pane rendering (read-only) ----------
+var _vdbUi = { query: '', selected: null, initialized: false, _t: null };
+
+function vdbFmtTs(iso){
+    if(!iso) return '—';
+    var s = String(iso);
+    return s.slice(0, 10) + ' ' + s.slice(11, 16);
+}
+
+function renderVesselsView(){
+    var input = document.getElementById('vdb-q');
+    if(input && input.value !== _vdbUi.query) input.value = _vdbUi.query;
+    vdbRenderResults();
+    vdbRenderCard();
+    _vdbUi.initialized = true;
+}
+
+function vdbOnSearchInput(){
+    var input = document.getElementById('vdb-q');
+    _vdbUi.query = input ? input.value : '';
+    if(_vdbUi._t) clearTimeout(_vdbUi._t);
+    _vdbUi._t = setTimeout(function(){ vdbRenderResults(); }, 120);
+}
+
+function vdbSelect(recordId){
+    _vdbUi.selected = recordId;
+    vdbRenderResults();
+    vdbRenderCard();
+}
+
+function vdbRenderResults(){
+    var box = document.getElementById('vdb-results');
+    var count = document.getElementById('vdb-count');
+    if(!box) return;
+    var q = String(_vdbUi.query || '').trim();
+    if(!q){
+        if(count) count.textContent = '0';
+        box.innerHTML = '<div class="vdb-empty">Введи IMO, название, MMSI или позывной.<br>Срез работает на фикстурных данных контракта — только чтение.</div>';
+        return;
+    }
+    var res = BrokerVesselAdapter.searchVessels(q);
+    if(!res.ok){
+        if(count) count.textContent = '0';
+        box.innerHTML = '<div class="vdb-failclosed" data-qa="vessel-fail-closed">⛔ Запрос отклонён политикой доступа: <b>' + esc(res.reason) + '</b></div>';
+        return;
+    }
+    if(count) count.textContent = String(res.results.length);
+    if(!res.results.length){
+        box.innerHTML = '<div class="vdb-empty">Ничего не найдено по «' + esc(q) + '».<br>В фикстурном срезе ' + VDB_FIXTURE_IDENTITIES.length + ' записей.</div>';
+        return;
+    }
+    var html = '';
+    for(var i = 0; i < res.results.length; i++){
+        var r = res.results[i];
+        var sem = VDB_CACHE_SEMANTICS[r.cache_state] || VDB_CACHE_SEMANTICS.error;
+        var name = sem.display_public_fields ? (r.name_current || '—') : 'запись недоступна';
+        var sub;
+        if(sem.display_public_fields){
+            sub = (r.imo ? 'IMO ' + r.imo : 'без IMO') + ' · ' + (r.type_display || '—') + (r.flag_current ? ' · ' + r.flag_current : '');
+        } else {
+            sub = esc(r.record_id) + ' · ' + (VDB_CACHE_LABELS[r.cache_state] || r.cache_state);
+        }
+        var chips = '';
+        if(r.identity_status !== 'confirmed') chips += ' <span class="vdb-chip' + (r.identity_status === 'conflicted' ? ' warn' : '') + '">' + esc(VDB_STATUS_LABELS[r.identity_status] || r.identity_status) + '</span>';
+        if(sem.fail_closed) chips += ' <span class="vdb-chip bad">' + esc(VDB_CACHE_LABELS[r.cache_state] || r.cache_state) + '</span>';
+        else if(sem.must_show_staleness) chips += ' <span class="vdb-chip warn">' + esc(VDB_CACHE_LABELS[r.cache_state] || r.cache_state) + '</span>';
+        html += '<div class="vdb-row' + (_vdbUi.selected === r.record_id ? ' sel' : '') + '" data-qa="vessel-search-result" onclick="vdbSelect(\'' + esc(r.record_id) + '\')">'
+              + '<div style="flex:1; min-width:0;"><div class="vdb-r-name">' + esc(name) + chips + '</div>'
+              + '<div class="vdb-r-sub">' + sub + '</div></div></div>';
+    }
+    box.innerHTML = html;
+}
+
+function _vdbKvRow(label, value, lockedByLicense){
+    var v;
+    if(lockedByLicense){
+        v = '<span class="v locked" data-qa="vessel-field-locked" title="Значение существует у источника, но закрыто лицензией. У Брокера нет права показа лицензионных полей в v0.">🔒 скрыто лицензией источника</span>';
+    } else {
+        v = '<span class="v">' + (value == null || value === '' ? '—' : esc(String(value))) + '</span>';
+    }
+    return '<span class="k">' + esc(label) + '</span>' + v;
+}
+
+function vdbRenderCard(){
+    var box = document.getElementById('vdb-card');
+    var title = document.getElementById('vdb-card-title');
+    if(!box) return;
+    if(!_vdbUi.selected){
+        if(title) title.textContent = '📇 Карточка судна';
+        box.innerHTML = '<div class="vdb-empty">Выбери судно слева — карточка идентичности откроется здесь.</div>';
+        return;
+    }
+    var res = BrokerVesselAdapter.getVesselIdentity(_vdbUi.selected);
+    if(!res.ok){
+        box.innerHTML = '<div class="vdb-failclosed" data-qa="vessel-fail-closed">⛔ Доступ к записи отклонён: <b>' + esc(res.reason) + '</b></div>';
+        return;
+    }
+    var id = res.identity;
+    if(title) title.textContent = '📇 ' + (id.name_current || id.record_id);
+    if(res.fail_closed){
+        var why = { missing: 'Записи нет в локальном кэше. Публичные поля не показываются (fail-closed).',
+                    blocked_by_license: 'Запись закрыта лицензией источника. Скрытые значения не раскрываются никогда.',
+                    error: 'Источник вернул ошибку. Публичные поля не показываются (fail-closed); внутренние детали ошибки не раскрываются.' }[id.cache_state]
+                  || 'Запись недоступна (fail-closed).';
+        box.innerHTML = '<div class="vdb-failclosed" data-qa="vessel-fail-closed">'
+            + '<div style="font-size:15px; margin-bottom:6px;">⛔ ' + esc(VDB_CACHE_LABELS[id.cache_state] || id.cache_state) + '</div>'
+            + esc(why)
+            + '<div style="margin-top:8px; font-size:11px; color:var(--text3);">запись: ' + esc(id.record_id) + ' · статус: ' + esc(VDB_STATUS_LABELS[id.identity_status] || id.identity_status) + '</div>'
+            + (id.cache_state === 'error' ? '<div style="margin-top:10px;"><button class="btn" onclick="vdbSelect(\'' + esc(id.record_id) + '\')">Повторить чтение</button></div>' : '')
+            + '</div>';
+        return;
+    }
+    var sem = res.ui;
+    var lockedCard = (id.license_visibility === 'mixed_redacted' || id.license_visibility === 'licensed_internal_redacted');
+    var html = '<div data-qa="vessel-identity-card">';
+    // status + cache chips row
+    html += '<div style="margin-bottom:4px;">';
+    var stCls = id.identity_status === 'confirmed' ? ' ok' : (id.identity_status === 'conflicted' ? ' warn' : '');
+    html += '<span class="vdb-chip' + stCls + '">' + esc(VDB_STATUS_LABELS[id.identity_status] || id.identity_status) + '</span>';
+    var cacheCls = sem.fail_closed ? ' bad' : (sem.must_show_staleness ? ' warn' : ' ok');
+    var cacheTxt = VDB_CACHE_LABELS[id.cache_state] || id.cache_state;
+    if(sem.must_show_staleness) cacheTxt += ' · проверено ' + vdbFmtTs(id.cache_checked_at);
+    html += '<span class="vdb-chip' + cacheCls + '" data-qa="vessel-cache-state">' + esc(cacheTxt) + '</span>';
+    html += '<span class="vdb-chip" data-qa="vessel-readonly-state">🔒 только чтение</span>';
+    html += '</div>';
+    if(id.identity_status === 'local_alias_only'){
+        html += '<div style="font-size:11px; color:var(--text3); margin-bottom:6px;">Локальный алиас — не глобальная каноническая запись. Судно без подтверждённого IMO.</div>';
+    }
+    // conflict box
+    if(id.identity_status === 'conflicted' || (id.conflict_ids && id.conflict_ids.length)){
+        var cres = BrokerVesselAdapter.resolveConflictCandidates(id.record_id);
+        html += '<div class="vdb-conflict-box" data-qa="vessel-conflict-state"><b>⚠ Конфликт идентичности.</b> Несколько записей претендуют на одно судно — данные ниже могут относиться к другой единице.';
+        if(cres.ok && cres.candidates.length){
+            html += '<div style="margin-top:6px;">Кандидаты:</div>';
+            for(var ci = 0; ci < cres.candidates.length; ci++){
+                var cd = cres.candidates[ci];
+                html += '<div class="vdb-row" data-qa="vessel-search-result" onclick="vdbSelect(\'' + esc(cd.record_id) + '\')" style="padding:4px 6px;">'
+                      + '<div><div class="vdb-r-name">' + esc(cd.name_current || cd.record_id) + '</div>'
+                      + '<div class="vdb-r-sub">' + (cd.imo ? 'IMO ' + esc(cd.imo) : 'без IMO') + ' · ' + esc(VDB_STATUS_LABELS[cd.identity_status] || cd.identity_status) + '</div></div></div>';
+            }
+        }
+        html += '</div>';
+    }
+    // identity fields (read-only)
+    html += '<div class="vdb-kv">';
+    html += _vdbKvRow('IMO', id.imo);
+    html += _vdbKvRow('MMSI', id.mmsi);
+    html += _vdbKvRow('Позывной', id.call_sign);
+    html += _vdbKvRow('Флаг', id.flag_current);
+    html += _vdbKvRow('Тип', id.type_display);
+    html += _vdbKvRow('Год постройки', id.built_year);
+    html += _vdbKvRow('GT', id.gross_tonnage, lockedCard && id.gross_tonnage == null);
+    html += _vdbKvRow('DWT', id.deadweight_tonnage, lockedCard && id.deadweight_tonnage == null);
+    html += _vdbKvRow('NT', id.net_tonnage, lockedCard && id.net_tonnage == null);
+    html += _vdbKvRow('Длина (LOA), м', id.length_overall_m, lockedCard && id.length_overall_m == null);
+    html += _vdbKvRow('Ширина, м', id.breadth_m, lockedCard && id.breadth_m == null);
+    html += _vdbKvRow('Уверенность', (id.confidence != null ? Math.round(id.confidence * 100) + '%' : null));
+    html += _vdbKvRow('Источников', id.source_count);
+    html += _vdbKvRow('Обновлено', vdbFmtTs(id.updated_at));
+    html += '</div>';
+    // provenance chips
+    var pres = BrokerVesselAdapter.getVesselProvenance(id.record_id);
+    html += '<div style="font-size:10px; color:var(--text3); text-transform:uppercase; letter-spacing:.05em; margin:8px 0 5px;">Происхождение данных</div><div>';
+    if(pres.ok && !pres.fail_closed && pres.chips.length){
+        var licLabel = { skipi_user_generated: 'участники Skipi', permissive_public: 'открытый источник', paid_license: 'платная лицензия', manual_spot_check: 'ручная проверка', unknown_restricted: 'источник с ограничениями' };
+        for(var pi = 0; pi < pres.chips.length; pi++){
+            var ch = pres.chips[pi];
+            html += '<span class="vdb-chip" data-qa="vessel-provenance-chip" title="' + esc(ch.provenance_note || '') + '">📄 ' + esc(ch.source_name)
+                  + ' · ' + esc(licLabel[ch.source_license] || ch.source_license)
+                  + ' · ' + Math.round((ch.confidence || 0) * 100) + '%</span>';
+        }
+    } else {
+        html += '<span class="vdb-chip" data-qa="vessel-provenance-chip">📄 источники не заявлены</span>';
+    }
+    html += '</div>';
+    if(sem.must_show_staleness){
+        html += '<div style="margin-top:10px; font-size:11px; color:var(--text3);">Проверено: ' + vdbFmtTs(id.cache_checked_at) + (id.stale_after_at ? ' · устарело после: ' + vdbFmtTs(id.stale_after_at) : '') + (id.cache_state === 'offline_cached' ? ' · показан офлайн-кэш' : '') + '</div>';
+    }
+    html += '</div>';
+    box.innerHTML = html;
+}
+// ===================== end Vessels / Vessel Database Slice 1 =====================
 
 // ===================== Apps / Plugin host (bundled first-party, isolated) =====================
 // Broker as a HOST for bundled first-party plugins. Apps shell + local
@@ -6164,6 +6734,7 @@ var MOBILE_VIEWS = {
     ex:    { pane:'view-ex',    btn:'mrail-ex'    },
     dedup: { pane:'view-dedup', btn:'mrail-dedup' },
     partners: { pane:'view-partners', btn:'mrail-partners' },
+    vessels: { pane:'view-vessels', btn:'mrail-vessels' },
     viz:   { pane:'view-viz',   btn:'mrail-viz'   },
     apps:  { pane:'view-apps',  btn:'mrail-apps'  },
 };
@@ -11343,7 +11914,7 @@ function openSignalDetail(kind, id){
 
 // ---------- View switching (Эксклюзивы ↔ Совпадения ↔ Сигналы) ----------
 function showView(name){
-    if(name !== 'ex' && name !== 'match' && name !== 'signals' && name !== 'dedup' && name !== 'partners' && name !== 'viz' && name !== 'mail' && name !== 'team' && name !== 'leads2' && name !== 'cases' && name !== 'apps') return;
+    if(name !== 'ex' && name !== 'match' && name !== 'signals' && name !== 'dedup' && name !== 'partners' && name !== 'vessels' && name !== 'viz' && name !== 'mail' && name !== 'team' && name !== 'leads2' && name !== 'cases' && name !== 'apps') return;
     if(state.view === 'apps' && name !== 'apps') brokerAppsResetToList();
     state.view = name;
     // Manage the assistant orb + Desk unread badge for the new view.
@@ -11364,6 +11935,8 @@ function showView(name){
     if(vded) vded.style.display = (name === 'dedup') ? '' : 'none';
     var vpart = document.getElementById('view-partners');
     if(vpart) vpart.style.display = (name === 'partners') ? '' : 'none';
+    var vvdb = document.getElementById('view-vessels');
+    if(vvdb) vvdb.style.display = (name === 'vessels') ? '' : 'none';
     var vviz = document.getElementById('view-viz');
     if(vviz) vviz.style.display = (name === 'viz') ? '' : 'none';
     var vmail = document.getElementById('view-mail');
@@ -11394,6 +11967,8 @@ function showView(name){
     if(navSig) navSig.classList.toggle('active', name === 'signals');
     if(navDed) navDed.classList.toggle('active', name === 'dedup');
     if(navPart) navPart.classList.toggle('active', name === 'partners');
+    var navVdb = document.getElementById('nav-vessels');
+    if(navVdb) navVdb.classList.toggle('active', name === 'vessels');
     if(navViz) navViz.classList.toggle('active', name === 'viz');
     if(navMail) navMail.classList.toggle('active', name === 'mail');
     if(navTeam) navTeam.classList.toggle('active', name === 'team');
@@ -11460,6 +12035,10 @@ function showView(name){
     // 📂 Дела — render cases
     if(name === 'cases'){
         renderCasesView();
+    }
+    // 🚢 Суда — read-only Vessel Database lookup (Slice 1, fixture data)
+    if(name === 'vessels'){
+        renderVesselsView();
     }
     if(name === 'apps'){
         renderAppsView();
