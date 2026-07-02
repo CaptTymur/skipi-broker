@@ -128,20 +128,6 @@ jobs:
           if [[ "${#GUARD_CHANGED_FILES[@]}" -eq 1 && "${GUARD_CHANGED_FILES[0]}" == ".github/workflows/skipi-guard.yml" ]]; then
             OVERRIDE_ARGS=(--override-protected skipi-guard-workflow-bootstrap)
           fi
-          presence_bootstrap_candidate=1
-          has_presence_manifest=0
-          for changed_file in "${GUARD_CHANGED_FILES[@]}"; do
-            case "$changed_file" in
-              presence-manifest.json) has_presence_manifest=1 ;;
-            esac
-            case "$changed_file" in
-              presence-manifest.json|tests/broker_presence_contract_harness.mjs|.github/workflows/skipi-guard.yml) ;;
-              *) presence_bootstrap_candidate=0 ;;
-            esac
-          done
-          if [[ "$has_presence_manifest" -eq 1 && "$presence_bootstrap_candidate" -eq 1 && "${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}" == "feature/presence-contracts" ]]; then
-            OVERRIDE_ARGS=(--override-protected presence-contracts-bootstrap-manager-go)
-          fi
           release_candidate=1
           has_release_html=0
           has_release_cargo=0
