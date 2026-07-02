@@ -1,0 +1,91 @@
+{
+  "schema_version": "skipi.presence-manifest.v1",
+  "home": "broker",
+  "artifact": "dist/index.html",
+  "required_modules": [
+    {
+      "id": "launch-pairing",
+      "name": "Launch/Pairing",
+      "checks": [
+        {
+          "selector": "#auth-gate-overlay",
+          "expect_display": "flex"
+        },
+        {
+          "selector": "#auth-pane-welcome",
+          "expect_visible": true
+        },
+        {
+          "selector": "#auth-pane-migrate",
+          "expect_present": true
+        },
+        {
+          "selector": "#migrate-tab-code",
+          "expect_visible": true
+        },
+        {
+          "selector": "#migrate-tab-qr",
+          "expect_visible": true
+        },
+        {
+          "selector": "#migrate-qr-btn",
+          "expect_visible": true
+        },
+        {
+          "selector": "#mtop-home",
+          "onclick_contains": "mobileSwitchView('match')"
+        }
+      ],
+      "actions": [
+        {
+          "call": "_showAuthPane",
+          "args": ["migrate"],
+          "visible": ["#auth-pane-migrate"],
+          "hidden": ["#auth-pane-welcome"]
+        }
+      ]
+    },
+    {
+      "id": "counterparties",
+      "name": "Counterparties",
+      "desktop_navigation": {
+        "route": "partners",
+        "nav_selector": "#nav-partners",
+        "view_selector": "#view-partners"
+      },
+      "mobile_navigation": {
+        "route": "partners",
+        "nav_selector": "#mrail-partners",
+        "view_selector": "#view-partners"
+      }
+    },
+    {
+      "id": "deduplicator",
+      "name": "Deduplicator",
+      "desktop_navigation": {
+        "route": "dedup",
+        "nav_selector": "#nav-dedup",
+        "view_selector": "#view-dedup"
+      },
+      "mobile_navigation": {
+        "route": "dedup",
+        "nav_selector": "#mrail-dedup",
+        "view_selector": "#view-dedup"
+      }
+    },
+    {
+      "id": "apps-plugins",
+      "name": "Apps/Plugins",
+      "desktop_navigation": {
+        "route": "apps",
+        "nav_selector": "#nav-apps",
+        "view_selector": "#view-apps"
+      },
+      "mobile_navigation": {
+        "route": "apps",
+        "nav_selector": "#mrail-apps",
+        "view_selector": "#view-apps"
+      }
+    }
+  ]
+}
