@@ -44,6 +44,57 @@ jobs:
           sudo mkdir -p /home/linux/Developer/skipi-plugins
           sudo ln -sfn "$GITHUB_WORKSPACE/.skipi-host-runtime" /home/linux/Developer/skipi-plugins/_host-runtime
 
+      - name: Patch guard config for Broker presence contracts pilot
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const configPath = '.skipi-guard/configs/homes/broker.json';
+          const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+          function addRule(bucket, rule) {
+            config[bucket] = Array.isArray(config[bucket]) ? config[bucket] : [];
+            if (!config[bucket].some((entry) => entry.name === rule.name)) {
+              config[bucket].push(rule);
+            }
+          }
+
+          function addHarness(task, harness) {
+            config.harness_commands = config.harness_commands || {};
+            config.harness_commands[task] = Array.isArray(config.harness_commands[task]) ? config.harness_commands[task] : [];
+            if (!config.harness_commands[task].some((entry) => entry.name === harness.name)) {
+              config.harness_commands[task].push(harness);
+            }
+          }
+
+          function addAllowed(task, pattern) {
+            config.allowed_file_patterns = config.allowed_file_patterns || {};
+            config.allowed_file_patterns[task] = Array.isArray(config.allowed_file_patterns[task]) ? config.allowed_file_patterns[task] : [];
+            if (!config.allowed_file_patterns[task].includes(pattern)) {
+              config.allowed_file_patterns[task].push(pattern);
+            }
+          }
+
+          addRule('protected_paths', {
+            name: 'presence contracts',
+            patterns: ['presence-manifest.json'],
+          });
+          addHarness('plugin-host', {
+            name: 'broker_build_provenance',
+            command: 'node tests/build_provenance_harness.mjs',
+          });
+          addHarness('plugin-host', {
+            name: 'broker_presence_contract',
+            command: 'node tests/broker_presence_contract_harness.mjs',
+          });
+          addAllowed('plugin-host', 'presence-manifest.json');
+          addAllowed('plugin-host', 'tests/broker_presence_contract_harness.mjs');
+          addAllowed('plugin-host', '.github/workflows/skipi-guard.yml');
+
+          fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+          NODE
+
       - name: Resolve guard base
         id: refs
         shell: bash
@@ -76,6 +127,20 @@ jobs:
           )
           if [[ "${#GUARD_CHANGED_FILES[@]}" -eq 1 && "${GUARD_CHANGED_FILES[0]}" == ".github/workflows/skipi-guard.yml" ]]; then
             OVERRIDE_ARGS=(--override-protected skipi-guard-workflow-bootstrap)
+          fi
+          presence_bootstrap_candidate=1
+          has_presence_manifest=0
+          for changed_file in "${GUARD_CHANGED_FILES[@]}"; do
+            case "$changed_file" in
+              presence-manifest.json) has_presence_manifest=1 ;;
+            esac
+            case "$changed_file" in
+              presence-manifest.json|tests/broker_presence_contract_harness.mjs|.github/workflows/skipi-guard.yml) ;;
+              *) presence_bootstrap_candidate=0 ;;
+            esac
+          done
+          if [[ "$has_presence_manifest" -eq 1 && "$presence_bootstrap_candidate" -eq 1 && "${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-}}" == "feature/presence-contracts" ]]; then
+            OVERRIDE_ARGS=(--override-protected presence-contracts-bootstrap-manager-go)
           fi
           release_candidate=1
           has_release_html=0
