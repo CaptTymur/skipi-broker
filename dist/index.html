@@ -4003,7 +4003,7 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
             </button>
             <button class="auth-launch-btn" onclick="_showAuthPane('create')">
                 ➕ Создать профиль
-                <div class="auth-launch-sub">Новая команда — 30 дней полного доступа бесплатно.</div>
+                <div class="auth-launch-sub">Новая команда — старт без ограничений первые 14 дней.</div>
             </button>
             <button class="auth-launch-btn" onclick="_authEnterDemo()">
                 🎬 Показать демонстрацию
@@ -4014,7 +4014,7 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
         <!-- Pane: create team (admin path) -->
         <div id="auth-pane-create" style="display:none;">
             <div style="font-size:12px; color:var(--text2,#aab); margin-bottom:14px; line-height:1.5;">
-                Создание команды — ты станешь администратором с пробным доступом на 30 дней.
+                Создание команды — ты станешь администратором профиля.
             </div>
             <input id="auth-create-name" type="text" placeholder="Имя или компания"
                 style="width:100%; padding:10px 12px; font-size:13px; background:var(--surface,#0f141c); color:var(--text,#fff); border:1px solid var(--border,#2a3240); border-radius:6px; margin-bottom:10px; box-sizing:border-box;" />
@@ -10047,7 +10047,7 @@ async function _authGateValidate(bid){
 }
 function _authGateMessage(){
     if(_authLastReason==='network') return 'Нет связи с сервером — проверьте интернет и повторите.';
-    if(_authLastReason==='expired') return 'Триал команды истёк. Свяжись с руководителем для продления доступа.';
+    if(_authLastReason==='expired') return 'Бесплатный период закончился. Свяжитесь с Captain Tymur Rudov: info@tymur.org / +357 97 617 412 (WhatsApp).';
     return 'Токен не найден или отозван. Уточни у руководителя.';
 }
 // Fresh install (no stored token) → show the unified launch ('welcome').
@@ -10490,18 +10490,147 @@ async function _authGateSubmit(){
     _authGateHide();
     await _bootContinue();
 }
+
+// ---------- Two-week local trial gate ----------
+// Server-side trial state is the source of truth once deployed; the local timer
+// keeps the desktop UX deterministic and prevents accidental silent overrun.
+var TRIAL_STARTED_KEY = 'skipi_trial_started_at';
+var TRIAL_LICENSE_KEY = 'skipi_license_token';
+var TRIAL_DAYS = 14;
+var TRIAL_WARNING_FROM_DAY = 9;
+var TRIAL_CONTACT_EMAIL = 'info@tymur.org';
+var TRIAL_CONTACT_WA = '35797617412';
+var TRIAL_CONTACT_WA_URL = 'https://wa.me/35797617412';
+var TRIAL_CONTACT_PHONE = '+357 97 617 412';
+
+function trialStartedAt(){
+    var v = '';
+    try { v = localStorage.getItem(TRIAL_STARTED_KEY) || ''; } catch(_){}
+    var parsed = v ? Date.parse(v) : NaN;
+    if(!Number.isFinite(parsed)){
+        v = new Date().toISOString();
+        try { localStorage.setItem(TRIAL_STARTED_KEY, v); } catch(_){}
+        parsed = Date.parse(v);
+    }
+    return parsed;
+}
+function trialDaysSince(){
+    var started = trialStartedAt();
+    return Math.max(0, Math.floor((Date.now() - started) / 86400000));
+}
+function trialPhase(){
+    var days = trialDaysSince();
+    if(days < TRIAL_WARNING_FROM_DAY) return 'free';
+    if(days < TRIAL_DAYS) return 'warn';
+    return 'blocked';
+}
+function trialDaysLeft(){
+    return Math.max(0, TRIAL_DAYS - trialDaysSince());
+}
+function trialContactHtml(){
+    return '<a href="mailto:'+TRIAL_CONTACT_EMAIL+'" style="color:inherit; font-weight:700;">'+TRIAL_CONTACT_EMAIL+'</a>'
+        + ' или <a href="'+TRIAL_CONTACT_WA_URL+'" target="_blank" rel="noreferrer" style="color:inherit; font-weight:700;">'
+        + TRIAL_CONTACT_PHONE + ' (WhatsApp)</a>';
+}
+function trialRemoveBanner(){
+    var old = document.getElementById('trial-warning-banner');
+    if(old && old.parentNode) old.parentNode.removeChild(old);
+}
+function trialShowWarningBanner(){
+    trialRemoveBanner();
+    var div = document.createElement('div');
+    div.id = 'trial-warning-banner';
+    div.style.cssText = 'position:fixed; top:0; left:0; right:0; z-index:99980; padding:10px 14px;'
+        + 'background:#fff3cd; color:#493800; border-bottom:1px solid #e2b93d; font-size:13px;'
+        + 'text-align:center; box-shadow:0 2px 10px rgba(0,0,0,.12);';
+    div.innerHTML = 'Бесплатный доступ заканчивается через ' + trialDaysLeft()
+        + ' дн. Продолжить — свяжитесь: ' + trialContactHtml();
+    document.body.appendChild(div);
+}
+function trialHideOverlay(){
+    var el = document.getElementById('trial-block-overlay');
+    if(el && el.parentNode) el.parentNode.removeChild(el);
+}
+function trialShowBlockedOverlay(message){
+    trialRemoveBanner();
+    var el = document.getElementById('trial-block-overlay');
+    if(!el){
+        el = document.createElement('div');
+        el.id = 'trial-block-overlay';
+        el.style.cssText = 'position:fixed; inset:0; z-index:2147483200; display:flex; align-items:center; justify-content:center;'
+            + 'background:rgba(245,248,251,.96); backdrop-filter:blur(8px); padding:20px;';
+        el.innerHTML =
+            '<div style="width:min(520px,100%); background:var(--bg,#fff); color:var(--text,#1e1e1e); border:1px solid var(--border,#d9e1ea);'
+            + 'border-radius:14px; padding:28px; box-shadow:0 24px 80px rgba(15,23,42,.24);">'
+            + '<div style="font-size:19px; font-weight:800; margin-bottom:8px;">Бесплатный период закончился.</div>'
+            + '<div style="font-size:13px; line-height:1.55; color:var(--text2,#566); margin-bottom:18px;">'
+            + 'Свяжитесь с Captain Tymur Rudov: ' + trialContactHtml() + '</div>'
+            + '<label for="trial-license" style="display:block; font-size:12px; font-weight:700; margin-bottom:6px;">License-токен</label>'
+            + '<input id="trial-license" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"'
+            + ' style="width:100%; padding:12px; border:1px solid var(--border,#ccd5df); border-radius:8px; font-family:monospace;'
+            + ' background:var(--surface,#fff); color:var(--text,#111); box-sizing:border-box;" />'
+            + '<button id="trial-license-btn" onclick="trialActivateLicense()"'
+            + ' style="width:100%; margin-top:12px; padding:12px 14px; border:0; border-radius:8px; background:#004564; color:#fff;'
+            + ' font-weight:800; cursor:pointer;">Активировать</button>'
+            + '<div id="trial-license-error" style="min-height:18px; margin-top:10px; color:#e55561; font-size:12px;">'
+            + (message ? esc(message) : '') + '</div>'
+            + '</div>';
+        document.body.appendChild(el);
+        setTimeout(function(){ var input=document.getElementById('trial-license'); if(input) input.focus(); }, 40);
+    } else {
+        el.style.display = 'flex';
+        var err = document.getElementById('trial-license-error');
+        if(err) err.textContent = message || '';
+    }
+}
+async function trialActivateLicense(){
+    var input = document.getElementById('trial-license');
+    var err = document.getElementById('trial-license-error');
+    var btn = document.getElementById('trial-license-btn');
+    var token = (input && input.value || '').trim();
+    if(!token){ if(err) err.textContent = 'Введите license-токен.'; return; }
+    if(btn) btn.disabled = true;
+    if(err) err.textContent = '';
+    try {
+        var base = (state.settings && state.settings.server_url) || 'https://api.skipi.app';
+        var brokerId = (state.settings && state.settings.broker_id) || '';
+        var res = await fetch(base.replace(/\/+$/,'') + '/api/trial/activate', {
+            method: 'POST',
+            headers: { 'Content-Type':'application/json', 'Authorization':'Bearer ' + token },
+            body: JSON.stringify({ account_type:'broker', account_id:brokerId })
+        });
+        if(!res.ok) throw new Error('invalid');
+        try { localStorage.setItem(TRIAL_LICENSE_KEY, token); } catch(_){}
+        trialHideOverlay();
+        trialRemoveBanner();
+        try { showToast('Доступ активирован.', 'ok'); } catch(_){}
+        await _bootContinue();
+    } catch(e) {
+        if(err) err.textContent = 'неверный токен';
+    } finally {
+        if(btn) btn.disabled = false;
+    }
+}
+async function trialGateApply(){
+    var phase = trialPhase();
+    if(phase === 'free'){
+        trialRemoveBanner();
+        trialHideOverlay();
+        return phase;
+    }
+    if(phase === 'warn'){
+        trialShowWarningBanner();
+        trialHideOverlay();
+        return phase;
+    }
+    trialShowBlockedOverlay('');
+    return phase;
+}
 async function _bootContinue(){
     refreshIdentityBadge();
     // Demo-mode pill (bottom-left) — show/hide based on the demo token.
     try { var _db=document.getElementById('demo-banner'); if(_db) _db.style.display = _isDemo() ? 'flex' : 'none'; } catch(_){}
-    // Trial countdown surfaces only in the last 15 days — first ~2 weeks stay
-    // distraction-free (Тимур 2026-06-20). ≤10 days adds a renewal nudge. Never in demo.
-    try {
-        if(!_isDemo() && state.access && state.access.active && state.access.days_left!==null && state.access.days_left<=15){
-            var _d=state.access.days_left;
-            showToast((_d<=10?'⚠ ':'')+'Пробный доступ: осталось '+_d+' дн.'+(_d<=10?' Свяжись с руководителем для продления.':''), _d<=10?'warn':'info');
-        }
-    } catch(_){}
+    if(await trialGateApply() === 'blocked') return;
     await refreshAll();
     startAutoRefresh();
     initTeamChat();
@@ -14741,14 +14870,12 @@ function _accessSectionHtml(){
     var a = state.access;
     if(!a) return '';
     var out = '';
-    // Trial status line
+    // Trial status line: silent until day 9; server remains source of truth for blocking.
     if(a.days_left===null || a.expires===null){
         out += '<div class="sub" style="margin-top:8px;">Доступ команды: <b>без ограничения</b>.</div>';
-    } else {
-        var d = a.days_left;
-        var col = d<=10 ? '#e55561' : (d<=15 ? '#d4a017' : 'var(--text2)');
-        out += '<div class="sub" style="margin-top:8px; color:'+col+';">Пробный доступ: осталось <b>'+d+'</b> дн.'
-             + (d<=10 ? ' — свяжись с руководителем для продления.' : '') + '</div>';
+    } else if(typeof trialPhase === 'function' && trialPhase() === 'warn') {
+        out += '<div class="sub" style="margin-top:8px; color:#493800;">Бесплатный доступ заканчивается через <b>'
+             + trialDaysLeft() + '</b> дн. Продолжить — свяжитесь: ' + trialContactHtml() + '</div>';
     }
     if(a.role==='owner'){
         out += '<hr style="margin:18px 0; border:none; border-top:1px solid var(--border);">'
