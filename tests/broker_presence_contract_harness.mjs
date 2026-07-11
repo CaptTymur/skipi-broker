@@ -397,8 +397,13 @@ function installRuntime(sourceHtml) {
 
   vm.createContext(sandbox);
   const scripts = Array.from(sourceHtml.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/gi))
-    .filter(([, attrs]) => !/\ssrc\s*=/.test(attrs || ''))
-    .map(([, , code]) => code);
+    .map(([, attrs, code]) => {
+      const src = /\ssrc\s*=\s*["']([^"']+)["']/.exec(attrs || '');
+      if (!src) return code;
+      if (src[1] === 'map.js') return fs.readFileSync(path.join(ROOT, 'dist', 'map.js'), 'utf8');
+      return null;
+    })
+    .filter(Boolean);
 
   scripts.forEach((code, idx) => {
     try {
