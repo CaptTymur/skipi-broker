@@ -17,6 +17,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const raw = readFileSync(join(here, '..', 'dist', 'index.html'), 'utf8');
@@ -67,4 +69,117 @@ if (fail) {
   console.error('\n>>> Trial gate is NOT fully wired. Users would not see the banner/block.');
   console.error('>>> This is the "reported done but not inserted" regression. See project_trial_gate.');
 }
+
+function makeLocalStorage(startedDaysAgo) {
+  const store = new Map();
+  store.set('skipi_trial_started_at', new Date(Date.now() - startedDaysAgo * 86400000).toISOString());
+  return {
+    getItem(k) { return store.has(k) ? store.get(k) : null; },
+    setItem(k, v) { store.set(k, String(v)); },
+    removeItem(k) { store.delete(k); },
+    dump() { return Object.fromEntries(store.entries()); },
+  };
+}
+
+function makeDocument() {
+  const nodes = Object.create(null);
+  const body = {
+    appendChild(el) {
+      el.parentNode = body;
+      if (el.id) nodes[el.id] = el;
+    },
+    removeChild(el) {
+      if (el && el.id) delete nodes[el.id];
+      if (el) el.parentNode = null;
+    },
+  };
+  return {
+    nodes,
+    body,
+    createElement(tag) {
+      return { tag, id: '', style: {}, innerHTML: '', textContent: '', disabled: false, parentNode: null, focus() {} };
+    },
+    getElementById(id) { return nodes[id] || null; },
+    setNode(id, props = {}) {
+      nodes[id] = Object.assign({ id, style: {}, value: '', textContent: '', disabled: false, parentNode: body, focus() {} }, props);
+      return nodes[id];
+    },
+  };
+}
+
+function extractTrialScript() {
+  const start = raw.indexOf('var TRIAL_STARTED_KEY');
+  const end = raw.indexOf('// ---------- Boot ----------', start);
+  assert.ok(start > 0 && end > start, 'trial script markers present');
+  return raw.slice(start, end);
+}
+
+function loadTrialContext({ serverMode, startedDaysAgo }) {
+  const document = makeDocument();
+  const localStorage = makeLocalStorage(startedDaysAgo);
+  const ctx = {
+    console,
+    Date,
+    setTimeout(fn) { if (typeof fn === 'function') fn(); return 1; },
+    localStorage,
+    document,
+    window: {},
+    state: { settings: { broker_id: '11111111-1111-4111-8111-111111111111', bearer_token: '11111111-1111-4111-8111-111111111111', server_url: 'https://api.skipi.app' }, access: null },
+    _authLastReason: 'ok',
+    bootRefreshes: 0,
+    esc(v) { return String(v == null ? '' : v); },
+    showToast() {},
+    _isDemo() { return false; },
+    refreshIdentityBadge() {},
+    async refreshAll() { ctx.bootRefreshes += 1; },
+    startAutoRefresh() {},
+    initTeamChat() {},
+    showView() {},
+    emitTeamEvent() {},
+    checkForUpdates() {},
+    maybePromptForFeedback() {},
+    async fetch() { return { ok: true, async json() { return { active: true }; } }; },
+    async _authGateValidate() {
+      if (serverMode === 'active') {
+        ctx.state.access = { active: true, days_left: 30 };
+        ctx._authLastReason = 'ok';
+        return true;
+      }
+      if (serverMode === 'expired') {
+        ctx.state.access = { active: false, days_left: 0 };
+        ctx._authLastReason = 'expired';
+        return false;
+      }
+      ctx.state.access = null;
+      ctx._authLastReason = 'network';
+      return false;
+    },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(`${extractTrialScript()}\nthis.__trial = { trialGateApply, trialPhase, trialActivateLicense, trialShowBlockedOverlay };`, ctx);
+  return ctx;
+}
+
+async function runtimeChecks() {
+  let ctx = loadTrialContext({ serverMode: 'active', startedDaysAgo: 20 });
+  assert.equal(await ctx.__trial.trialGateApply(), 'free', 'server active overrides expired local trial');
+  assert.equal(ctx.document.getElementById('trial-block-overlay'), null, 'server active removes blocked overlay');
+
+  ctx = loadTrialContext({ serverMode: 'expired', startedDaysAgo: 0 });
+  assert.equal(await ctx.__trial.trialGateApply(), 'blocked', 'server expired blocks despite fresh local clock');
+  assert.ok(ctx.document.getElementById('trial-block-overlay'), 'server expired shows blocked overlay');
+
+  ctx = loadTrialContext({ serverMode: 'active', startedDaysAgo: 20 });
+  ctx.__trial.trialShowBlockedOverlay('');
+  ctx.document.setNode('trial-license', { value: 'valid-license-token' });
+  ctx.document.setNode('trial-license-error');
+  ctx.document.setNode('trial-license-btn');
+  await ctx.__trial.trialActivateLicense();
+  assert.equal(ctx.document.getElementById('trial-block-overlay'), null, 'activate success removes overlay');
+  assert.equal(ctx.localStorage.dump().skipi_license_token, 'valid-license-token', 'activate stores license token');
+  assert.ok(ctx.bootRefreshes > 0, 'activate continues boot without re-blocking');
+  console.log('OK: runtime trial gate — server active/expired/activate cases');
+}
+
+await runtimeChecks();
 process.exit(fail);

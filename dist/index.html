@@ -9595,11 +9595,49 @@ function trialDaysSince(){
     var started = trialStartedAt();
     return Math.max(0, Math.floor((Date.now() - started) / 86400000));
 }
-function trialPhase(){
+function trialLocalPhase(){
     var days = trialDaysSince();
     if(days < TRIAL_WARNING_FROM_DAY) return 'free';
     if(days < TRIAL_DAYS) return 'warn';
     return 'blocked';
+}
+var trialServerStatus = { checked_at:0, phase:null, reason:'' };
+var trialActivationConfirmedAt = 0;
+function trialBrokerTokenForStatus(){
+    var s = state.settings || {};
+    return String(s.bearer_token || s.broker_id || '').trim();
+}
+async function trialServerPhase(force){
+    if(typeof _isDemo === 'function' && _isDemo()) return { phase:'free', reason:'demo' };
+    var token = trialBrokerTokenForStatus();
+    if(!token) return { phase:null, reason:'no_broker_token' };
+    if(!force && state.access && state.access.active === true) {
+        return { phase:'free', reason:'server_active_cached' };
+    }
+    if(!force && state.access && state.access.active === false) {
+        return { phase:'blocked', reason:'server_expired_cached' };
+    }
+    if(!force && trialServerStatus.phase && Date.now() - trialServerStatus.checked_at < 30000) {
+        return trialServerStatus;
+    }
+    try {
+        var ok = await _authGateValidate(token);
+        var phase = (ok || (state.access && state.access.active === true)) ? 'free'
+            : ((_authLastReason === 'expired' || _authLastReason === 'invalid' || (state.access && state.access.active === false)) ? 'blocked' : null);
+        trialServerStatus = { checked_at:Date.now(), phase:phase, reason:_authLastReason || (phase || 'unknown') };
+        return trialServerStatus;
+    } catch(e) {
+        trialServerStatus = { checked_at:Date.now(), phase:null, reason:'server_unreachable' };
+        return trialServerStatus;
+    }
+}
+async function trialPhase(opts){
+    opts = opts || {};
+    var server = await trialServerPhase(!!opts.forceServer);
+    if(server.phase) return server.phase;
+    if(trialActivationConfirmedAt && Date.now() - trialActivationConfirmedAt < 60000) return 'free';
+    var local = trialLocalPhase();
+    return local === 'blocked' ? 'blocked' : local;
 }
 function trialDaysLeft(){
     return Math.max(0, TRIAL_DAYS - trialDaysSince());
@@ -9678,6 +9716,10 @@ async function trialActivateLicense(){
         });
         if(!res.ok) throw new Error('invalid');
         try { localStorage.setItem(TRIAL_LICENSE_KEY, token); } catch(_){}
+        trialActivationConfirmedAt = Date.now();
+        trialServerStatus = { checked_at:0, phase:null, reason:'activation_accepted' };
+        var server = await trialServerPhase(true);
+        if(server.phase && server.phase !== 'free') throw new Error('not active');
         trialHideOverlay();
         trialRemoveBanner();
         try { showToast('Доступ активирован.', 'ok'); } catch(_){}
@@ -9689,7 +9731,7 @@ async function trialActivateLicense(){
     }
 }
 async function trialGateApply(){
-    var phase = trialPhase();
+    var phase = await trialPhase();
     if(phase === 'free'){
         trialRemoveBanner();
         trialHideOverlay();
