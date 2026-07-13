@@ -12,6 +12,7 @@ settingGroups:
     base:
       PRODUCT_NAME: Skipi Broker
       PRODUCT_BUNDLE_IDENTIFIER: app.skipi.broker
+      DEVELOPMENT_TEAM: LTPV7XZ5M3
 targetTemplates:
   app:
     type: application
@@ -51,8 +52,8 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 0.1.130
-        CFBundleVersion: "0.1.130"
+        CFBundleShortVersionString: 0.1.149
+        CFBundleVersion: "0.1.149"
         ITSAppUsesNonExemptEncryption: false
     entitlements:
       path: skipi-broker_iOS/skipi-broker_iOS.entitlements
