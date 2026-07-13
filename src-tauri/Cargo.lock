@@ -3941,7 +3941,7 @@ checksum = "b2aa850e253778c88a04c3d7323b043aeda9d3e30d5971937c1855769763678e"
 
 [[package]]
 name = "skipi-broker"
-version = "0.1.148"
+version = "0.1.149"
 dependencies = [
  "chrono",
  "dirs",
