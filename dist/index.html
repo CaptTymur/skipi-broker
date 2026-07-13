@@ -4054,7 +4054,6 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
         <button class="mrail-btn" id="mrail-ex" type="button" onclick="mobileSwitchView('ex')"><span>&#128203;</span>Эксклюзивы</button>
         <button class="mrail-btn" id="mrail-dedup" type="button" onclick="mobileSwitchView('dedup')" data-qa="broker-mobile-module-dedup"><span>&#128269;</span>Дубли</button>
         <button class="mrail-btn" id="mrail-partners" type="button" onclick="mobileSwitchView('partners')" data-qa="broker-mobile-module-counterparties"><span>&#129309;</span>Контрагенты</button>
-        <button class="mrail-btn" id="mrail-vessels" type="button" onclick="mobileSwitchView('vessels')" data-qa="broker-mobile-module-vessels"><span>&#128674;</span>Суда</button>
         <button class="mrail-btn" id="mrail-viz" type="button" onclick="mobileSwitchView('viz')"><span>&#128506;</span>Карта</button>
         <button class="mrail-btn" id="mrail-apps" type="button" onclick="mobileSwitchView('apps')"><span>&#129513;</span>Apps</button>
     </div>
@@ -4067,7 +4066,6 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
     <div class="mod-tab" id="nav-signals" onclick="showView('signals')"><span data-i18n="nav.signals">🛒 Сигналы</span> <span id="signals-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-dedup" data-qa="broker-module-dedup" onclick="showView('dedup')"><span data-i18n="nav.duplicates">🔍 Дедупликатор</span> <span id="dedup-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-partners" data-qa="broker-module-counterparties" onclick="showView('partners')"><span data-i18n="nav.counterparts">🤝 Контрагенты</span> <span id="partners-badge" class="count" style="display:none;"></span></div>
-    <div class="mod-tab" id="nav-vessels" data-qa="broker-module-vessels" onclick="showView('vessels')"><span>🚢 Суда</span></div>
     <div class="mod-tab" id="nav-viz" onclick="showView('viz')"><span data-i18n="nav.map">🗺 Визуализатор</span></div>
     <div class="mod-tab" id="nav-mail" onclick="showView('mail')"><span data-i18n="nav.mail">📧 Почта</span> <span id="mail-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-cases" onclick="showView('cases')"><span data-i18n="nav.cases">📂 Дела</span> <span id="cases-badge" class="count" style="display:none;"></span></div>
@@ -5757,20 +5755,7 @@ var BROKER_PLUGIN_HOST_RUNTIME_SHA256 = 'edd0ba5f8b21f05fcf55485b13b1dafc963173b
 var BROKER_PLUGIN_ALLOWED_PERMISSIONS = ['local_storage', 'theme'];
 var BROKER_PLUGIN_SCOPE_DENY = /^(broker|bazaar|match|signal|case|mail|team|contact|counterparty|token|device|pairing|chat)[._:-]/i;
 
-var BROKER_PLUGINS = [
-  { id:'broker-host-demo', name:'Host Demo', category:'Developer', version:'0.1.0',
-    summary:'Sample plugin that verifies the Apps host (theme bridge, plugin storage, mount/unmount). Placeholder until reviewed Broker plugins ship.',
-    state:'available', permissions:['local_storage','theme'],
-    safety:'Sample/developer tile. Runs locally in an isolated Broker plugin frame. No access to market signals, cases, mailbox, contacts, team tokens, pairing codes, or chat.' },
-  { id:'fixture-quality-checker', name:'Fixture quality checker', category:'Broker', state:'coming_soon',
-    summary:'Checks cargo/tonnage fixture details before a broker shares them.' },
-  { id:'case-checklist', name:'Case checklist', category:'Workflow', state:'coming_soon',
-    summary:'Step-by-step checklist for brokerage case handling.' },
-  { id:'mail-redaction-export', name:'Mail redaction / export', category:'Privacy', state:'coming_soon',
-    summary:'Helper to redact and export a message thread by explicit user action.' },
-  { id:'counterparty-watchlist', name:'Counterparty watchlist', category:'Risk', state:'coming_soon',
-    summary:'Local review aid for counterparty notes; no silent contact export.' }
-];
+var BROKER_PLUGINS = [];
 
 var brokerAppsState = { screen: 'list', pluginId: null };
 var __brokerPluginMounted = null;     // { id, runtime }
@@ -5782,10 +5767,12 @@ function brokerPluginMeta(id){ for(var i=0;i<BROKER_PLUGINS.length;i++){ if(BROK
 function brokerPluginsLoadState(){ try { return JSON.parse(localStorage.getItem('skipi_broker_plugins') || '{}'); } catch(e){ return {}; } }
 function brokerPluginsSaveState(s){ try { localStorage.setItem('skipi_broker_plugins', JSON.stringify(s)); } catch(e){} }
 function brokerPluginInstall(id){
+  if(!brokerPluginMeta(id)){ showToast('Plugin is not available in this release', 'error'); return false; }
   if(!brokerHasBundledPlugin(id)){ showToast('Plugin not bundled in this build', 'error'); return; }
   var s = brokerPluginsLoadState();
   s[id] = Object.assign({ installed_at:'local' }, s[id], { installed:true, enabled:true, version:(brokerPluginMeta(id)||{}).version||'' });
   brokerPluginsSaveState(s);
+  return true;
 }
 function brokerPluginSetEnabled(id, on){ var s=brokerPluginsLoadState(); if(s[id]){ s[id].enabled=!!on; brokerPluginsSaveState(s); } }
 function brokerPluginTileState(p){
@@ -5941,6 +5928,7 @@ var brokerBundledLoader = {
   install: function(slug){
     var pack = brokerClonePack(BROKER_PLUGIN_BUNDLES[slug]);
     if(!pack) return Promise.resolve({ ok:false, stage:'install', reason:'unknown plugin' });
+    if(!brokerPluginMeta(slug)) return Promise.resolve({ ok:false, stage:'catalog', reason:'plugin not in release catalog' });
     return brokerInstallBundledPack(slug, pack, 'bundled:first-party:broker');
   }
 };
@@ -6000,6 +5988,7 @@ function brokerAppsListHtml(){
       + '<div class="at-sum">'+esc(p.summary || '')+'</div>'
       + '</div>';
   }).join('');
+  if(!tiles) tiles = '<div class="apps-empty" data-qa="broker-apps-empty">No broker apps are shipped in this release yet.</div>';
   return '<div class="apps-wrap" data-qa="broker-apps-module">'
     + '<div class="apps-head"><h2>Apps</h2>'
     + '<div class="apps-muted">First-party tools for your broker desk. Plugins run locally in an isolated frame and get no market, mail, case, contact, team token, pairing, or chat data by default.</div></div>'
@@ -6040,10 +6029,14 @@ function brokerAppsHostHtml(id){
 function brokerAppsOpenDetail(id){ brokerAppsState = { screen:'detail', pluginId:id }; brokerAppsRender(); }
 function brokerAppsResetToList(){ brokerPluginUnmountCurrent(); brokerAppsState = { screen:'list', pluginId:null }; }
 function brokerAppsBackToList(){ brokerAppsResetToList(); brokerAppsRender(); }
-function brokerAppsInstall(id){ brokerPluginInstall(id); showToast('Installed', 'ok'); brokerAppsState = { screen:'detail', pluginId:id }; brokerAppsRender(); }
+function brokerAppsInstall(id){
+  if(!brokerPluginInstall(id)){ brokerAppsResetToList(); brokerAppsRender(); return; }
+  showToast('Installed', 'ok'); brokerAppsState = { screen:'detail', pluginId:id }; brokerAppsRender();
+}
 function brokerAppsDisable(id){ brokerPluginUnmountCurrent(); brokerPluginSetEnabled(id, false); brokerAppsState = { screen:'detail', pluginId:id }; brokerAppsRender(); }
 function brokerAppsEnable(id){ brokerPluginSetEnabled(id, true); brokerAppsState = { screen:'detail', pluginId:id }; brokerAppsRender(); }
 function brokerAppsOpen(id){
+  if(!brokerPluginMeta(id)){ showToast('Plugin is not available in this release', 'error'); return; }
   if(!brokerHasBundledPlugin(id)){ showToast('Plugin not bundled in this build', 'error'); return; }
   if(brokerPluginTileState(brokerPluginMeta(id) || {}) !== 'installed'){ showToast('Install and enable the plugin first', 'error'); return; }
   brokerAppsState = { screen:'host', pluginId:id };
@@ -6052,6 +6045,7 @@ function brokerAppsOpen(id){
 function brokerPluginMountCurrent(){
   var id = brokerAppsState.pluginId;
   var c = document.getElementById('apps-host-container');
+  if(!brokerPluginMeta(id)){ if(c) c.innerHTML = '<div class="apps-muted">Plugin is not available in this release.</div>'; return; }
   if(!brokerHasBundledPlugin(id) || !c) return;
   brokerPluginUnmountCurrent();
   var rt = brokerPluginRuntime();
