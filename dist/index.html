@@ -1024,6 +1024,12 @@ body.mobile-mode .mrail-badge {
     cursor:pointer; user-select:all; letter-spacing:0; }
 .sig-id:hover { background:var(--hover); color:var(--text); border-color:var(--accent); }
 .sig-id.copied { background:rgba(78,201,112,.2); border-color:var(--green); color:var(--green); }
+.contact-block { margin-top:8px; border-top:1px solid var(--border); padding-top:8px; }
+.contact-block-title { font-size:11px; font-weight:700; color:var(--text2); text-transform:uppercase; letter-spacing:.04em; margin-bottom:6px; }
+.contact-row .v { display:inline-flex; align-items:center; gap:6px; word-break:break-all; }
+.contact-copy-btn { flex:0 0 auto; border:1px solid var(--border); background:var(--surface); color:var(--text2); border-radius:6px; padding:2px 7px; font-size:13px; line-height:1; cursor:pointer; }
+.contact-copy-btn:hover { color:var(--accent); border-color:var(--accent); }
+.contact-copy-btn:active { background:var(--hover); }
 
 /* Focused lead view — header strip + 2-pane body (map + sidebar) */
 .lead-header { display:flex; align-items:center; gap:14px; padding:8px 18px;
@@ -11567,6 +11573,46 @@ function selectBazaarPair(pairId){
     renderActiveView();
 }
 
+// Publisher contacts of a signal — visible in trial + licensed, HIDDEN in demo
+// (demo bazaar data is ShipNext-sourced and carries no contact anyway). Each
+// email/phone gets a one-tap copy button. Contact fields come straight from the
+// server signal (posted_by_email/name, contact_*); the private-key scrub only
+// applies to the LLM context, not the displayed signal.
+function _publisherContactsHtml(sig){
+    if(!sig || (typeof _isDemo === 'function' && _isDemo())) return '';
+    var email = sig.posted_by_email || sig.contact_email || sig.reply_to || sig.sender_email || '';
+    var phone = sig.contact_phone || sig.posted_by_phone || '';
+    var name  = sig.posted_by_name || sig.contact_name || sig.sender_name || '';
+    if(!email && !phone) return '';
+    function row(label, value, copyable){
+        var v = esc(value);
+        var btn = copyable ? '<button class="contact-copy-btn" type="button" title="Копировать" data-c="'+esc(value)+'" onclick="_copyContact(this.getAttribute(\'data-c\'),event)">📋</button>' : '';
+        return '<div class="detail-row contact-row"><span class="k">'+esc(label)+'</span><span class="v">'+v+btn+'</span></div>';
+    }
+    var rows = '';
+    if(name)  rows += row('Публикатор', name, false);
+    if(email) rows += row('Email', email, true);
+    if(phone) rows += row('Телефон', phone, true);
+    return '<div class="detail-block contact-block"><div class="contact-block-title">📇 Контакты публикатора</div>'+rows+'</div>';
+}
+function _copyContact(text, ev){
+    if(ev){ try{ ev.stopPropagation(); ev.preventDefault(); }catch(_){} }
+    text = String(text == null ? '' : text);
+    function done(ok){ try{ showToast(ok ? '📋 Скопировано' : 'Не удалось скопировать', ok ? 'ok' : 'error'); }catch(_){} }
+    try {
+        if(navigator.clipboard && navigator.clipboard.writeText){
+            navigator.clipboard.writeText(text).then(function(){ done(true); }, function(){ _copyContactFallback(text, done); });
+        } else { _copyContactFallback(text, done); }
+    } catch(e){ _copyContactFallback(text, done); }
+}
+function _copyContactFallback(text, done){
+    try {
+        var ta=document.createElement('textarea'); ta.value=text;
+        ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta);
+        ta.select(); var ok=false; try{ ok=document.execCommand('copy'); }catch(_){}
+        document.body.removeChild(ta); done(ok);
+    } catch(e){ done(false); }
+}
 async function selectSignal(kind, id){
     state.selectedSignal = { kind:kind, id:id };
     state.selectedBxbMatch = null;
@@ -11670,7 +11716,8 @@ function renderSelectedSignalDetail(){
         + '<div class="sub">'+_sigIdBadge(sig.id)+'</div>'
         + '<div class="detail-block">'
         + fields.map(function(f){ var fv = (f[2]==='vessel') ? vesselNameLinkHtml(f[1]) : esc(f[1]); return '<div class="detail-row"><span class="k">'+esc(f[0])+'</span><span class="v">'+fv+'</span></div>'; }).join('')
-        + '</div>';
+        + '</div>'
+        + _publisherContactsHtml(sig);
     body.innerHTML = html;
 }
 
