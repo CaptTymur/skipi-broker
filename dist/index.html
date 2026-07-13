@@ -797,6 +797,10 @@ body.mobile-mode .mrail-badge {
         flex-wrap:wrap; gap:6px;
         padding:6px 10px; font-size:12px;
         flex-shrink:0;
+        /* Base .col-head is a fixed 32px; with flex-wrap the sort/age/region
+           controls wrap to a 2nd row and overflowed onto the pairs list. Let
+           the header grow to fit its rows instead of clipping onto the list. */
+        height:auto; min-height:32px;
     }
     body.mobile-mode #view-match .pairs-region-sel { font-size:11px; padding:3px 5px; }
     /* Cargo + tonnage tiles get even smaller header since each is half-width */
