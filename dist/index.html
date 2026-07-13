@@ -815,14 +815,29 @@ body.mobile-mode .mrail-badge {
         --m-bot-inset: max(0px, env(safe-area-inset-bottom, 0px));
         --mtop-h: 50px;   /* top bar content height (below status inset) */
         --mrail-h: 64px;  /* bottom module rail height (above safe inset) */
+        --demo-strip-h: 0px;   /* reserved for the docked demo strip (demo only) */
         padding:0;
         box-sizing:border-box;
         min-height:100vh;
     }
+    body.mobile-mode.demo-mode { --demo-strip-h: 36px; }
     body.mobile-mode .app {
         margin-top: calc(var(--m-top-inset) + var(--mtop-h));
-        margin-bottom: calc(var(--mrail-h) + var(--m-bot-inset));
+        margin-bottom: calc(var(--mrail-h) + var(--m-bot-inset) + var(--demo-strip-h));
         min-height:0;
+    }
+    /* Demo indicator on mobile: instead of a floating pill (which overlapped
+       first the rail, then the detail cards), dock it as a full-width strip in
+       the reserved band directly above the bottom module rail. .app reserves
+       --demo-strip-h above (only when body.demo-mode is set), so it overlaps
+       neither the rail nor any module content. */
+    body.mobile-mode #demo-banner {
+        left:0 !important; right:0 !important; width:auto !important;
+        bottom: calc(var(--mrail-h) + var(--m-bot-inset)) !important;
+        height: var(--demo-strip-h); box-sizing:border-box;
+        border-radius:0 !important; justify-content:center;
+        padding:0 12px !important; box-shadow:none !important;
+        border-top:1px solid rgba(255,255,255,.18); z-index:61;
     }
 
     /* Team chat takes the full viewport */
@@ -9741,8 +9756,13 @@ async function trialGateApply(){
 }
 async function _bootContinue(){
     refreshIdentityBadge();
-    // Demo-mode pill (bottom-left) — show/hide based on the demo token.
-    try { var _db=document.getElementById('demo-banner'); if(_db) _db.style.display = _isDemo() ? 'flex' : 'none'; } catch(_){}
+    // Demo-mode pill — show/hide based on the demo token. body.demo-mode drives
+    // the mobile layout reserving space for the docked demo strip (no overlap).
+    try {
+        var _dm = _isDemo();
+        var _db=document.getElementById('demo-banner'); if(_db) _db.style.display = _dm ? 'flex' : 'none';
+        document.body.classList.toggle('demo-mode', _dm);
+    } catch(_){}
     if(await trialGateApply() === 'blocked') return;
     await refreshAll();
     startAutoRefresh();
