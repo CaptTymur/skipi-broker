@@ -158,12 +158,32 @@ const ctx = installFakeDom();
 new Function(RUNTIME_SOURCE)();
 const M = new Function('showToast', 'esc',
   appsBlock + '\nreturn {'
-  + 'BROKER_PLUGIN_HOST_RUNTIME_VERSION, BROKER_PLUGIN_HOST_RUNTIME_SHA256, BROKER_PLUGIN_BUNDLES,'
-  + 'brokerBundledLoader, brokerClonePack, brokerInstallBundledPack, brokerPluginRuntime'
+  + 'BROKER_PLUGIN_HOST_RUNTIME_VERSION, BROKER_PLUGIN_HOST_RUNTIME_SHA256, BROKER_PLUGINS, BROKER_PLUGIN_BUNDLES,'
+  + 'brokerBundledLoader, brokerClonePack, brokerInstallBundledPack, brokerAppsListHtml, brokerPluginRuntime'
   + '};')(() => {}, esc);
 
 ok(M.BROKER_PLUGIN_HOST_RUNTIME_VERSION === EXPECTED_RUNTIME_VERSION, 'Broker records shared runtime version ' + EXPECTED_RUNTIME_VERSION);
 ok(M.BROKER_PLUGIN_HOST_RUNTIME_SHA256 === EXPECTED_RUNTIME_SHA, 'Broker records shared runtime sha256');
+
+section('release Broker Apps catalog hides demo and placeholders');
+const catalogLiteral = (appsBlock.match(/var BROKER_PLUGINS = \[([\s\S]*?)\];/) || [null, ''])[1];
+ok(Array.isArray(M.BROKER_PLUGINS) && M.BROKER_PLUGINS.length === 0, 'release plugin catalog has no listed tiles');
+ok(!/broker-host-demo|Host Demo|fixture-quality-checker|case-checklist|mail-redaction-export|counterparty-watchlist|coming_soon|coming-soon/i.test(catalogLiteral), 'release catalog literal contains no Host Demo or coming-soon placeholders');
+const releaseAppsHtml = M.brokerAppsListHtml();
+ok(/data-qa="broker-apps-empty"/.test(releaseAppsHtml), 'empty release Apps catalog renders an honest empty state');
+ok(!/Host Demo|Coming soon|plugin-tile-broker-host-demo|fixture-quality-checker|case-checklist|mail-redaction-export|counterparty-watchlist/i.test(releaseAppsHtml), 'rendered release Apps catalog has no demo or placeholder tiles');
+
+const hiddenDemo = await M.brokerBundledLoader.install('broker-host-demo');
+ok(hiddenDemo && hiddenDemo.ok === false && hiddenDemo.stage === 'catalog', 'bundled Host Demo is not installable while absent from the release catalog');
+
+M.BROKER_PLUGINS.push({
+  id: 'broker-host-demo',
+  name: 'Host Demo',
+  category: 'Developer',
+  version: '0.1.0',
+  state: 'available',
+  permissions: ['local_storage', 'theme'],
+});
 
 const installed = await M.brokerBundledLoader.install('broker-host-demo');
 ok(installed && installed.ok && installed.pack.files['index.js'].includes('BROKER_HOST_DEMO_PLUGIN'), 'known demo plugin installs from verified bundled bytes');
@@ -236,16 +256,18 @@ ok(rt._active() === null, 'plugin nav.close tears down the active frame');
 // ===================== Vessel Database Slice 1 — read-only vessel lookup =====================
 // Broker is the first consumer of the shared Vessel Database module
 // (contract pin a5537e3). Slice 1 = read-only search/identity surface on
-// synthetic fixture data. These checks prove: the surface exists on desktop
-// and mobile, every contract QA hook renders, the adapter fails closed per
+// synthetic fixture data. Release builds hide its nav entry until live API
+// wiring exists. These checks prove: ordinary desktop/mobile navigation cannot
+// open fixture vessels, every contract QA hook renders, the adapter fails closed per
 // the contract denial vocabulary, redaction never leaks licensed/forbidden
 // fields, and NO attach/write path exists anywhere in the artifact.
-section('Vessel Database Slice 1: static surface');
+section('Vessel Database Slice 1: release visibility and static surface');
 const vesselsBlock = extractVesselsBlock();
-ok(/id="nav-vessels"[^>]*onclick="showView\('vessels'\)"/.test(HTML), 'desktop Vessels tab exists and routes to the vessels view');
-ok(/id="mrail-vessels"[^>]*onclick="mobileSwitchView\('vessels'\)"/.test(HTML), 'mobile bottom Vessels rail item exists');
-ok(/vessels:\s*\{\s*pane:'view-vessels',\s*btn:'mrail-vessels'\s*\}/.test(HTML), 'mobile router maps Vessels to its view pane');
-ok(/id="view-vessels"/.test(HTML), 'Vessels view pane exists');
+ok(!/id="nav-vessels"/.test(HTML), 'desktop Vessels tab is hidden from release navigation');
+ok(!/data-qa="broker-module-vessels"/.test(HTML), 'desktop Vessels QA nav hook is absent in release');
+ok(!/id="mrail-vessels"/.test(HTML), 'mobile Vessels rail item is hidden from release navigation');
+ok(!/data-qa="broker-mobile-module-vessels"/.test(HTML), 'mobile Vessels QA nav hook is absent in release');
+ok(/id="view-vessels"/.test(HTML), 'Vessels view pane remains quarantined for live API follow-up');
 ok(HTML.includes('#view-vessels[data-mobile-active="1"]'), 'Vessels pane has a mobile display rule (unlike the known dedup/partners gap)');
 ok(/name !== 'vessels'/.test(HTML), 'showView allowlist accepts the vessels view');
 for (const hook of ['vessel-search-input', 'vessel-search-result', 'vessel-identity-card', 'vessel-provenance-chip',
