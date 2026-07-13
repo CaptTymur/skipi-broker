@@ -12898,9 +12898,13 @@ function renderP4(){
             body.innerHTML = '<div class="chat-stub"><div class="icon">📭</div>Контрагент пока не в Skipi и без телефона.<br><br>Используй <b>📧 .eml</b> в P3 чтобы связаться.</div>';
         }
     } else {
-        // Own × own — both on Skipi. E2E messaging integration TODO.
-        statusEl.textContent = 'E2E';
-        body.innerHTML = '<div class="chat-stub"><div class="icon">🔒</div>E2E chat будет здесь.<br>Интеграция с /api/messaging/* — следующая итерация.</div>';
+        // Own × own — both on Skipi. In-app secure chat is not shipped yet;
+        // show an honest, useful message instead of a dev placeholder.
+        statusEl.textContent = 'skipi';
+        body.innerHTML = '<div class="chat-stub" style="padding:18px 14px;"><div class="icon">🔒</div>'
+            +'<div style="font-size:13px; color:var(--text); margin:8px 0 6px;">Оба контрагента в Skipi</div>'
+            +'<div style="font-size:11px; color:var(--text2); line-height:1.5;">Встроенный защищённый чат в разработке. Пока свяжитесь с контрагентом по email из совпадения или через <b>📧 .eml</b> в разделе выше.</div>'
+            +'</div>';
     }
 }
 
