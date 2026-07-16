@@ -16,7 +16,9 @@ function appVersionLabel(){
 }
 function updateBuildLabels(){
     updateTitlebar();
-    try{ if(typeof state!=='undefined' && state && state.settingsTab==='app') renderSettingsBody(); }catch(e){}
+    // Settings are rendered by the shared @skipi/settings module; ask the live
+    // instance (if the panel is open) to re-read host.appVersion.
+    try{ if(typeof _skipiSettingsInstance!=='undefined' && _skipiSettingsInstance) _skipiSettingsInstance.refresh().catch(function(){}); }catch(e){}
 }
 function setBuildInfo(info){
     if(info&&info.version)APP_VERSION=String(info.version);
@@ -87,60 +89,185 @@ var UI_STRINGS={
         'nav.duplicates':'🔍 Дубли','nav.counterparts':'🤝 Контрагенты',
         'nav.map':'🗺 Карта','nav.mail':'📧 Почта','nav.cases':'📂 Дела','nav.team':'💬 Команда',
         'top.notRegistered':'Не зарегистрирован','top.gear':'Настройки',
-        'settings.title':'Настройки','settings.tab.general':'Общие','settings.tab.connection':'Подключение',
-        'settings.tab.identity':'Профиль брокера','settings.tab.reply':'Reply-to','settings.tab.profile':'Профиль и доступ',
-        'settings.tab.appearance':'Внешний вид','settings.tab.about':'О программе','settings.tab.devices':'Сопряжённые устройства',
-        'settings.general.title':'Общие','settings.general.desc':'Основные настройки приложения.',
-        'settings.lang.label':'Язык интерфейса',
-        'settings.lang.desc':'Выбранный язык сохраняется и синхронизируется со Скипи Моряком на этом устройстве.',
+        // ---- @skipi/settings generic shell (module reads these via host.t) ----
+        'settings.title':'Настройки','settings.subtitle':'Рабочее пространство брокерской команды',
+        'settings.loading':'Загрузка…','settings.value.unavailable':'Недоступно',
+        'settings.section.devices':'Сопряжённые устройства','settings.section.devices.description':'Устройства с доступом к команде',
+        'settings.section.appearance':'Внешний вид','settings.section.appearance.description':'Тема и язык интерфейса',
+        'settings.group.application':'Приложение','settings.group.account':'Команда и доступ',
+        'settings.group.preferences':'Предпочтения','settings.group.information':'Информация',
+        'settings.devices.title':'Устройства','settings.devices.unnamed':'Устройство',
+        'settings.devices.current':'текущее','settings.devices.empty':'Пока только это устройство.',
+        'settings.devices.add':'Подключить устройство','settings.devices.add.description':'Добавить новое устройство к команде.',
+        'settings.appearance.title':'Интерфейс',
+        'settings.appearance.theme':'Тема','settings.appearance.theme.description':'Светлая или тёмная тема.',
+        'settings.appearance.language':'Язык интерфейса',
+        'settings.appearance.language.description':'Выбранный язык сохраняется и синхронизируется со Скипи Моряком на этом устройстве.',
+        'settings.theme.light':'Светлая','settings.theme.dark':'Тёмная',
+        'settings.action.back':'Назад','settings.action.close':'Закрыть','settings.action.retry':'Повторить',
+        'settings.action.refresh':'Обновить','settings.action.revoke':'Отозвать',
+        'settings.notice.saved':'Сохранено.','settings.notice.theme_applied':'Тема применена.',
+        'settings.notice.language_applied':'Язык применён.','settings.notice.device_revoked':'Устройство отозвано.',
+        'settings.error.load_failed':'Не удалось загрузить настройки.','settings.error.refresh_failed':'Не удалось обновить настройки.',
+        'settings.error.action_failed':'Действие не выполнено.','settings.error.capability_failed':'Этот блок сейчас недоступен.',
+        'settings.error.section_failed':'Не удалось показать раздел.','settings.error.section_missing':'Раздел не найден.',
+        // ---- broker-owned Settings sections ----
+        'settings.broker.group.workspace':'Рабочие данные',
+        'settings.broker.team':'Команда','settings.broker.team.description':'Название, контакт и рабочая идентичность Broker-команды.',
+        'settings.broker.team.profile':'Профиль команды',
+        'settings.broker.team.name':'Имя / компания','settings.broker.team.name.description':'Показывается в верхней панели, .eml-письмах и рабочих сигналах.',
+        'settings.broker.team.email':'Email для ответов','settings.broker.team.email.description':'Reply-to для сигналов и исходящих писем.',
+        'settings.broker.team.save':'Сохранить',
+        'settings.broker.team.register':'Зарегистрировать на сервере','settings.broker.team.reregister':'Перерегистрировать на сервере',
+        'settings.broker.team.status':'Статус команды','settings.broker.team.status.description':'Подключение профиля команды на сервере.',
+        'settings.broker.team.connected':'подключена','settings.broker.team.not_connected':'не подключена',
+        'settings.broker.data':'Данные команды','settings.broker.data.description':'Рабочие данные Broker-приложения: команда и рынок, не личный Vault.',
+        'settings.broker.data.title':'Рабочие модули',
+        'settings.broker.data.bazaar':'Bazaar и совпадения','settings.broker.data.bazaar.description':'Рыночные сигналы, совпадения и публичные DTO без источников/контактов.',
+        'settings.broker.data.bazaar.badge':'сервер',
+        'settings.broker.data.cases':'Дела команды','settings.broker.data.cases.description':'Рабочие кейсы и заметки команды. Синхронизация развивается отдельно.',
+        'settings.broker.data.open':'Открыть',
+        'settings.broker.data.drafts':'Локальные черновики','settings.broker.data.drafts.description':'Черновики публикаций и локальные UI-состояния хранятся на устройстве.',
+        'settings.broker.data.drafts.badge':'локально',
+        'settings.broker.mail':'Почта / источники','settings.broker.mail.description':'Личный почтовый ящик участника и фильтр источников. Пароль хранится write-only.',
+        'settings.broker.mail.title':'Почтовый ящик',
+        'settings.broker.mail.box':'Личный mailbox','settings.broker.mail.connected':'Подключён:',
+        'settings.broker.mail.not_connected':'Подключите IMAP/SMTP ящик в модуле Почта.',
+        'settings.broker.mail.open':'Открыть почту','settings.broker.mail.configure':'Настроить',
+        'settings.broker.mail.filter':'Компанейский фильтр',
+        'settings.broker.mail.filter.description':'Если задан, INBOX показывает только письма, где этот адрес есть в To/Cc. Для личного ящика можно оставить пустым.',
+        'settings.broker.mail.filter.save':'Сохранить фильтр',
+        'settings.broker.pairing':'Подключить устройство','settings.broker.pairing.description':'Перенос профиля на другое устройство по одноразовому коду.',
+        'settings.broker.pairing.title':'Перенос на новое устройство',
+        'settings.broker.pairing.code':'Одноразовый код переноса',
+        'settings.broker.pairing.code.description':'Код короткоживущий и срабатывает один раз; в QR попадает только skipi-pair:1:broker:<код> — постоянный токен туда не кладётся. Это не токен доступа команды.',
+        'settings.broker.pairing.show':'Показать код',
+        'settings.broker.access':'Членство и доступ','settings.broker.access.description':'Роль, команда и доступ на этом устройстве.',
+        'settings.broker.access.title':'Доступ',
+        'settings.broker.access.role':'Роль','settings.broker.access.role.description':'Роль этого участника в команде.',
+        'settings.broker.access.role.none':'не подключена',
+        'settings.broker.access.team':'Название команды','settings.broker.access.team.description':'Команда, к которой подключено это устройство.',
+        'settings.broker.access.plan':'Доступ команды','settings.broker.access.plan.description':'Статус бесплатного или постоянного доступа.',
+        'settings.broker.access.plan.unlimited':'без ограничения','settings.broker.access.plan.days':'дн. осталось',
+        'settings.broker.access.invite':'Пригласить участника',
+        'settings.broker.access.invite.description':'Приглашение в терминах ролей и доступа в этом экране пока не подключено (сырые токены в настройки не выносятся).',
+        'settings.broker.access.revoke':'Отозвать доступ участника',
+        'settings.broker.access.revoke.description':'Отзыв доступа участника в этом экране пока не подключён.',
+        'settings.broker.access.leave':'Выйти из команды на этом устройстве',
+        'settings.broker.access.leave.description':'Удаляется только локальный токен доступа; команда, данные на сервере и другие устройства не удаляются.',
+        'settings.broker.access.leave.action':'Выйти',
+        'settings.broker.application':'Приложение','settings.broker.application.description':'Версия, обновления и обратная связь.',
+        'settings.broker.application.title':'О программе',
+        'settings.broker.application.version':'Версия','settings.broker.application.version.description':'Версия и сборка приложения.',
+        'settings.broker.application.updates':'Проверить обновления',
+        'settings.broker.application.feedback':'Оценить Skipi','settings.broker.application.feedback.description':'Обратная связь о приложении.',
+        'settings.broker.devices.revoke_confirm':'Отозвать это устройство? Его доступ будет аннулирован на сервере.',
     },
     en:{
         'nav.exclusives':'📋 Exclusives','nav.matches':'🎯 Matches','nav.signals':'🛒 Bazaar',
         'nav.duplicates':'🔍 Duplicates','nav.counterparts':'🤝 Counterparties',
         'nav.map':'🗺 Map','nav.mail':'📧 Mail','nav.cases':'📂 Cases','nav.team':'💬 Desk',
         'top.notRegistered':'Not registered','top.gear':'Settings',
-        'settings.title':'Settings','settings.tab.general':'General','settings.tab.connection':'Connection',
-        'settings.tab.identity':'Broker profile','settings.tab.reply':'Reply-to','settings.tab.profile':'Profile & access',
-        'settings.tab.appearance':'Appearance','settings.tab.about':'About','settings.tab.devices':'Paired devices',
-        'settings.general.title':'General','settings.general.desc':'Basic application settings.',
-        'settings.lang.label':'Interface language',
-        'settings.lang.desc':'Selected language is saved and synced with Skipi Seafarer on this device.',
+        // ---- @skipi/settings generic shell (module reads these via host.t) ----
+        'settings.title':'Settings','settings.subtitle':'Broker team workspace',
+        'settings.loading':'Loading…','settings.value.unavailable':'Unavailable',
+        'settings.section.devices':'Paired devices','settings.section.devices.description':'Devices with access to this team',
+        'settings.section.appearance':'Appearance','settings.section.appearance.description':'Theme and interface language',
+        'settings.group.application':'Application','settings.group.account':'Team & access',
+        'settings.group.preferences':'Preferences','settings.group.information':'Information',
+        'settings.devices.title':'Devices','settings.devices.unnamed':'Device',
+        'settings.devices.current':'current','settings.devices.empty':'Only this device so far.',
+        'settings.devices.add':'Add device','settings.devices.add.description':'Pair a new device with this team.',
+        'settings.appearance.title':'Interface',
+        'settings.appearance.theme':'Theme','settings.appearance.theme.description':'Light or dark theme.',
+        'settings.appearance.language':'Interface language',
+        'settings.appearance.language.description':'Selected language is saved and synced with Skipi Seafarer on this device.',
+        'settings.theme.light':'Light','settings.theme.dark':'Dark',
+        'settings.action.back':'Back','settings.action.close':'Close','settings.action.retry':'Retry',
+        'settings.action.refresh':'Refresh','settings.action.revoke':'Revoke',
+        'settings.notice.saved':'Saved.','settings.notice.theme_applied':'Theme applied.',
+        'settings.notice.language_applied':'Language applied.','settings.notice.device_revoked':'Device revoked.',
+        'settings.error.load_failed':'Failed to load settings.','settings.error.refresh_failed':'Failed to refresh settings.',
+        'settings.error.action_failed':'The action was not completed.','settings.error.capability_failed':'This block is unavailable right now.',
+        'settings.error.section_failed':'Failed to render this section.','settings.error.section_missing':'Section not found.',
+        // ---- broker-owned Settings sections ----
+        'settings.broker.group.workspace':'Workspace data',
+        'settings.broker.team':'Team','settings.broker.team.description':'Name, contact and working identity of the Broker team.',
+        'settings.broker.team.profile':'Team profile',
+        'settings.broker.team.name':'Name / company','settings.broker.team.name.description':'Shown in the top bar, .eml letters and market signals.',
+        'settings.broker.team.email':'Reply-to email','settings.broker.team.email.description':'Reply-to for signals and outgoing mail.',
+        'settings.broker.team.save':'Save',
+        'settings.broker.team.register':'Register on server','settings.broker.team.reregister':'Re-register on server',
+        'settings.broker.team.status':'Team status','settings.broker.team.status.description':'Server connection of the team profile.',
+        'settings.broker.team.connected':'connected','settings.broker.team.not_connected':'not connected',
+        'settings.broker.data':'Team data','settings.broker.data.description':'Broker working data: the team and its market, not a personal Vault.',
+        'settings.broker.data.title':'Working modules',
+        'settings.broker.data.bazaar':'Bazaar & matches','settings.broker.data.bazaar.description':'Market signals, matches and public DTOs without sources/contacts.',
+        'settings.broker.data.bazaar.badge':'server',
+        'settings.broker.data.cases':'Team cases','settings.broker.data.cases.description':'Working cases and team notes. Sync evolves separately.',
+        'settings.broker.data.open':'Open',
+        'settings.broker.data.drafts':'Local drafts','settings.broker.data.drafts.description':'Publication drafts and local UI state stay on this device.',
+        'settings.broker.data.drafts.badge':'local',
+        'settings.broker.mail':'Mail / sources','settings.broker.mail.description':'Personal member mailbox and source filters. The password is stored write-only.',
+        'settings.broker.mail.title':'Mailbox',
+        'settings.broker.mail.box':'Personal mailbox','settings.broker.mail.connected':'Connected:',
+        'settings.broker.mail.not_connected':'Connect an IMAP/SMTP mailbox in the Mail module.',
+        'settings.broker.mail.open':'Open mail','settings.broker.mail.configure':'Configure',
+        'settings.broker.mail.filter':'Company filter',
+        'settings.broker.mail.filter.description':'When set, INBOX shows only mail with this address in To/Cc. Leave empty for a personal mailbox.',
+        'settings.broker.mail.filter.save':'Save filter',
+        'settings.broker.pairing':'Add a device','settings.broker.pairing.description':'Move the profile to another device with a one-time code.',
+        'settings.broker.pairing.title':'Transfer to a new device',
+        'settings.broker.pairing.code':'One-time transfer code',
+        'settings.broker.pairing.code.description':'The code is short-lived and single-use; the QR carries only skipi-pair:1:broker:<code> — the permanent token never goes there. This is not the team access token.',
+        'settings.broker.pairing.show':'Show code',
+        'settings.broker.access':'Membership & access','settings.broker.access.description':'Role, team and access on this device.',
+        'settings.broker.access.title':'Access',
+        'settings.broker.access.role':'Role','settings.broker.access.role.description':'This member’s role in the team.',
+        'settings.broker.access.role.none':'not connected',
+        'settings.broker.access.team':'Team name','settings.broker.access.team.description':'The team this device is connected to.',
+        'settings.broker.access.plan':'Team access','settings.broker.access.plan.description':'Free or permanent access status.',
+        'settings.broker.access.plan.unlimited':'unlimited','settings.broker.access.plan.days':'days left',
+        'settings.broker.access.invite':'Invite a member',
+        'settings.broker.access.invite.description':'Role/access-based invitations are not wired on this screen yet (raw tokens are not surfaced in Settings).',
+        'settings.broker.access.revoke':'Revoke member access',
+        'settings.broker.access.revoke.description':'Member access revocation is not wired on this screen yet.',
+        'settings.broker.access.leave':'Leave team on this device',
+        'settings.broker.access.leave.description':'Removes only the local access token; the team, server data and other devices stay.',
+        'settings.broker.access.leave.action':'Leave',
+        'settings.broker.application':'Application','settings.broker.application.description':'Version, updates and feedback.',
+        'settings.broker.application.title':'About',
+        'settings.broker.application.version':'Version','settings.broker.application.version.description':'Application version and build.',
+        'settings.broker.application.updates':'Check for updates',
+        'settings.broker.application.feedback':'Rate Skipi','settings.broker.application.feedback.description':'Feedback about the application.',
+        'settings.broker.devices.revoke_confirm':'Revoke this device? Its access will be cancelled on the server.',
     },
     tl:{
         'nav.exclusives':'📋 Exclusives','nav.matches':'🎯 Matches','nav.signals':'🛒 Bazaar',
         'nav.duplicates':'🔍 Duplicates','nav.counterparts':'🤝 Counterparties',
         'nav.map':'🗺 Mapa','nav.mail':'📧 Mail','nav.team':'💬 Desk',
         'top.notRegistered':'Hindi naka-rehistro','top.gear':'Settings',
-        'settings.title':'Settings','settings.tab.general':'Pangkalahatan','settings.tab.connection':'Connection',
-        'settings.tab.identity':'Broker profile','settings.tab.reply':'Reply-to',
-        'settings.tab.appearance':'Hitsura','settings.tab.about':'Tungkol','settings.tab.devices':'Mga naka-pair na device',
-        'settings.general.title':'Pangkalahatan','settings.general.desc':'Pangunahing settings ng application.',
-        'settings.lang.label':'Wika ng interface',
-        'settings.lang.desc':'Naka-save at naka-sync ang piniling wika sa Skipi Seafarer sa device na ito.',
+        // Settings shell strings fall back to English (module keys) until a
+        // native tl review lands.
+        'settings.title':'Settings',
     },
     hi:{
         'nav.exclusives':'📋 Exclusives','nav.matches':'🎯 Matches','nav.signals':'🛒 Bazaar',
         'nav.duplicates':'🔍 Duplicates','nav.counterparts':'🤝 Counterparties',
         'nav.map':'🗺 मानचित्र','nav.mail':'📧 मेल','nav.team':'💬 डेस्क',
         'top.notRegistered':'पंजीकृत नहीं','top.gear':'सेटिंग्स',
-        'settings.title':'सेटिंग्स','settings.tab.general':'सामान्य','settings.tab.connection':'कनेक्शन',
-        'settings.tab.identity':'ब्रोकर प्रोफ़ाइल','settings.tab.reply':'Reply-to',
-        'settings.tab.appearance':'दिखावट','settings.tab.about':'के बारे में','settings.tab.devices':'युग्मित डिवाइस',
-        'settings.general.title':'सामान्य','settings.general.desc':'Application की मूल settings.',
-        'settings.lang.label':'Interface भाषा',
-        'settings.lang.desc':'चयनित भाषा इस device पर Skipi Seafarer के साथ saved + synced रहती है.',
+        // Settings shell strings fall back to English (module keys) until a
+        // native hi review lands.
+        'settings.title':'सेटिंग्स',
     },
     id:{
         'nav.exclusives':'📋 Eksklusif','nav.matches':'🎯 Kecocokan','nav.signals':'🛒 Bazaar',
         'nav.duplicates':'🔍 Duplikat','nav.counterparts':'🤝 Counterparties',
         'nav.map':'🗺 Peta','nav.mail':'📧 Surat','nav.team':'💬 Desk',
         'top.notRegistered':'Belum terdaftar','top.gear':'Pengaturan',
-        'settings.title':'Pengaturan','settings.tab.general':'Umum','settings.tab.connection':'Koneksi',
-        'settings.tab.identity':'Profil broker','settings.tab.reply':'Reply-to',
-        'settings.tab.appearance':'Tampilan','settings.tab.about':'Tentang','settings.tab.devices':'Perangkat terpasang',
-        'settings.general.title':'Umum','settings.general.desc':'Pengaturan dasar aplikasi.',
-        'settings.lang.label':'Bahasa antarmuka',
-        'settings.lang.desc':'Bahasa yang dipilih disimpan dan disinkronkan dengan Skipi Seafarer di perangkat ini.',
+        // Settings shell strings fall back to English (module keys) until a
+        // native id review lands.
+        'settings.title':'Pengaturan',
     },
 };
 function getUiLang(){
@@ -171,14 +298,8 @@ function setUiLang(lang){
     localStorage.setItem(UI_LANG_KEY,lang);
     document.documentElement.lang=lang;
     applyI18n();
-    try{ if(typeof renderSettingsNav==='function') renderSettingsNav(); }catch(e){}
-    try{ if(typeof renderSettingsBody==='function') renderSettingsBody(); }catch(e){}
-}
-function uiLanguageSelectHtml(){
-    var cur=getUiLang();
-    return '<select id="i-lang" onchange="setUiLang(this.value)">'
-        + UI_LANG_OPTIONS.map(function(o){return '<option value="'+o[0]+'"'+(cur===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('')
-        + '</select>';
+    // The @skipi/settings shell re-reads host.getUiLang()/host.t() and redraws
+    // itself after host.setUiLang resolves — no extra hook needed here.
 }
 
 document.addEventListener('DOMContentLoaded', function(){
@@ -1270,6 +1391,11 @@ body.dragging-split.col-resize { cursor:col-resize; }
    Obsidian-like two-panel package: sidebar left, grouped settings right,
    Skipi petrol #004564 instead of Obsidian purple. */
 .set-modal { width:900px; height:620px; max-width:96vw; max-height:90vh; border-radius:10px; background:var(--bg); position:relative; z-index:1; }
+/* @skipi/settings module container: the module shell brings its own panel
+   chrome (border/radius/shadow), so the overlay only needs a sized mount. */
+#settings-root { width:min(980px, 96vw); }
+body.mobile-mode #settings-root { width:100%; height:100%; }
+body.mobile-mode #settings-root .skipi-settings { --skipi-settings-mobile-height:100%; }
 .set-layout { display:flex; flex:1; overflow:hidden; background:var(--bg); position:relative; z-index:1; }
 .set-nav { width:248px; background:var(--surface); border-right:1px solid var(--border); overflow-y:auto; padding:14px 10px; }
 .set-nav-head { padding:2px 8px 14px; border-bottom:1px solid var(--border); margin-bottom:10px; }
@@ -1530,6 +1656,8 @@ body.dragging-split.col-resize { cursor:col-resize; }
 </style>
 <link rel="stylesheet" href="leaflet/leaflet.css">
 <link rel="stylesheet" href="map.css">
+<!-- @skipi/settings v0.2.0 — vendored module styles (dist/skipi-settings.SETTINGS_VERSION) -->
+<link rel="stylesheet" href="skipi-settings.css">
 <script src="leaflet/leaflet.js"></script>
 <script src="map.js"></script>
 </head>
@@ -4769,18 +4897,11 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
     </div>
 </div>
 
-<!-- Settings modal -->
+<!-- Settings modal — shared @skipi/settings module (menu 3, vendored v0.2.0).
+     The module renders its own shell (sidebar/detail, title, close button);
+     the overlay is only the scrim + mount point. -->
 <div class="modal-overlay" id="settings-overlay" onclick="if(event.target===this)closeSettings();">
-    <div class="modal set-modal">
-        <div class="modal-head">
-            <h2 data-i18n="settings.title">Настройки</h2>
-            <div class="close-x" onclick="closeSettings()">×</div>
-        </div>
-        <div class="set-layout">
-            <div class="set-nav" id="set-nav"></div>
-            <div class="set-body" id="set-body"></div>
-        </div>
-    </div>
+    <div id="settings-root"></div>
 </div>
 
 <!-- Feedback modal -->
@@ -4798,6 +4919,9 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
 <div class="toast-host" id="toast-host"></div>
 
 <script src="plugin-host-bridge.js"></script>
+<!-- @skipi/settings v0.2.0 — vendored module bytes; publishes window.SkipiSettings.
+     sha256 pinned in dist/skipi-settings.SETTINGS_VERSION and skipi-verify. -->
+<script src="skipi-settings.js"></script>
 <script>
 "use strict";
 
@@ -4830,7 +4954,6 @@ var state = {
     selectedPair: null,      // id of the selected bxb pair
     selectedMatch: null,     // { type:'own'|'bazaar', data:{...} }
     publish: { side:null },  // null | 'cargo' | 'tonnage'
-    settingsTab: 'team',
     access: null,   // {role, team_id, team_name, days_left, active, expires} — from /api/broker-auth/validate
     view: 'ex',              // 'ex' = Эксклюзивы tab, 'match' = Совпадения tab
     selectedSignal: null,    // { kind:'cargo'|'tonnage', id:'...' } — driver of view-match col 2 selection
@@ -5259,7 +5382,9 @@ function applyTheme(){
     document.documentElement.style.setProperty('--font-size-ui', fs+'px');
     if(typeof brokerPluginNotifyTheme === 'function') brokerPluginNotifyTheme();
 }
-function setTheme(t){ localStorage.setItem('skipi-broker-theme', t); applyTheme(); renderSettingsBody(); }
+// Theme persist + apply now happens through the @skipi/settings host adapter
+// (host.applyTheme in the Settings block below); applyTheme() stays the single
+// place that resolves and applies the stored value.
 
 // ===================== Vessels / Vessel Database Core v0 — Slice 1 read-only lookup =====================
 // Broker is the FIRST consumer of the shared Vessel Database module.
@@ -9581,7 +9706,7 @@ async function _authGateSubmit(){
     }
     state.settings = state.settings || {};
     state.settings.broker_id = bid;
-    state.settings.bearer_token = bid; // см. overrideBrokerId — авто-синк
+    state.settings.bearer_token = bid; // авто-синк: bearer_token = broker_id (единственный токен)
     try { state.settings = await invoke('save_settings', { incoming: state.settings }); } catch(_){}
     _authGateHide();
     await _bootContinue();
@@ -13707,42 +13832,361 @@ async function submitTonnage(){
     } catch(e){ showToast(state.publish.editing ? 'Сохранение не удалось: '+e : 'Публикация не удалась: '+e, 'error'); }
 }
 
-// ---------- Settings ----------
+// ---------- Settings — shared @skipi/settings module (menu 3, vendored v0.2.0) ----------
+// The legacy inline settings panel (renderSettingsNav/renderSettingsBody and
+// the raw-token «Доступ / токены» tab) is replaced by the shared
+// @skipi/settings shell. Honesty rules of this adopt:
+//   - only REAL broker backing is wired: team profile via save_settings,
+//     devices via device_list/device_revoke, the one-time pairing code via
+//     the existing _devShowPairingCode flow, theme/language via the existing
+//     per-device persistence, updates/feedback via existing commands;
+//   - membership actions without a token-free backing (invite / revoke a
+//     member) are honest disabled placeholders — nothing is imitated;
+//   - raw team/bearer tokens and the server URL are intentionally NOT part
+//     of the Settings UI (DECISIONS 16.07: membership = roles/invites/
+//     access); entering a token stays in the launch/auth gate, «выйти из
+//     команды на этом устройстве» stays here as a real access action;
+//   - no host.modulesMount: Broker has no live mechanism that mounts the
+//     plugin catalog into an arbitrary element (Apps is a fixed top-level
+//     view), so the generic Modules section is not presented at all.
+var _skipiSettingsInstance = null;
+
+function _brokerSettingsAuthPresent(){
+    var s = state.settings || {};
+    return !!(s.bearer_token || s.broker_id);
+}
+function _brokerSettingsRefresh(){
+    try { if(_skipiSettingsInstance) _skipiSettingsInstance.refresh().catch(function(){}); } catch(_){}
+}
+
+// -- small trusted-HTML helpers for app-specific sections (module classes) --
+function _brokerSettingsHtmlRow(ctx, labelKey, descriptionKey, control){
+    return '<div class="skipi-settings__row"><div class="skipi-settings__row-copy">'
+        + '<div class="skipi-settings__row-label">'+ctx.escapeHtml(ctx.t(labelKey))+'</div>'
+        + (descriptionKey ? '<div class="skipi-settings__row-description">'+ctx.escapeHtml(ctx.t(descriptionKey))+'</div>' : '')
+        + '</div><div class="skipi-settings__row-control">'+(control||'')+'</div></div>';
+}
+function _brokerSettingsHtmlGroup(ctx, titleKey, rows){
+    return '<section class="skipi-settings__section"><h3 class="skipi-settings__section-title">'
+        + ctx.escapeHtml(ctx.t(titleKey))+'</h3><div class="skipi-settings__group">'+rows+'</div></section>';
+}
+function _brokerSettingsHtmlButton(ctx, action, labelKey){
+    return '<button type="button" class="skipi-settings__button skipi-settings__button--secondary" data-settings-action="'
+        + ctx.escapeAttr(action)+'">'+ctx.escapeHtml(ctx.t(labelKey))+'</button>';
+}
+function _brokerSettingsHtmlDisabledButton(ctx, labelKey){
+    return '<button type="button" class="skipi-settings__button skipi-settings__button--secondary" disabled aria-disabled="true">'
+        + ctx.escapeHtml(ctx.t(labelKey))+'</button>';
+}
+function _brokerSettingsHtmlBadge(ctx, labelKey){
+    return '<span class="skipi-settings__badge">'+ctx.escapeHtml(ctx.t(labelKey))+'</span>';
+}
+function _brokerSettingsHtmlInput(id, value, placeholder){
+    return '<input id="'+esc(id)+'" class="skipi-settings__input" value="'+esc(value||'')
+        + '"'+(placeholder ? ' placeholder="'+esc(placeholder)+'"' : '')+' style="min-width:240px;">';
+}
+
+// -- broker-owned sections (real backing only; placeholders stay disabled) --
+function _brokerSettingsSections(){
+    var sections = [
+        { id:'team-profile', order:110, icon:'T',
+          labelKey:'settings.broker.team', descriptionKey:'settings.broker.team.description',
+          mobileGroupKey:'settings.group.account',
+          renderHtml: function(ctx){
+              var s = ctx.settings || {};
+              var connected = !!s.broker_id;
+              return _brokerSettingsHtmlGroup(ctx, 'settings.broker.team.profile',
+                  _brokerSettingsHtmlRow(ctx, 'settings.broker.team.name', 'settings.broker.team.name.description',
+                      _brokerSettingsHtmlInput('set-display', s.display_name, ''))
+                + _brokerSettingsHtmlRow(ctx, 'settings.broker.team.email', 'settings.broker.team.email.description',
+                      _brokerSettingsHtmlInput('set-contact', s.reply_to, ''))
+                + _brokerSettingsHtmlRow(ctx, 'settings.broker.team.status', 'settings.broker.team.status.description',
+                      _brokerSettingsHtmlBadge(ctx, connected ? 'settings.broker.team.connected' : 'settings.broker.team.not_connected')))
+                + '<div class="skipi-settings__actions">'
+                +   _brokerSettingsHtmlButton(ctx, 'broker-team-save', 'settings.broker.team.save')
+                +   _brokerSettingsHtmlButton(ctx, 'broker-team-register', connected ? 'settings.broker.team.reregister' : 'settings.broker.team.register')
+                + '</div>';
+          },
+          handlers: {
+              'broker-team-save': function(ctx){
+                  var next = {}, cur = ctx.settings || {};
+                  Object.keys(cur).forEach(function(k){ next[k] = cur[k]; });
+                  next.display_name = val('set-display');
+                  next.reply_to = val('set-contact');
+                  return ctx.saveSettings(next);
+              },
+              'broker-team-register': function(ctx){
+                  // registerBroker() reads #set-display/#set-contact rendered
+                  // above, registers on the server and refreshes app state.
+                  return ctx.run('register', function(){
+                      return registerBroker().then(function(){ return ctx.refresh(); });
+                  });
+              }
+          }
+        },
+        { id:'team-data', order:120, icon:'D',
+          labelKey:'settings.broker.data', descriptionKey:'settings.broker.data.description',
+          mobileGroupKey:'settings.broker.group.workspace',
+          renderHtml: function(ctx){
+              return _brokerSettingsHtmlGroup(ctx, 'settings.broker.data.title',
+                  _brokerSettingsHtmlRow(ctx, 'settings.broker.data.bazaar', 'settings.broker.data.bazaar.description',
+                      _brokerSettingsHtmlBadge(ctx, 'settings.broker.data.bazaar.badge'))
+                + _brokerSettingsHtmlRow(ctx, 'settings.broker.data.cases', 'settings.broker.data.cases.description',
+                      _brokerSettingsHtmlButton(ctx, 'broker-open-cases', 'settings.broker.data.open'))
+                + _brokerSettingsHtmlRow(ctx, 'settings.broker.data.drafts', 'settings.broker.data.drafts.description',
+                      _brokerSettingsHtmlBadge(ctx, 'settings.broker.data.drafts.badge')));
+          },
+          handlers: {
+              'broker-open-cases': function(){ closeSettings(); showView('cases'); }
+          }
+        },
+        { id:'mail-sources', order:130, icon:'M',
+          labelKey:'settings.broker.mail', descriptionKey:'settings.broker.mail.description',
+          mobileGroupKey:'settings.broker.group.workspace',
+          renderHtml: function(ctx){
+              var mb = state.mail && state.mail.mailbox ? state.mail.mailbox : null;
+              var connected = !!(mb && mb.configured);
+              var statusText = connected
+                  ? (ctx.t('settings.broker.mail.connected')+' '+(mb.email_masked||'')
+                     + (mb.last_error ? (' · '+_mbShortReason(mb.last_error)) : ''))
+                  : ctx.t('settings.broker.mail.not_connected');
+              return _brokerSettingsHtmlGroup(ctx, 'settings.broker.mail.title',
+                  '<div class="skipi-settings__row"><div class="skipi-settings__row-copy">'
+                +   '<div class="skipi-settings__row-label">'+ctx.escapeHtml(ctx.t('settings.broker.mail.box'))+'</div>'
+                +   '<div class="skipi-settings__row-description">'+ctx.escapeHtml(statusText)+'</div>'
+                + '</div><div class="skipi-settings__row-control">'
+                +   _brokerSettingsHtmlButton(ctx, 'broker-mail-open', 'settings.broker.mail.open')
+                +   ' '+_brokerSettingsHtmlButton(ctx, 'broker-mail-configure', 'settings.broker.mail.configure')
+                + '</div></div>'
+                + _brokerSettingsHtmlRow(ctx, 'settings.broker.mail.filter', 'settings.broker.mail.filter.description',
+                      _brokerSettingsHtmlInput('set-company-email', _companyEmail(), 'drybulk@montlinechartering.com')))
+                + '<div class="skipi-settings__actions">'
+                +   _brokerSettingsHtmlButton(ctx, 'broker-mail-filter-save', 'settings.broker.mail.filter.save')
+                + '</div>';
+          },
+          handlers: {
+              'broker-mail-open': function(){ closeSettings(); showView('mail'); },
+              'broker-mail-configure': function(){ closeSettings(); showView('mail'); setTimeout(openMailboxSettings, 120); },
+              'broker-mail-filter-save': function(){ saveCompanyEmail(); }
+          }
+        },
+        { id:'team-access', order:420, icon:'A',
+          labelKey:'settings.broker.access', descriptionKey:'settings.broker.access.description',
+          mobileGroupKey:'settings.group.account',
+          renderHtml: function(ctx){
+              var a = state.access || null;
+              var role = a && a.role ? String(a.role) : ctx.t('settings.broker.access.role.none');
+              var plan = a
+                  ? ((a.days_left === null || a.days_left === undefined || a.expires === null)
+                      ? ctx.t('settings.broker.access.plan.unlimited')
+                      : (String(a.days_left)+' '+ctx.t('settings.broker.access.plan.days')))
+                  : ctx.t('settings.value.unavailable');
+              var rows =
+                  _brokerSettingsHtmlRow(ctx, 'settings.broker.access.role', 'settings.broker.access.role.description',
+                      '<span class="skipi-settings__value">'+ctx.escapeHtml(role)+'</span>')
+                + (a && a.team_name
+                    ? _brokerSettingsHtmlRow(ctx, 'settings.broker.access.team', 'settings.broker.access.team.description',
+                        '<span class="skipi-settings__value">'+ctx.escapeHtml(a.team_name)+'</span>')
+                    : '')
+                + _brokerSettingsHtmlRow(ctx, 'settings.broker.access.plan', 'settings.broker.access.plan.description',
+                      '<span class="skipi-settings__value">'+ctx.escapeHtml(plan)+'</span>')
+                // Honest placeholders: role/invite-based membership actions
+                // have no token-free backing in Broker yet (raw member tokens
+                // are banned from Settings) — so the buttons stay disabled.
+                + _brokerSettingsHtmlRow(ctx, 'settings.broker.access.invite', 'settings.broker.access.invite.description',
+                      _brokerSettingsHtmlDisabledButton(ctx, 'settings.broker.access.invite'))
+                + _brokerSettingsHtmlRow(ctx, 'settings.broker.access.revoke', 'settings.broker.access.revoke.description',
+                      _brokerSettingsHtmlDisabledButton(ctx, 'settings.broker.access.revoke'));
+              if(_brokerSettingsAuthPresent()){
+                  rows += _brokerSettingsHtmlRow(ctx, 'settings.broker.access.leave', 'settings.broker.access.leave.description',
+                      _brokerSettingsHtmlButton(ctx, 'broker-team-leave', 'settings.broker.access.leave.action'));
+              }
+              return _brokerSettingsHtmlGroup(ctx, 'settings.broker.access.title', rows);
+          },
+          handlers: {
+              'broker-team-leave': function(){ return leaveBrokerTeamLocal(); }
+          }
+        },
+        { id:'application', order:520, icon:'S',
+          labelKey:'settings.broker.application', descriptionKey:'settings.broker.application.description',
+          mobileGroupKey:'settings.group.information',
+          renderHtml: function(ctx){
+              return _brokerSettingsHtmlGroup(ctx, 'settings.broker.application.title',
+                  _brokerSettingsHtmlRow(ctx, 'settings.broker.application.version', 'settings.broker.application.version.description',
+                      '<span class="skipi-settings__value" data-qa="app-build-sha">'+ctx.escapeHtml(appVersionLabel())+'</span> '
+                    + _brokerSettingsHtmlButton(ctx, 'broker-check-updates', 'settings.broker.application.updates'))
+                + _brokerSettingsHtmlRow(ctx, 'settings.broker.application.feedback', 'settings.broker.application.feedback.description',
+                      _brokerSettingsHtmlButton(ctx, 'broker-feedback', 'settings.broker.application.feedback')))
+                + '<div class="sub" id="update-check-status" style="margin-top:10px;"></div>';
+          },
+          handlers: {
+              'broker-check-updates': function(ctx){ return ctx.run('updates', function(){ return checkForUpdatesManual(); }); },
+              'broker-feedback': function(){ openFeedbackDialog('about'); }
+          }
+        }
+    ];
+    if(_brokerSettingsAuthPresent()){
+        // One-time pairing code (device migration, NOT the team access token).
+        // Reuses the existing _devShowPairingCode flow byte-for-byte; it
+        // renders the short-lived code + offline QR into #dev-pair-code.
+        sections.push({
+            id:'device-pairing', order:410, icon:'+',
+            labelKey:'settings.broker.pairing', descriptionKey:'settings.broker.pairing.description',
+            mobileGroupKey:'settings.group.account',
+            renderHtml: function(ctx){
+                return _brokerSettingsHtmlGroup(ctx, 'settings.broker.pairing.title',
+                    _brokerSettingsHtmlRow(ctx, 'settings.broker.pairing.code', 'settings.broker.pairing.code.description',
+                        _brokerSettingsHtmlButton(ctx, 'broker-show-pair-code', 'settings.broker.pairing.show')))
+                    + '<div id="dev-pair-code" style="margin-top:12px;"></div>';
+            },
+            handlers: {
+                'broker-show-pair-code': function(){ return _devShowPairingCode(); }
+            }
+        });
+    }
+    return sections;
+}
+
+// -- navigation: only sections with real broker meaning are presented.
+// Identity/Storage/Modules generic sections stay unrepresented (no vault,
+// no storage callbacks, no modulesMount in Broker) instead of showing
+// dead "unavailable" rows.
+function _brokerSettingsNavigation(){
+    return {
+        desktop: [
+            { id:'nav-team-profile', sectionId:'team-profile', labelKey:'settings.broker.team', iconKey:'account' },
+            { id:'nav-team-data', sectionId:'team-data', labelKey:'settings.broker.data', iconKey:'data' },
+            { id:'nav-mail-sources', sectionId:'mail-sources', labelKey:'settings.broker.mail', iconKey:'email' },
+            { id:'nav-devices', sectionId:'devices', labelKey:'settings.section.devices', iconKey:'phone', optional:true },
+            { id:'nav-device-pairing', sectionId:'device-pairing', labelKey:'settings.broker.pairing', iconKey:'protection', optional:true },
+            { id:'nav-team-access', sectionId:'team-access', labelKey:'settings.broker.access', iconKey:'security' },
+            { id:'nav-appearance', sectionId:'appearance', labelKey:'settings.section.appearance', iconKey:'appearance' },
+            { id:'nav-application', sectionId:'application', labelKey:'settings.broker.application', iconKey:'general' }
+        ],
+        mobile: [
+            { id:'group-team', labelKey:'settings.group.account', items:[
+                { id:'m-team-profile', sectionId:'team-profile', labelKey:'settings.broker.team', iconKey:'account' },
+                { id:'m-team-access', sectionId:'team-access', labelKey:'settings.broker.access', iconKey:'security' }
+            ]},
+            { id:'group-workspace', labelKey:'settings.broker.group.workspace', items:[
+                { id:'m-team-data', sectionId:'team-data', labelKey:'settings.broker.data', iconKey:'data' },
+                { id:'m-mail-sources', sectionId:'mail-sources', labelKey:'settings.broker.mail', iconKey:'email' }
+            ]},
+            { id:'group-devices', labelKey:'settings.section.devices', items:[
+                { id:'m-devices', sectionId:'devices', labelKey:'settings.section.devices', iconKey:'phone', optional:true },
+                { id:'m-device-pairing', sectionId:'device-pairing', labelKey:'settings.broker.pairing', iconKey:'protection', optional:true }
+            ]},
+            { id:'group-preferences', labelKey:'settings.group.preferences', items:[
+                { id:'m-appearance', sectionId:'appearance', labelKey:'settings.section.appearance', iconKey:'appearance' },
+                { id:'m-application', sectionId:'application', labelKey:'settings.broker.application', iconKey:'general' }
+            ]}
+        ]
+    };
+}
+
+// -- host adapter (CONTRACT.md v0.2.0) over the existing broker settings store --
+function brokerSettingsHost(){
+    var host = {
+        getSettings: function(){
+            return Promise.resolve(invoke('get_settings')).then(function(s){
+                if(s && typeof s === 'object' && !Array.isArray(s)) state.settings = s;
+                return state.settings;
+            });
+        },
+        saveSettings: function(next){
+            return Promise.resolve(invoke('save_settings', { incoming: next })).then(function(saved){
+                if(saved && typeof saved === 'object' && !Array.isArray(saved)) state.settings = saved;
+                else state.settings = next;
+                try { refreshIdentityBadge(); } catch(_){}
+                return state.settings;
+            });
+        },
+        applyTheme: function(theme){
+            // Persist + apply through the existing per-device mechanism. The
+            // module offers light/dark only; a stored 'system' value keeps
+            // working until the user explicitly toggles here.
+            localStorage.setItem('skipi-broker-theme', theme === 'dark' ? 'dark' : 'light');
+            applyTheme();
+        },
+        getTheme: function(){
+            var t = localStorage.getItem('skipi-broker-theme') || 'light';
+            if(t === 'system'){
+                try { return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; }
+                catch(_){ return 'light'; }
+            }
+            return t === 'dark' ? 'dark' : 'light';
+        },
+        getUiLang: function(){ return getUiLang(); },
+        setUiLang: function(lang){ setUiLang(lang); },
+        t: function(key){ return tr(key); },
+        languages: UI_LANG_OPTIONS.map(function(o){ return { value:o[0], label:o[1] }; }),
+        appName: 'Skipi Broker',
+        get appVersion(){ return appVersionLabel(); },
+        getAccountSummary: function(){
+            var s = state.settings || {};
+            return {
+                displayName: s.display_name || 'Skipi Broker',
+                subtitle: s.reply_to || (state.access && state.access.team_name) || '',
+                sectionId: 'team-profile'
+            };
+        },
+        onError: function(error, context){
+            try { console.error('[skipi-settings]', context, error); } catch(_){}
+        },
+        appSpecificSections: _brokerSettingsSections(),
+        settingsNavigation: _brokerSettingsNavigation()
+    };
+    // Devices capability (object, NOT Array — Array is an invalid host.devices
+    // value by contract) is wired only while this device holds team auth:
+    // device_list/device_revoke are real Tauri commands behind the token.
+    // No pair/scan callbacks here: issuing the one-time code needs its own
+    // UI (code + QR + countdown), which lives in the device-pairing section.
+    if(_brokerSettingsAuthPresent()){
+        host.devices = {
+            enabled: true,
+            getDevices: function(){
+                return Promise.resolve(invoke('device_list', { deviceId:_deviceId() })).then(function(list){
+                    if(!Array.isArray(list)) return [];
+                    return list.map(function(dv){
+                        return {
+                            id: dv.id,
+                            name: dv.label || dv.platform || tr('settings.devices.unnamed'),
+                            status: (dv.platform || '') + (dv.last_seen_at ? (' · ' + _devFmtWhen(dv.last_seen_at)) : ''),
+                            current: !!dv.current
+                        };
+                    });
+                });
+            },
+            revoke: function(deviceId){
+                if(!window.confirm(tr('settings.broker.devices.revoke_confirm'))){
+                    return Promise.reject(new Error('revoke cancelled by user'));
+                }
+                return Promise.resolve(invoke('device_revoke', { id: deviceId }));
+            }
+        };
+    }
+    return host;
+}
+
 function openSettings(){
-    document.getElementById('settings-overlay').classList.add('open');
-    renderSettingsNav(); renderSettingsBody();
+    var overlay = document.getElementById('settings-overlay');
+    var target = document.getElementById('settings-root');
+    if(!overlay || !target) return;
+    if(!window.SkipiSettings || typeof window.SkipiSettings.mount !== 'function'){
+        // Vendored dist/skipi-settings.js failed to load — fail closed, honestly.
+        try { showToast('Модуль настроек не загрузился (skipi-settings.js).', 'error'); } catch(_){}
+        return;
+    }
+    if(_skipiSettingsInstance){ try { _skipiSettingsInstance.unmount(); } catch(_){} _skipiSettingsInstance = null; }
+    overlay.classList.add('open');
+    // Fresh instance per open: unmount() is irreversible by module contract.
+    _skipiSettingsInstance = window.SkipiSettings.mount(target, brokerSettingsHost(), { onClose: closeSettings });
+    _skipiSettingsInstance.ready.catch(function(){ /* fatal state is rendered by the module shell itself */ });
 }
 function closeSettings(){
-    document.getElementById('settings-overlay').classList.remove('open');
-}
-function renderSettingsNav(){
-    var tabs = [
-        {id:'team',       icon:'T', label:'Команда'},
-        {id:'data',       icon:'D', label:'Данные команды'},
-        {id:'mail',       icon:'M', label:'Почта / источники'},
-        {id:'devices',    icon:'U', label:'Сопряжённые устройства'},
-        {id:'access',     icon:'A', label:'Доступ / токены'},
-        {id:'app',        icon:'S', label:'Приложение'},
-    ];
-    // Legacy tab ids redirect to the new canonical Broker IA.
-    if(state.settingsTab === 'connection' || state.settingsTab === 'identity' || state.settingsTab === 'reply' || state.settingsTab === 'profile'){
-        state.settingsTab = 'access';
-    }
-    if(state.settingsTab === 'general'){
-        state.settingsTab = 'team';
-    }
-    if(state.settingsTab === 'appearance' || state.settingsTab === 'about'){
-        state.settingsTab = 'app';
-    }
-    if(!state.settingsTab) state.settingsTab='team';
-    document.getElementById('set-nav').innerHTML =
-        '<div class="set-nav-head"><div class="set-nav-title">Настройки</div>'+
-        '<div class="set-nav-desc">Рабочее пространство брокерской команды. Без Vault: только команда, данные и доступ.</div></div>'+
-        tabs.map(function(t){
-        return '<div class="set-nav-item '+(state.settingsTab===t.id?'active':'')
-            +'" onclick="state.settingsTab=\''+t.id+'\'; renderSettingsNav(); renderSettingsBody();">'+
-            '<span class="set-nav-icon">'+esc(t.icon)+'</span><span class="set-nav-label">'+esc(t.label)+'</span></div>';
-    }).join('');
+    var overlay = document.getElementById('settings-overlay');
+    if(overlay) overlay.classList.remove('open');
+    if(_skipiSettingsInstance){ try { _skipiSettingsInstance.unmount(); } catch(_){} _skipiSettingsInstance = null; }
 }
 // Paired-devices helpers (Settings → Сопряжённые устройства).
 function _deviceLabel(){
@@ -13756,217 +14200,15 @@ function _deviceLabel(){
         return 'Skipi Broker · ' + os;
     } catch(_){ return 'Это устройство'; }
 }
-function _devToggleToken(){
-    var e=document.getElementById('dev-token'); if(!e) return;
-    e.style.display = (e.style.display==='none' || !e.style.display) ? 'block' : 'none';
-}
-async function _devCopyToken(){
-    var t=(state.settings && state.settings.broker_id) || '';
-    if(!t){ return; }
-    try { await navigator.clipboard.writeText(t); showToast('Токен скопирован','ok'); }
-    catch(_){ showToast('Не удалось скопировать','error'); }
-}
-function renderSettingsBody(){
-    var body = document.getElementById('set-body');
-    if(!body) return;
-    var s = state.settings;
-    var t = state.settingsTab || 'team';
-    if(t==='team'){
-        body.innerHTML =
-            '<div class="set-page-head"><div><h3>Команда</h3>'+
-                '<div class="sub">Название, контакт и рабочая идентичность Broker-команды.</div></div>'+
-                '<span class="set-status-pill">СКИПИ БРОКЕР</span></div>'+
-            '<div class="settings-section">'+
-                '<div class="set-section-title">Профиль команды</div>'+
-                '<div class="setting-row">'+
-                    '<div class="setting-info">'+
-                        '<div class="setting-label">Имя / компания</div>'+
-                        '<div class="setting-desc">Показывается в верхней панели, .eml-письмах и рабочих сигналах.</div>'+
-                    '</div>'+
-                    '<div class="setting-control"><input id="set-display" value="'+esc(s.display_name||'')+'" style="min-width:260px;"></div>'+
-                '</div>'+
-                '<div class="setting-row">'+
-                    '<div class="setting-info">'+
-                        '<div class="setting-label">Email для ответов</div>'+
-                        '<div class="setting-desc">Reply-to для сигналов и исходящих писем.</div>'+
-                    '</div>'+
-                    '<div class="setting-control"><input id="set-contact" value="'+esc(s.reply_to||'')+'" style="min-width:260px;"></div>'+
-                '</div>'+
-                '<input type="hidden" id="set-fname" value="'+esc(s.display_name||'')+'">'+
-                '<input type="hidden" id="set-femail" value="'+esc(s.reply_to||'')+'">'+
-            '</div>'+
-            '<div class="settings-actions" style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap;">'+
-                '<button class="btn btn-accent" onclick="saveProfileCombined()">Сохранить</button>'+
-                '<button class="btn btn-outline" onclick="registerBroker()">'+(s.broker_id?'Перерегистрировать на сервере':'Зарегистрировать на сервере')+'</button>'+
-            '</div>'+
-            '<div class="settings-section" style="margin-top:24px;">'+
-                '<div class="set-section-title">Текущая команда</div>'+
-                '<div class="setting-row">'+
-                    '<div class="setting-info">'+
-                        '<div class="setting-label">Team ID</div>'+
-                        '<div class="setting-desc">'+(s.broker_id ? '<code>'+esc(s.broker_id)+'</code>' : 'Профиль команды ещё не подключён.')+'</div>'+
-                    '</div>'+
-                    '<div class="setting-control"><span class="set-status-pill">'+(state.access && state.access.role ? esc(state.access.role) : 'не подключено')+'</span></div>'+
-                '</div>'+
-            '</div>';
-    } else if(t==='data'){
-        body.innerHTML =
-            '<div class="set-page-head"><div><h3>Данные команды</h3>'+
-                '<div class="sub">Рабочие данные Broker-приложения. Это не личный Vault: данные относятся к команде и её рынку.</div></div>'+
-                '<span class="set-status-pill">WORKSPACE</span></div>'+
-            '<div class="settings-section">'+
-                '<div class="set-section-title">Рабочие модули</div>'+
-                '<div class="setting-row">'+
-                    '<div class="setting-info"><div class="setting-label">Bazaar и совпадения</div>'+
-                    '<div class="setting-desc">Рыночные сигналы, совпадения и публичные DTO без источников/контактов.</div></div>'+
-                    '<div class="setting-control"><span class="set-status-pill">сервер</span></div>'+
-                '</div>'+
-                '<div class="setting-row">'+
-                    '<div class="setting-info"><div class="setting-label">Дела команды</div>'+
-                    '<div class="setting-desc">Рабочие кейсы и заметки команды. Синхронизация развивается отдельно.</div></div>'+
-                    '<div class="setting-control"><button class="btn" onclick="closeSettings(); showView(\'cases\')">Открыть</button></div>'+
-                '</div>'+
-                '<div class="setting-row">'+
-                    '<div class="setting-info"><div class="setting-label">Локальные черновики</div>'+
-                    '<div class="setting-desc">Черновики публикаций и локальные UI-состояния хранятся на устройстве.</div></div>'+
-                    '<div class="setting-control"><span class="set-status-pill">local</span></div>'+
-                '</div>'+
-            '</div>';
-    } else if(t==='mail'){
-        var mb = state.mail && state.mail.mailbox ? state.mail.mailbox : null;
-        var mbState = mb && mb.configured ? ('подключено: '+(mb.email_masked || 'почта')) : 'не подключено';
-        body.innerHTML =
-            '<div class="set-page-head"><div><h3>Почта / источники</h3>'+
-                '<div class="sub">Личный почтовый ящик участника команды и фильтры источников. Пароль хранится write-only и не показывается обратно.</div></div>'+
-                '<span class="set-status-pill">'+esc(mbState)+'</span></div>'+
-            '<div class="settings-section">'+
-                '<div class="set-section-title">Почтовый ящик</div>'+
-                '<div class="setting-row">'+
-                    '<div class="setting-info"><div class="setting-label">Личный mailbox</div>'+
-                    '<div class="setting-desc">'+(mb && mb.configured ? ('Подключён: '+esc(mb.email_masked || '')+(mb.last_error ? (' · последняя ошибка: '+esc(_mbShortReason(mb.last_error))) : '')) : 'Подключите IMAP/SMTP ящик в модуле Почта.')+'</div></div>'+
-                    '<div class="setting-control" style="display:flex; gap:8px;">'+
-                        '<button class="btn" onclick="closeSettings(); showView(\'mail\')">Открыть почту</button>'+
-                        '<button class="btn btn-accent" onclick="closeSettings(); showView(\'mail\'); setTimeout(openMailboxSettings,120)">Настроить</button>'+
-                    '</div>'+
-                '</div>'+
-                '<div class="setting-row">'+
-                    '<div class="setting-info"><div class="setting-label">Компанейский фильтр</div>'+
-                    '<div class="setting-desc">Если задан, INBOX показывает только письма, где этот адрес есть в To/Cc. Для личного ящика можно оставить пустым.</div></div>'+
-                    '<div class="setting-control"><input id="set-company-email" value="'+esc(_companyEmail())+'" placeholder="drybulk@montlinechartering.com" style="min-width:260px; font-family:monospace;"></div>'+
-                '</div>'+
-            '</div>'+
-            '<div style="margin-top:14px;"><button class="btn btn-accent" onclick="saveCompanyEmail()">Сохранить фильтр</button></div>';
-    } else if(t==='app'){
-        var cur = localStorage.getItem('skipi-broker-theme') || 'light';
-        body.innerHTML =
-            '<div class="set-page-head"><div><h3>Приложение</h3>'+
-                '<div class="sub">Язык, тема, версия и техническая информация.</div></div>'+
-                '<span class="set-status-pill" data-qa="app-build-sha">v'+esc(appVersionLabel())+'</span></div>'+
-            '<div class="settings-section">'+
-                '<div class="set-section-title">Интерфейс</div>'+
-                '<div class="setting-row">'+
-                    '<div class="setting-info">'+
-                        '<div class="setting-label">'+esc(tr('settings.lang.label'))+'</div>'+
-                        '<div class="setting-desc">'+esc(tr('settings.lang.desc'))+'</div>'+
-                    '</div>'+
-                    '<div class="setting-control">'+uiLanguageSelectHtml()+'</div>'+
-                '</div>'+
-                '<div class="setting-row">'+
-                    '<div class="setting-info"><div class="setting-label">Тема</div>'+
-                    '<div class="setting-desc">Светлая, тёмная или системная тема.</div></div>'+
-                    '<div class="setting-control">'+
-                        ['dark','light','system'].map(function(x){
-                            return '<label style="margin-left:12px;"><input type="radio" name="theme" '+(cur===x?'checked':'')+' onclick="setTheme(\''+x+'\')"> '+x+'</label>';
-                        }).join('')+
-                    '</div>'+
-                '</div>'+
-            '</div>'+
-            '<div class="settings-section" style="margin-top:22px;">'+
-                '<div class="set-section-title">О программе</div>'+
-                '<div class="setting-row"><div class="setting-info"><div class="setting-label">Версия</div><div class="setting-desc" data-qa="app-build-sha">'+esc(appVersionLabel())+'</div></div><div class="setting-control"><button class="btn" onclick="checkForUpdatesManual()">Проверить обновления</button></div></div>'+
-                '<div class="setting-row"><div class="setting-info"><div class="setting-label">Сервер</div><div class="setting-desc">'+esc(s.server_url||'https://api.skipi.app')+'</div></div><div class="setting-control"><button class="btn" onclick="openFeedbackDialog(\'about\')">Оценить Skipi</button></div></div>'+
-            '</div>'+
-            '<div class="sub" id="update-check-status" style="margin-top:10px;"></div>';
-    } else if(t==='devices'){
-        var role = (state.access && state.access.role) || '';
-        var plat = _deviceLabel();
-        var hasTok = !!(s.bearer_token || s.broker_id);
-        body.innerHTML =
-            '<div class="set-page-head"><div><h3>Сопряжённые устройства</h3>'+
-                '<div class="sub">Перенос профиля на другое устройство по одноразовому коду. Это <b>не</b> токен доступа команды.</div></div>'+
-                '<span class="set-status-pill">PAIRING</span></div>'+
-            // current device
-            '<div class="settings-section" style="margin-top:14px;">'+
-                '<div class="set-section-title">Это устройство</div>'+
-                '<div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--surface); margin-top:8px;">'+
-                    '<div><b>'+esc(plat)+'</b><div class="sub" style="margin-top:2px;">'+(role?('роль: '+esc(role)+' · '):'')+'активно сейчас</div></div>'+
-                    '<span style="font-size:10px; padding:2px 8px; border-radius:10px; border:1px solid var(--accent); color:var(--accent-text,#004564); white-space:nowrap;">текущее</span>'+
-                '</div>'+
-            '</div>'+
-            // issue a one-time pairing code (device migration — NOT the access token)
-            '<div class="settings-section" style="margin-top:14px;">'+
-                '<div class="set-section-title">Подключить новое устройство</div>'+
-                '<div class="sub" style="margin-top:4px; line-height:1.5;">Покажите одноразовый код переноса здесь, затем на новом устройстве: <b>Скопировать с другого устройства → Код</b>. Код короткоживущий и срабатывает один раз; в QR попадает только <code>skipi-pair:1:broker:&lt;код&gt;</code> — постоянный токен туда не кладётся.</div>'+
-                (hasTok
-                  ? '<button class="btn btn-accent" style="margin-top:10px;" onclick="_devShowPairingCode()">Показать код</button>'+
-                    '<div id="dev-pair-code" style="margin-top:12px;"></div>'
-                  : '<div class="sub" style="color:#e55561; margin-top:8px;">Сначала войдите в профиль (Доступ / токены).</div>')+
-            '</div>'+
-            // paired devices — real list + per-device revoke
-            '<div class="settings-section" style="margin-top:14px;">'+
-                '<div class="set-section-title">Список устройств</div>'+
-                '<div id="paired-devices-list" class="sub" style="margin-top:8px;">Загрузка…</div>'+
-            '</div>';
-        if(hasTok) setTimeout(_loadPairedDevices, 0);
-    } else if(t==='access'){
-        // Skipi Broker архитектурно использует ОДИН токен — broker_id или
-        // выданный per-device skb_ bearer. Это доступ команды, не код переноса.
-        body.innerHTML =
-            '<div class="set-page-head"><div><h3>Доступ / токены</h3>'+
-                '<div class="sub">Постоянный доступ команды, токены членов и локальный выход с этого устройства.</div></div>'+
-                '<span class="set-status-pill">'+(state.access && state.access.role ? esc(state.access.role) : 'нет доступа')+'</span></div>'+
-            // ── 1. Токен (главное и единственное) ──────────────────
-            '<div class="settings-section">'+
-                '<div class="set-section-title">Токен доступа команды</div>'+
-                '<div class="setting-row">'+
-                    '<div class="setting-info"><div class="setting-label">Team access token</div>'+
-                    '<div class="setting-desc">Постоянный токен доступа/приглашения. Не путать с одноразовым кодом переноса устройства.</div></div>'+
-                    '<div class="setting-control"><input id="set-team-bid" value="'+esc(s.broker_id||'')+'" placeholder="UUID или skb_ bearer" style="min-width:300px; font-family:monospace;"></div>'+
-                '</div>'+
-            '</div>'+
-            (s.broker_id
-                ? '<div class="sub" style="margin:8px 0 4px 0;">Сейчас активен: <code>'+esc(s.broker_id)+'</code></div>'
-                : '<div class="sub" style="margin:8px 0 4px 0; color:#e55561;">Токен не введён</div>')+
-            '<div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;"><button class="btn btn-accent" onclick="overrideBrokerId()">Использовать этот токен</button>'+
-                '<button class="btn btn-outline" onclick="leaveBrokerTeamLocal()">Выйти из команды на этом устройстве</button></div>'+
 
-            // ── 1b. Доступ команды: триал + (для owner) токены членов ──
-            _accessSectionHtml();
-        _afterProfileRender();
-    }
-}
-
-async function saveConnection(){
-    var s = state.settings;
-    s.server_url = val('set-server');
-    s.bearer_token = val('set-bearer');
-    try { state.settings = await invoke('save_settings', { incoming:s }); showToast('Сохранено.', 'ok'); refreshIdentityBadge(); }
-    catch(e){ showToast('Save: '+e, 'error'); }
-}
-async function saveReply(){
-    var s = state.settings;
-    s.display_name = val('set-fname');
-    s.reply_to = val('set-femail');
-    try { state.settings = await invoke('save_settings', { incoming:s }); showToast('Сохранено.', 'ok'); refreshIdentityBadge(); }
-    catch(e){ showToast('Save: '+e, 'error'); }
-}
 async function registerBroker(){
     var name = val('set-display'); var email = val('set-contact');
     if(!name || !email){ showToast('Укажите имя и email.', 'error'); return; }
     try {
         await invoke('register_broker', { displayName:name, contactEmail:email });
         state.settings = await invoke('get_settings');
-        // Sync bearer_token = broker_id (см. overrideBrokerId).
+        // Sync bearer_token = broker_id (авто-синк единственного токена — иначе
+        // API-запросы падали с 401 'missing bearer token').
         if(state.settings.broker_id && state.settings.bearer_token !== state.settings.broker_id){
             state.settings.bearer_token = state.settings.broker_id;
             try { state.settings = await invoke('save_settings', { incoming: state.settings }); } catch(_){}
@@ -13974,43 +14216,9 @@ async function registerBroker(){
         try { await _authGateValidate(state.settings.broker_id); } catch(_){}  // populate role/trial (fresh owner gets 30-day trial)
         refreshIdentityBadge();
         showToast('Зарегистрирован: '+state.settings.broker_id, 'ok');
-        renderSettingsBody();
+        _brokerSettingsRefresh();
         await refreshAll();
     } catch(e){ showToast('Register: '+e, 'error'); }
-}
-
-// Combined profile saver: name+email at once.
-async function saveProfileCombined(){
-    var s = state.settings;
-    s.display_name = val('set-display');
-    s.reply_to = val('set-contact');
-    try {
-        state.settings = await invoke('save_settings', { incoming:s });
-        showToast('Сохранено.', 'ok');
-        refreshIdentityBadge();
-    } catch(e){ showToast('Save: '+e, 'error'); }
-}
-
-async function overrideBrokerId(){
-    var newId = (val('set-team-bid')||'').trim();
-    if(!newId || newId.length < 30){
-        showToast('Вставь полный токен доступа команды.', 'error'); return;
-    }
-    var s = state.settings;
-    s.broker_id = newId;
-    // Bearer token = broker_id в Skipi архитектуре. Раньше пользователь
-    // должен был вводить токен два раза в два разных поля — теперь
-    // авто-синхронизация. Без этого все API-запросы падали с 401
-    // 'missing bearer token' если пользователь ввёл только broker_id.
-    s.bearer_token = newId;
-    try {
-        state.settings = await invoke('save_settings', { incoming:s });
-        try { await _authGateValidate(newId); } catch(_){}  // populate role/trial for the access section
-        refreshIdentityBadge();
-        showToast('Использую team broker_id: '+newId.slice(0,8), 'ok');
-        await refreshAll();
-        renderSettingsBody();
-    } catch(e){ showToast('Override: '+e, 'error'); }
 }
 
 async function leaveBrokerTeamLocal(){
@@ -14049,81 +14257,6 @@ async function leaveBrokerTeamLocal(){
     } catch(e){
         showToast('Не удалось выйти из команды: '+e, 'error');
     }
-}
-
-// ---------- Team access: trial + member tokens (role-aware) ----------
-function _brokerBase(){ return (state.settings && state.settings.server_url) || 'https://api.skipi.app'; }
-
-function _accessSectionHtml(){
-    var a = state.access;
-    if(!a) return '';
-    var out = '';
-    // Trial status line: silent until day 9; server remains source of truth for blocking.
-    if(a.days_left===null || a.expires===null){
-        out += '<div class="sub" style="margin-top:8px;">Доступ команды: <b>без ограничения</b>.</div>';
-    } else if(typeof trialPhase === 'function' && trialPhase() === 'warn') {
-        out += '<div class="sub" style="margin-top:8px; color:#493800;">Бесплатный доступ заканчивается через <b>'
-             + trialDaysLeft() + '</b> дн. Продолжить — свяжитесь: ' + trialContactHtml() + '</div>';
-    }
-    if(a.role==='owner'){
-        out += '<hr style="margin:18px 0; border:none; border-top:1px solid var(--border);">'
-            + '<h3>👥 Токены команды</h3>'
-            + '<div class="sub">Создавай токены для членов команды и отзывай при необходимости. Член входит в приложение своим токеном.</div>'
-            + '<div id="team-tokens-list" style="margin-top:10px;"><div class="sub">Загрузка…</div></div>'
-            + '<div style="margin-top:10px;"><button class="btn btn-accent" onclick="createTeamToken()">➕ Создать токен члену</button></div>';
-    } else if(a.role==='member'){
-        out += '<div class="sub" style="margin-top:8px;">Ты — <b>член команды</b> «'+esc(a.team_name||'')+'». Токены выдаёт руководитель.</div>';
-    }
-    return out;
-}
-
-function _afterProfileRender(){
-    if(state.access && state.access.role==='owner') setTimeout(loadTeamTokens, 0);
-}
-
-async function loadTeamTokens(){
-    var box = document.getElementById('team-tokens-list');
-    if(!box || !state.access || state.access.role!=='owner') return;
-    try {
-        // T3b: via Rust failover (RU↔origin); bearer (owner broker_id) injected by request_api.
-        var d = await invoke('list_team_tokens', { teamId: state.access.team_id });
-        var toks = (d && d.tokens) || [];
-        if(!toks.length){ box.innerHTML='<div class="sub">Токенов пока нет.</div>'; return; }
-        box.innerHTML = toks.map(function(t){
-            var st = t.status==='active' ? '<span style="color:#4ec970;">активен</span>' : '<span style="color:#e55561;">отозван</span>';
-            var seen = t.last_seen_at ? (' · был '+new Date(t.last_seen_at).toLocaleDateString()) : ' · не входил';
-            var act = t.status==='active'
-                ? '<button class="btn btn-outline" style="padding:2px 8px; font-size:10px;" onclick="revokeTeamToken(\''+t.id+'\')">Отозвать</button>'
-                : '';
-            return '<div style="display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--border);">'
-                 + '<div style="flex:1; min-width:0;"><div style="font-size:12px;">'+esc(t.label||'(без метки)')+' — '+st+'</div>'
-                 + '<div class="sub" style="font-family:monospace; font-size:10px; word-break:break-all;">'+esc(t.token)+seen+'</div></div>'
-                 + act + '</div>';
-        }).join('');
-    } catch(e){ box.innerHTML='<div class="sub" style="color:#e55561;">Не удалось загрузить токены.</div>'; }
-}
-
-async function createTeamToken(){
-    if(!state.access || state.access.role!=='owner') return;
-    var label = prompt('Имя/метка члена команды (например, «Андрей»):','');
-    if(label===null) return;
-    try {
-        // T3b: via Rust failover (RU↔origin); bearer injected by request_api.
-        var d = await invoke('create_team_token', { teamId: state.access.team_id, label: label });
-        try { await navigator.clipboard.writeText(d.token); showToast('Токен создан и скопирован — передай члену команды','ok'); }
-        catch(_){ showToast('Токен создан: '+d.token,'ok'); }
-        await loadTeamTokens();
-    } catch(e){ showToast('Не удалось создать токен: '+e,'error'); }
-}
-
-async function revokeTeamToken(id){
-    if(!confirm('Отозвать этот токен? Член команды потеряет доступ при следующем запуске.')) return;
-    try {
-        // T3b: via Rust failover (RU↔origin); bearer injected by request_api.
-        await invoke('set_team_token_status', { tokenId: id, status: 'revoked' });
-        showToast('Токен отозван','ok');
-        await loadTeamTokens();
-    } catch(e){ showToast('Не удалось отозвать токен: '+e,'error'); }
 }
 
 // ---------- Boot ----------
