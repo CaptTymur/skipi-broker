@@ -4149,7 +4149,7 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
             <div style="font-size:11px; color:var(--text2,#aab); margin-bottom:6px;">Токен администратора — сохрани его:</div>
             <div id="auth-created-token" style="font-family:monospace; font-size:12px; word-break:break-all; background:var(--surface,#0f141c); border:1px solid var(--border,#2a3240); border-radius:6px; padding:10px; color:var(--text,#fff); margin-bottom:8px;"></div>
             <button onclick="_authCopyCreated()" style="font-size:11px; background:var(--surface,#0f141c); color:var(--text2,#aab); border:1px solid var(--border,#2a3240); border-radius:5px; padding:5px 10px; cursor:pointer; margin-bottom:12px;">📋 Скопировать</button>
-            <div style="font-size:10px; color:var(--text3,#788); margin-bottom:14px; line-height:1.5;">Этим токеном входишь сам и добавляешь членов команды (Настройки → Профиль и доступ). Не теряй его.</div>
+            <div style="font-size:10px; color:var(--text3,#788); margin-bottom:14px; line-height:1.5;">Этим токеном входишь сам и делишься им с членами команды — они вводят его при входе. Не теряй его.</div>
             <button onclick="_authEnterApp()" style="width:100%; padding:10px; background:var(--accent,#004564); color:#fff; border:none; border-radius:6px; font-weight:600; cursor:pointer; font-size:13px;">Войти в приложение →</button>
         </div>
 
@@ -4161,7 +4161,7 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
             </div>
             <div id="auth-connect-token">
                 <div style="font-size:11px; color:var(--text3,#788); margin:0 0 8px; line-height:1.5;">
-                    Токен выдаёт руководитель команды (Настройки → Профиль и доступ). Это постоянный токен доступа — не пароль и не код переноса устройства. Не пересылайте публично.
+                    Токен выдаёт руководитель команды — запросите у него напрямую. Это постоянный токен доступа — не пароль и не код переноса устройства. Не пересылайте публично.
                 </div>
                 <input id="auth-gate-input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
                     placeholder="например: 1d76abea-3c85-438c-82af-0bf3d8801651"
@@ -4193,7 +4193,7 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
             <!-- Method 1: one-time code (manual entry — primary) -->
             <div id="migrate-pane-code">
                 <div style="font-size:11px; color:var(--text3,#788); margin:12px 0 8px; line-height:1.5;">
-                    Одноразовый код показан на доверенном устройстве: Настройки → Сопряжённые устройства → «Показать код». Код короткоживущий и срабатывает один раз.
+                    Одноразовый код создаётся на доверенном устройстве: Настройки → Устройства → «Создать одноразовый код». Код короткоживущий и срабатывает один раз.
                 </div>
                 <input id="migrate-code-input" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false"
                     placeholder="например: K7P4-9QXZ"
@@ -4213,7 +4213,7 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
                  code is fed into the SAME redeem path as manual entry. -->
             <div id="migrate-pane-qr" style="display:none;">
                 <div style="font-size:11px; color:var(--text3,#788); margin:12px 0 8px; line-height:1.5;">
-                    Отсканируйте QR-код переноса с доверенного устройства (Настройки → Сопряжённые устройства → «Показать код»). Принимается только код Брокера; постоянный токен команды в QR не передаётся.
+                    Основной путь — ввести код вручную (вкладка «Код»): в этой версии доверенное устройство показывает код текстом. Сканируйте, если устройство на старой версии показывает QR. Принимается только код Брокера; постоянный токен команды в QR не передаётся.
                 </div>
                 <div class="auth-qr-area">
                     <div style="font-size:30px;">📷</div>
@@ -9646,7 +9646,7 @@ function _migrateStopWebview(){
     var v=document.getElementById('migrate-qr-video'); if(v){ try { v.pause(); } catch(_){} v.srcObject=null; }
     var box=document.getElementById('migrate-qr-live'); if(box) box.style.display='none';
 }
-// ----- Settings → Сопряжённые устройства: issue code / list / revoke -----
+// ----- Settings → Устройства (host.devices): issue code / list / revoke -----
 function _devFmtWhen(iso){ try { return new Date(iso).toLocaleString(); } catch(_){ return String(iso||''); } }
 // The bespoke pairing-code / device-list / revoke pages of the legacy inline
 // Settings (_devPairCountdown/_devShowPairingCode/_loadPairedDevices/
@@ -13970,8 +13970,18 @@ function brokerSettingsHost(){
         about: { support: 'info@tymur.org' },
         getAccountSummary: function(){
             var s = state.settings || {};
+            var name = s.display_name || 'Skipi Broker';
+            // М2-5: avatarText — contract field (CONTRACT.md, alias initials):
+            // monogram from the display name (first letters of up to two
+            // words, uppercase). Without it the module's valueText() fallback
+            // stringifies the whole summary into the mobile-root avatar (JSON).
+            var monogram = String(name).replace(/^\s+|\s+$/g, '').split(/\s+/)
+                .slice(0, 2)
+                .map(function(w){ return w.charAt(0); })
+                .join('').toUpperCase() || 'SB';
             return {
-                displayName: s.display_name || 'Skipi Broker',
+                displayName: name,
+                avatarText: monogram,
                 subtitle: s.reply_to || (state.access && state.access.team_name) || '',
                 sectionId: 'profile'
             };
@@ -14038,6 +14048,12 @@ function openSettings(){
     }
     if(_skipiSettingsInstance){ try { _skipiSettingsInstance.unmount(); } catch(_){} _skipiSettingsInstance = null; }
     overlay.classList.add('open');
+    // М2-5: prefetch the real mailbox status so the mail section (rendered
+    // lazily on navigation to it) doesn't claim «не подключено» for a
+    // configured mailbox before the Mail view was ever opened. Fire-and-forget:
+    // loadMailboxStatus records an honest not_configured/error state on
+    // failure, and opening settings must never break on a network error.
+    try { loadMailboxStatus().catch(function(){}); } catch(_){}
     // Fresh instance per open: unmount() is irreversible by module contract.
     _skipiSettingsInstance = window.SkipiSettings.mount(target, brokerSettingsHost(), { onClose: closeSettings });
     _skipiSettingsInstance.ready.catch(function(){ /* fatal state is rendered by the module shell itself */ });
