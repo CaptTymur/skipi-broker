@@ -96,7 +96,7 @@ jobs:
           echo "skipi-guard task: $GUARD_TASK"
           .skipi-guard/bin/skipi-guard verify \
             --home "$SKIPI_GUARD_HOME" \
-            --task "$GUARD_TASK" \
+            --auto-task \
             "${OVERRIDE_ARGS[@]}" \
             --run-harness \
             --repo "$GITHUB_WORKSPACE" \
