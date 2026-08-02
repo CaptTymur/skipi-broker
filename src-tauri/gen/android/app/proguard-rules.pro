@@ -19,3 +19,10 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+# JNI: keep getPluginManager for Tauri (Stage 6 Android launch fix 2026-08-02)
+-keep class app.skipi.broker.TauriActivity {
+    public app.tauri.plugin.PluginManager getPluginManager();
+}
+-keep class app.skipi.broker.MainActivity {
+    public *;
+}
