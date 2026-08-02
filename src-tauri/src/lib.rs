@@ -116,6 +116,12 @@ pub struct AppState {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct BuildInfo {
+    pub component: String,
+    pub component_version: String,
+    pub stack_id: String,
+    pub source_identifier: String,
+    pub manifest_url: String,
+    pub verification_status: String,
     pub version: String,
     pub sha: String,
     pub short_sha: String,
@@ -130,6 +136,13 @@ fn get_build_info() -> BuildInfo {
         sha.chars().take(7).collect()
     };
     BuildInfo {
+        component: "Broker".to_string(),
+        component_version: env!("CARGO_PKG_VERSION").to_string(),
+        stack_id: "SKIPI-2026.08-R1".to_string(),
+        source_identifier: sha.clone(),
+        manifest_url: "https://api.skipi.app/.well-known/skipi-stack/SKIPI-2026.08-R1.json"
+            .to_string(),
+        verification_status: "unavailable".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         sha,
         short_sha,

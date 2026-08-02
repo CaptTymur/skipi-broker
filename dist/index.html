@@ -3,18 +3,49 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Skipi Broker - United Seafarers</title>
+<title>Skipi Broker · Stack SKIPI-2026.08-R1</title>
 <script>
-var APP_VERSION='0.1.151';
-var APP_BUILD_SHA='unknown';
+var APP_BUILD_METADATA={
+    component: 'Broker',
+    component_version: '0.1.152',
+    stack_id: 'SKIPI-2026.08-R1',
+    source_identifier: 'unknown',
+    manifest_url: 'https://api.skipi.app/.well-known/skipi-stack/SKIPI-2026.08-R1.json',
+    verification_status: 'unavailable'
+};
+var APP_VERSION=APP_BUILD_METADATA.component_version;
+var APP_BUILD_SHA=APP_BUILD_METADATA.source_identifier;
+function stackVerificationState(info){
+    if(info&&info.verification_status==='mismatch')return 'mismatch';
+    return 'unavailable';
+}
+function stackHeaderLabel(){
+    return 'Skipi '+APP_BUILD_METADATA.component+' · Stack '+APP_BUILD_METADATA.stack_id;
+}
+function stackVerificationLabel(){
+    return APP_BUILD_METADATA.verification_status==='mismatch'?'Stack mismatch':'Stack verification unavailable';
+}
+function buildSourceLabel(){
+    return APP_BUILD_METADATA.source_identifier&&APP_BUILD_METADATA.source_identifier!=='unknown'
+        ? APP_BUILD_METADATA.source_identifier : 'unknown';
+}
+function stackAboutSummary(){
+    return 'Component '+APP_BUILD_METADATA.component+' '+APP_BUILD_METADATA.component_version
+        +' · Stack '+APP_BUILD_METADATA.stack_id
+        +' · Source '+buildSourceLabel()
+        +' · '+stackVerificationLabel();
+}
 function buildShortSha(){
-    return APP_BUILD_SHA && APP_BUILD_SHA !== 'unknown' ? APP_BUILD_SHA.slice(0,7) : '';
+    return buildSourceLabel() !== 'unknown' ? buildSourceLabel().slice(0,7) : '';
 }
 function appVersionLabel(){
     var sha=buildShortSha();
-    return APP_VERSION+(sha?' · '+sha:'');
+    return APP_BUILD_METADATA.component_version+(sha?' · '+sha:'');
 }
 function updateBuildLabels(){
+    var dh=document.getElementById('desktop-stack-label');
+    if(dh) dh.textContent=stackHeaderLabel();
+    try{ document.title = stackHeaderLabel(); }catch(e){}
     updateTitlebar();
     // Visible provenance on the launch gate (data-qa="app-build-sha").
     try{
@@ -25,12 +56,21 @@ function updateBuildLabels(){
     // instance (if the panel is open) to re-read host.appVersion.
     try{ if(typeof _skipiSettingsInstance!=='undefined' && _skipiSettingsInstance) _skipiSettingsInstance.refresh().catch(function(){}); }catch(e){}
 }
-function setBuildInfo(info){
-    if(info&&info.version)APP_VERSION=String(info.version);
-    if(info&&info.sha)APP_BUILD_SHA=String(info.sha);
-    else if(info&&info.short_sha)APP_BUILD_SHA=String(info.short_sha);
+function setBuildMetadata(info){
+    info=info||{};
+    APP_BUILD_METADATA={
+        component:String(info.component||APP_BUILD_METADATA.component),
+        component_version:String(info.component_version||info.version||APP_BUILD_METADATA.component_version),
+        stack_id:String(info.stack_id||APP_BUILD_METADATA.stack_id),
+        source_identifier:String(info.source_identifier||info.sha||info.short_sha||'unknown'),
+        manifest_url:String(info.manifest_url||APP_BUILD_METADATA.manifest_url),
+        verification_status:stackVerificationState(info)
+    };
+    APP_VERSION=APP_BUILD_METADATA.component_version;
+    APP_BUILD_SHA=APP_BUILD_METADATA.source_identifier;
     updateBuildLabels();
 }
+function setBuildInfo(info){ setBuildMetadata(info); }
 async function loadBuildInfo(){
     for(var i=0;i<30;i++){
         try{
@@ -38,7 +78,7 @@ async function loadBuildInfo(){
                 || (window.__TAURI__ && window.__TAURI__.invoke);
             if(liveInvoke){
                 invoke = liveInvoke;
-                setBuildInfo(await invoke('get_build_info'));
+                setBuildMetadata(await invoke('get_build_info'));
                 return;
             }
         }catch(e){
@@ -49,7 +89,7 @@ async function loadBuildInfo(){
     updateBuildLabels();
 }
 function updateTitlebar(){
-    var t = 'Skipi Broker '+appVersionLabel()+' - United Seafarers';
+    var t = stackHeaderLabel()+' · '+appVersionLabel();
     document.title = t;
     // Tauri 2 window title is separate from <title>. Push it via the
     // window API so the OS-level titlebar updates after auto-update.
@@ -1734,6 +1774,9 @@ body.mobile-mode #settings-root .skipi-settings { --skipi-settings-mobile-height
 .ctx-chat-restore:hover { transform:scale(1.08); }
 /* Assistant is now a floating overlay — it no longer steals column height,
    so working views keep full height (no bottom padding reservation). */
+
+.desktop-stack-label { position:fixed; right:10px; bottom:8px; z-index:50; max-width:calc(100% - 20px); padding:4px 8px; border:1px solid var(--border,#ddd); border-radius:6px; background:var(--surface,#fff); color:var(--text2,#555); font-size:11px; font-weight:700; line-height:1.2; white-space:nowrap; pointer-events:none; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+body.mobile-mode .desktop-stack-label { display:none; }
 </style>
 <link rel="stylesheet" href="leaflet/leaflet.css">
 <link rel="stylesheet" href="map.css">
@@ -1744,6 +1787,8 @@ body.mobile-mode #settings-root .skipi-settings { --skipi-settings-mobile-height
 <script src="map.js"></script>
 </head>
 <body>
+<div class="desktop-stack-label" id="desktop-stack-label" data-qa="desktop-stack-label">Skipi Broker · Stack SKIPI-2026.08-R1</div>
+
 <!-- Vendored: qrcode-generator v1.4.4 (Kazuhiko Arase, MIT) — offline QR rendering for the
      issuer-side device-migration code. Payload is the short-lived skipi-pair:1:broker:<code>
      ONLY (never a long-lived team/access token). Source:
