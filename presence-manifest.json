@@ -55,7 +55,8 @@
       },
       "mobile_navigation": {
         "route": "partners",
-        "nav_selector": "#mrail-partners",
+        "entry": "apps-grid",
+        "grid_tile_selector": "[data-qa=\"module-tile-partners\"]",
         "view_selector": "#view-partners"
       }
     },
@@ -69,7 +70,8 @@
       },
       "mobile_navigation": {
         "route": "dedup",
-        "nav_selector": "#mrail-dedup",
+        "entry": "apps-grid",
+        "grid_tile_selector": "[data-qa=\"module-tile-dedup\"]",
         "view_selector": "#view-dedup"
       }
     },

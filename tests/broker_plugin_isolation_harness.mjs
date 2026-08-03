@@ -130,8 +130,8 @@ ok(HTML.includes('id="nav-dedup"') && /id="nav-dedup"[^>]*showView\('dedup'\)/.t
 ok(HTML.includes('id="nav-partners"') && /id="nav-partners"[^>]*showView\('partners'\)/.test(HTML), 'desktop Counterparties tab remains reachable');
 ok(!/id="nav-dedup"[^>]*(?:display\s*:\s*none|internal-tool)/.test(HTML), 'desktop Deduplicator tab is not hidden as an internal-only tool');
 ok(!/id="nav-partners"[^>]*(?:display\s*:\s*none|internal-tool)/.test(HTML), 'desktop Counterparties tab is not hidden as an internal-only tool');
-ok(HTML.includes('id="mrail-dedup"') && /mobileSwitchView\('dedup'\)/.test(HTML), 'mobile bottom Deduplicator rail item remains reachable');
-ok(HTML.includes('id="mrail-partners"') && /mobileSwitchView\('partners'\)/.test(HTML), 'mobile bottom Counterparties rail item remains reachable');
+ok(!HTML.includes('id="mrail-dedup"') && /view:'dedup',\s+slug:'dedup'/.test(HTML) && /dedup:\s*\{\s*pane:'view-dedup',\s*btn:'mrail-dedup'\s*\}/.test(HTML), 'mobile Deduplicator left the rail but remains reachable via its Apps grid module tile (wave №73)');
+ok(!HTML.includes('id="mrail-partners"') && /view:'partners',\s+slug:'partners'/.test(HTML) && /partners:\s*\{\s*pane:'view-partners',\s*btn:'mrail-partners'\s*\}/.test(HTML), 'mobile Counterparties left the rail but remains reachable via its Apps grid module tile (wave №73)');
 ok(/dedup:\s*\{\s*pane:'view-dedup',\s*btn:'mrail-dedup'\s*\}/.test(HTML), 'mobile router maps Deduplicator to its view pane');
 ok(/partners:\s*\{\s*pane:'view-partners',\s*btn:'mrail-partners'\s*\}/.test(HTML), 'mobile router maps Counterparties to its view pane');
 ok(/id="view-apps"/.test(HTML), 'Apps view pane exists');
@@ -346,6 +346,107 @@ ok(V.vdbAuthorize('searchVessels', { ...V.brokerVesselContext(), home: 'onboard'
 ok(V.vdbAuthorize('searchVessels', { ...V.brokerVesselContext(), home: 'crewing' }) === 'unknown_home', 'non-broker home is denied by the Broker adapter');
 ok(V.vdbAuthorize('searchVessels', { ...V.brokerVesselContext(), role: 'guest' }) === 'missing_or_wrong_role', 'unknown role is denied');
 ok(V.vdbAuthorize('searchVessels', { ...V.brokerVesselContext(), platform: 'watch' }) === 'unsupported_platform', 'unsupported platform is denied');
+
+// ===================== MOBILE RAIL CANON (wave №73, 2026-08-03) =====================
+// Canonical 5-slot mobile bottom rail: Мои позиции · Базар · Совпадения · Карта · Apps.
+// Static byte-level checks on dist/index.html: exactly 5 fixed rail slots with stable
+// bottom-nav-* QA hooks, rail scroll mechanics removed, Базар (signals) reachable on
+// mobile, remaining modules moved into the Apps grid as module tiles rendered BEFORE
+// plugin tiles (cases keeps its counter there), Settings stays in the header only.
+section('mobile rail canon: 5 fixed slots');
+const railStart = HTML.indexOf('id="mobile-bottom-rail"');
+const railEnd = railStart >= 0 ? HTML.indexOf('</div>', railStart) : -1;
+const railBlock = (railStart >= 0 && railEnd > railStart) ? HTML.slice(railStart, railEnd) : '';
+ok(railBlock.length > 0, 'mobile bottom rail markup exists');
+const railBtnCount = (railBlock.match(/class="mrail-btn/g) || []).length;
+ok(railBtnCount === 5, 'rail has exactly 5 buttons (found ' + railBtnCount + ')');
+const RAIL_CANON = [
+  { id: 'mrail-ex',      qa: 'bottom-nav-my-positions', label: 'Мои позиции', view: 'ex' },
+  { id: 'mrail-signals', qa: 'bottom-nav-bazaar',       label: 'Базар',       view: 'signals' },
+  { id: 'mrail-match',   qa: 'bottom-nav-matches',      label: 'Совпадения',  view: 'match' },
+  { id: 'mrail-viz',     qa: 'bottom-nav-map',          label: 'Карта',       view: 'viz' },
+  { id: 'mrail-apps',    qa: 'bottom-nav-apps',         label: 'Apps',        view: 'apps' },
+];
+let railPrev = -1;
+for (const slot of RAIL_CANON) {
+  const at = railBlock.indexOf('id="' + slot.id + '"');
+  const btnStart = at >= 0 ? railBlock.lastIndexOf('<button', at) : -1;
+  const btnEnd = at >= 0 ? railBlock.indexOf('</button>', at) : -1;
+  const btn = (btnStart >= 0 && btnEnd > btnStart) ? railBlock.slice(btnStart, btnEnd) : '';
+  ok(at >= 0 && at > railPrev, 'rail slot ' + slot.id + ' present in canonical order');
+  if (at >= 0) railPrev = at;
+  ok(btn.includes('data-qa="' + slot.qa + '"'), 'rail slot ' + slot.id + ' has QA hook ' + slot.qa);
+  ok(btn.includes("mobileSwitchView('" + slot.view + "')"), 'rail slot ' + slot.id + ' switches to ' + slot.view);
+  ok(btn.endsWith(slot.label), 'rail slot ' + slot.id + ' is labeled «' + slot.label + '»');
+}
+const railAppsAt = railBlock.indexOf('id="mrail-apps"');
+ok(railAppsAt >= 0 && railBlock.indexOf('<button', railAppsAt) < 0, 'Apps is the LAST rail slot');
+for (const gone of ['mrail-team', 'mrail-cases', 'mrail-dedup', 'mrail-partners']) {
+  ok(!HTML.includes('id="' + gone + '"'), 'rail button ' + gone + ' is removed from the markup');
+}
+ok(!HTML.includes('id="mrail-cases-badge"') && !HTML.includes("getElementById('mrail-cases-badge')"), 'mrail-cases-badge is gone from the rail (badge moved to the Apps grid cases tile)');
+
+section('mobile rail canon: rail scroll mechanics removed');
+const railCssStart = HTML.indexOf('body.mobile-mode .mobile-bottom-rail-wrap');
+const railCssEnd = railCssStart >= 0 ? HTML.indexOf('@media (max-width: 720px)', railCssStart) : -1;
+const railCss = (railCssStart >= 0 && railCssEnd > railCssStart) ? HTML.slice(railCssStart, railCssEnd) : '';
+ok(railCss.length > 0, 'rail CSS block found');
+ok(!/overflow-x\s*:\s*auto/.test(railCss), 'rail CSS has no overflow-x:auto');
+ok(!/scroll-snap/.test(railCss), 'rail CSS has no scroll-snap');
+ok(!HTML.includes('has-more'), 'edge-hint has-more mechanics are gone everywhere');
+ok(!HTML.includes('mobileUpdateRailHint'), 'mobileUpdateRailHint scroll-hint machinery is gone everywhere (incl. onscroll)');
+ok(/\.mrail-btn\s*\{[^}]*flex\s*:\s*1 1 0/.test(HTML), 'rail buttons use equal flexible widths (5 fixed slots, no scroll)');
+
+section('mobile rail canon: routing map and Базар visibility');
+ok(/signals:\s*\{\s*pane:'view-signals',\s*btn:'mrail-signals'\s*\}/.test(HTML), "MOBILE_VIEWS maps signals (Базар) to view-signals + mrail-signals");
+ok(/team:\s*\{\s*pane:'view-team',\s*btn:'mrail-team'\s*\}/.test(HTML), 'MOBILE_VIEWS keeps team switchable (opened from the Apps grid)');
+ok(/cases:\s*\{\s*pane:'view-cases',\s*btn:'mrail-cases'\s*\}/.test(HTML), 'MOBILE_VIEWS keeps cases switchable (opened from the Apps grid)');
+ok(/dedup:\s*\{\s*pane:'view-dedup',\s*btn:'mrail-dedup'\s*\}/.test(HTML), 'MOBILE_VIEWS keeps dedup switchable (opened from the Apps grid)');
+ok(/partners:\s*\{\s*pane:'view-partners',\s*btn:'mrail-partners'\s*\}/.test(HTML), 'MOBILE_VIEWS keeps partners switchable (opened from the Apps grid)');
+ok(HTML.includes('#view-signals[data-mobile-active="1"]'), 'view-signals has a mobile visibility rule (Базар opens on phone)');
+ok(HTML.includes('body.mobile-mode #view-signals .signals-cols { flex-direction:column; }'), 'Базар columns stack vertically on the narrow mobile layout');
+
+section('mobile rail canon: Apps grid module tiles');
+const canonAppsBlock = extractAppsBlock();
+let MC = null;
+try {
+  MC = new Function('showToast', 'esc', canonAppsBlock
+    + '\nreturn { BROKER_MOBILE_MODULES, brokerMobileModuleTilesHtml, brokerAppsListHtml };')(() => {}, esc);
+} catch (_) { MC = null; }
+ok(!!MC, 'Apps block exposes BROKER_MOBILE_MODULES + brokerMobileModuleTilesHtml');
+const MOD_CANON = [
+  { view: 'ex',       slug: 'my-positions', label: 'Мои позиции' },
+  { view: 'signals',  slug: 'bazaar',       label: 'Базар' },
+  { view: 'match',    slug: 'matches',      label: 'Совпадения' },
+  { view: 'viz',      slug: 'map',          label: 'Карта' },
+  { view: 'cases',    slug: 'cases',        label: 'Дела' },
+  { view: 'team',     slug: 'team',         label: 'Команда' },
+  { view: 'dedup',    slug: 'dedup',        label: 'Дубли' },
+  { view: 'partners', slug: 'partners',     label: 'Контрагенты' },
+];
+const modTilesHtml = (MC && MC.brokerMobileModuleTilesHtml) ? MC.brokerMobileModuleTilesHtml() : '';
+let tilePrev = -1;
+for (const m of MOD_CANON) {
+  const at = modTilesHtml.indexOf('data-qa="module-tile-' + m.slug + '"');
+  const nxt = at >= 0 ? modTilesHtml.indexOf('<div class="apps-tile', at + 1) : -1;
+  const tile = at >= 0 ? modTilesHtml.slice(at, nxt < 0 ? undefined : nxt) : '';
+  ok(at >= 0 && at > tilePrev, 'module tile ' + m.slug + ' present in canonical order');
+  if (at >= 0) tilePrev = at;
+  ok(tile.includes("mobileSwitchView('" + m.view + "')"), 'module tile ' + m.slug + ' opens ' + m.view);
+  ok(tile.includes(m.label), 'module tile ' + m.slug + ' is labeled «' + m.label + '»');
+}
+ok(modTilesHtml.includes('id="apps-tile-cases-badge"'), 'cases module tile carries the Дела counter element');
+ok(HTML.includes("getElementById('apps-tile-cases-badge')"), 'mobileUpdateCasesBadge is redirected to the Apps grid cases tile');
+ok(canonAppsBlock.includes('\'<div class="apps-grid">\'+modTiles+tiles+\'</div>\''), 'module tiles render BEFORE plugin tiles in the Apps grid');
+ok(canonAppsBlock.includes("brokerIsMobileMode() ? brokerMobileModuleTilesHtml() : ''"), 'module tiles are mobile-mode only (desktop Apps render unchanged)');
+const desktopAppsHtml = (MC && MC.brokerAppsListHtml) ? MC.brokerAppsListHtml() : 'MC-missing';
+ok(desktopAppsHtml !== 'MC-missing' && !desktopAppsHtml.includes('module-tile-'), 'desktop (non mobile-mode) Apps list renders no module tiles');
+
+section('mobile rail canon: Settings stays in the header');
+ok(!/settings/i.test(railBlock), 'no Settings slot on the rail');
+ok(!/settings|Настройки/i.test(modTilesHtml), 'no Settings tile among the Apps grid module tiles');
+ok(HTML.includes('data-qa="app-header-logo"') && HTML.includes('data-qa="app-header-settings"'), 'header keeps app-header-logo and app-header-settings QA hooks');
+// ===================== end MOBILE RAIL CANON (wave №73) =====================
 
 console.log('\n' + (fail === 0 ? 'ALL GREEN' : 'FAILURES') + ': ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);

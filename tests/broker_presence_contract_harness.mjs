@@ -540,9 +540,58 @@ async function assertDesktopNavigation(document, sandbox, mod) {
   ok(selectorOne(document, nav.nav_selector).classList.contains('active'), `${mod.name}: desktop nav is active`);
 }
 
+// OWNER DECISION 03.08: counterparties/dedup mobile entry goes through the
+// Apps grid tile (mobile_navigation.entry === "apps-grid"), not a rail button.
+// The asserts below are the 1:1 equivalent of the rail branch: tile present +
+// visible after real navigation ≙ nav visible; tile onclick ≙ nav onclick;
+// state.view switch and data-mobile-active checks are identical.
+function findAppsGridTile(document, selector) {
+  const s = cleanSelector(selector);
+  const attr = /^\[([^=\]]+)(?:=["']?([^"'\]]+)["']?)?\]$/.exec(s);
+  if (!attr) return null;
+  // The fake DOM does not materialise dynamic innerHTML, so read the tile
+  // straight out of the app's own render output in #apps-root (produced by
+  // brokerAppsRender via mobileSwitchView('apps') → showView → renderAppsView).
+  const root = document.getElementById('apps-root');
+  const gridHtml = root ? String(root.innerHTML || '') : '';
+  const tagRe = /<([A-Za-z][A-Za-z0-9:-]*)(\s[^<>]*?)?>/g;
+  let m;
+  while ((m = tagRe.exec(gridHtml))) {
+    const attrs = parseAttrs(m[2] || '');
+    const actual = Object.prototype.hasOwnProperty.call(attrs, attr[1]) ? attrs[attr[1]] : null;
+    if (actual !== null && (attr[2] === undefined || actual === attr[2])) {
+      return new FakeElement(document, m[1], attrs, '');
+    }
+  }
+  return null;
+}
+
+async function assertMobileAppsGridNavigation(document, sandbox, mod) {
+  const nav = mod.mobile_navigation;
+  ok(typeof sandbox.mobileInitIfNeeded === 'function', `${mod.name}: mobileInitIfNeeded is executable`);
+  sandbox.mobileInitIfNeeded();
+  await settle();
+  ok(typeof sandbox.mobileSwitchView === 'function', `${mod.name}: mobileSwitchView is executable`);
+  sandbox.mobileSwitchView('apps');
+  await settle();
+  const tile = findAppsGridTile(document, nav.grid_tile_selector);
+  ok(!!tile, `${mod.name}: apps-grid tile ${nav.grid_tile_selector} exists after navigating to Apps`);
+  ok(isVisible(tile), `${mod.name}: apps-grid tile ${nav.grid_tile_selector} is visible`);
+  ok(String((tile && tile.getAttribute('onclick')) || '').includes(`mobileSwitchView('${nav.route}')`), `${mod.name}: apps-grid tile calls mobileSwitchView('${nav.route}')`);
+  sandbox.mobileSwitchView(nav.route);
+  await settle();
+  ok(sandbox.state && sandbox.state.view === nav.route, `${mod.name}: mobile state.view switched to ${nav.route}`);
+  // Equivalent of the old «mobile nav is active» assert: the target view being the active mobile pane.
+  ok(selectorOne(document, nav.view_selector).getAttribute('data-mobile-active') === '1', `${mod.name}: mobile view ${nav.view_selector} marked active`);
+}
+
 async function assertMobileNavigation(document, sandbox, mod) {
   const nav = mod.mobile_navigation;
   if (!nav) return;
+  if (nav.entry === 'apps-grid') {
+    await assertMobileAppsGridNavigation(document, sandbox, mod);
+    return;
+  }
   assertVisible(document, nav.nav_selector, `${mod.name}: mobile nav is visible`);
   ok(String(selectorOne(document, nav.nav_selector).getAttribute('onclick') || '').includes(`mobileSwitchView('${nav.route}')`), `${mod.name}: mobile nav calls mobileSwitchView('${nav.route}')`);
   ok(typeof sandbox.mobileSwitchView === 'function', `${mod.name}: mobileSwitchView is executable`);
