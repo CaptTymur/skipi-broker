@@ -832,7 +832,7 @@ body.mobile-mode .mobile-topbar .mtop-brand {
     body.mobile-mode .mobile-topbar .mtop-brand { font-size:14px; }
 }
 
-/* Bottom module rail — horizontally scrollable, scroll-snap, edge hints */
+/* Bottom module rail — canonical 5 fixed slots, no scroll (wave №73) */
 body.mobile-mode .mobile-bottom-rail-wrap {
     display:block; position:fixed; bottom:0; left:0; right:0; z-index:60;
     height:calc(var(--mrail-h) + var(--m-bot-inset));
@@ -841,25 +841,15 @@ body.mobile-mode .mobile-bottom-rail-wrap {
     border-top:1px solid var(--border, #2a2e3a);
     box-sizing:border-box;
 }
-body.mobile-mode .mobile-bottom-rail-wrap::after {
-    content:'\203a'; position:absolute; top:0; right:0; width:26px;
-    height:var(--mrail-h); display:flex; align-items:center; justify-content:center;
-    color:var(--accent, #004564); font-size:22px; font-weight:900; pointer-events:none;
-    background:linear-gradient(to left, var(--surface, #1a1d26) 30%, transparent);
-    opacity:0; transition:opacity .16s ease;
-}
-body.mobile-mode .mobile-bottom-rail-wrap.has-more::after { opacity:1; }
 body.mobile-mode .mobile-bottom-rail {
     display:flex; gap:6px; height:var(--mrail-h); align-items:stretch;
-    overflow-x:auto; overflow-y:hidden; padding:7px 26px 7px 8px;
-    scrollbar-width:none; scroll-snap-type:x proximity; box-sizing:border-box;
+    padding:7px 8px; box-sizing:border-box;
 }
-body.mobile-mode .mobile-bottom-rail::-webkit-scrollbar { display:none; }
 body.mobile-mode .mrail-btn {
-    flex:0 0 78px; border:1px solid transparent; border-radius:9px;
+    flex:1 1 0; min-width:0; border:1px solid transparent; border-radius:9px;
     background:transparent; color:var(--text2, #9aa); font-size:10px; font-weight:800;
     display:flex; flex-direction:column; gap:3px; align-items:center; justify-content:center;
-    cursor:pointer; user-select:none; scroll-snap-align:start; position:relative;
+    white-space:nowrap; cursor:pointer; user-select:none; position:relative;
     transition:color .15s, background .15s, border-color .15s;
 }
 body.mobile-mode .mrail-btn span { font-size:19px; line-height:1; }
@@ -868,12 +858,6 @@ body.mobile-mode .mrail-btn.active {
     border-color:var(--accent, #004564);
 }
 body.mobile-mode .mrail-btn:active { background:rgba(0,69,100,0.30); }
-body.mobile-mode .mrail-badge {
-    position:absolute; top:4px; right:14px;
-    font-size:9px; font-weight:700; line-height:1; min-width:15px; height:15px;
-    padding:0 4px; border-radius:8px; background:var(--accent, #004564); color:#fff;
-    display:inline-flex; align-items:center; justify-content:center;
-}
 @media (max-width: 720px) {
     body.mobile-mode .modules-bar,
     body.mobile-mode .statusbar,
@@ -898,6 +882,11 @@ body.mobile-mode .mrail-badge {
     body.mobile-mode #view-vessels[data-mobile-active="1"] { display:flex !important; }
     body.mobile-mode #view-vessels .signals-cols { flex-direction:column; }
     body.mobile-mode #view-vessels .splitter { display:none; }
+
+    /* 🛒 Базар (signals, wave №73): show when active, stack columns vertically */
+    body.mobile-mode #view-signals[data-mobile-active="1"] { display:flex !important; }
+    body.mobile-mode #view-signals .signals-cols { flex-direction:column; }
+    body.mobile-mode #view-signals .splitter { display:none; }
 
     /* ----- view-cases (📂 Дела) mobile layout (2026-06-13) -----
        Single-column card list; desk-mode tab hidden (desktop-only); meta
@@ -4326,17 +4315,15 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
 </div>
 
 <!-- Mobile-only bottom module rail (visible only on body.mobile-mode).
-     Horizontally scrollable like the Seafarer app. Core 4 modules. -->
+     Canonical 5 fixed slots (wave №73): Мои позиции · Базар · Совпадения ·
+     Карта · Apps. No scroll; остальные модули открываются из грида Apps. -->
 <div class="mobile-bottom-rail-wrap" id="mobile-bottom-rail-wrap">
-    <div class="mobile-bottom-rail" id="mobile-bottom-rail" onscroll="mobileUpdateRailHint()">
-        <button class="mrail-btn" id="mrail-team" type="button" onclick="mobileSwitchView('team')"><span>&#128172;</span>Команда</button>
-        <button class="mrail-btn active" id="mrail-match" type="button" onclick="mobileSwitchView('match')"><span>&#127919;</span>Совпадения</button>
-        <button class="mrail-btn" id="mrail-cases" type="button" onclick="mobileSwitchView('cases')"><span>&#128194;</span>Дела<span id="mrail-cases-badge" class="mrail-badge" style="display:none;"></span></button>
-        <button class="mrail-btn" id="mrail-ex" type="button" onclick="mobileSwitchView('ex')"><span>&#128203;</span>Эксклюзивы</button>
-        <button class="mrail-btn" id="mrail-dedup" type="button" onclick="mobileSwitchView('dedup')" data-qa="broker-mobile-module-dedup"><span>&#128269;</span>Дубли</button>
-        <button class="mrail-btn" id="mrail-partners" type="button" onclick="mobileSwitchView('partners')" data-qa="broker-mobile-module-counterparties"><span>&#129309;</span>Контрагенты</button>
-        <button class="mrail-btn" id="mrail-viz" type="button" onclick="mobileSwitchView('viz')"><span>&#128506;</span>Карта</button>
-        <button class="mrail-btn" id="mrail-apps" type="button" onclick="mobileSwitchView('apps')"><span>&#129513;</span>Apps</button>
+    <div class="mobile-bottom-rail" id="mobile-bottom-rail">
+        <button class="mrail-btn" id="mrail-ex" data-qa="bottom-nav-my-positions" type="button" onclick="mobileSwitchView('ex')"><span>&#128203;</span>Мои позиции</button>
+        <button class="mrail-btn" id="mrail-signals" data-qa="bottom-nav-bazaar" type="button" onclick="mobileSwitchView('signals')"><span>&#128722;</span>Базар</button>
+        <button class="mrail-btn active" id="mrail-match" data-qa="bottom-nav-matches" type="button" onclick="mobileSwitchView('match')"><span>&#127919;</span>Совпадения</button>
+        <button class="mrail-btn" id="mrail-viz" data-qa="bottom-nav-map" type="button" onclick="mobileSwitchView('viz')"><span>&#128506;</span>Карта</button>
+        <button class="mrail-btn" id="mrail-apps" data-qa="bottom-nav-apps" type="button" onclick="mobileSwitchView('apps')"><span>&#129513;</span>Apps</button>
     </div>
 </div>
 
@@ -6257,7 +6244,34 @@ function brokerAppsRender(){
   if(brokerAppsState.screen === 'host' && brokerAppsState.pluginId){ host.innerHTML = brokerAppsHostHtml(brokerAppsState.pluginId); brokerPluginMountCurrent(); return; }
   host.innerHTML = brokerAppsListHtml();
 }
+// Mobile Apps grid module tiles (wave №73): всё, что не на канон-рейле из
+// 5 слотов, открывается отсюда. Рендерятся ТОЛЬКО в body.mobile-mode и
+// ПЕРЕД плагин-тайлами; desktop-рендер Apps не меняется. Settings-тайла нет.
+var BROKER_MOBILE_MODULES = [
+  { view:'ex',       slug:'my-positions', icon:'📋', label:'Мои позиции' },
+  { view:'signals',  slug:'bazaar',       icon:'🛒', label:'Базар' },
+  { view:'match',    slug:'matches',      icon:'🎯', label:'Совпадения' },
+  { view:'viz',      slug:'map',          icon:'🗺', label:'Карта' },
+  { view:'cases',    slug:'cases',        icon:'📂', label:'Дела' },
+  { view:'team',     slug:'team',         icon:'💬', label:'Команда' },
+  { view:'dedup',    slug:'dedup',        icon:'🔍', label:'Дубли' },
+  { view:'partners', slug:'partners',     icon:'🤝', label:'Контрагенты' },
+];
+function brokerIsMobileMode(){
+  try { return !!(document.body && document.body.classList && document.body.classList.contains('mobile-mode')); }
+  catch(_) { return false; }
+}
+function brokerMobileModuleTilesHtml(){
+  return BROKER_MOBILE_MODULES.map(function(m){
+    var badge = (m.slug === 'cases') ? ' <span class="apps-badge" id="apps-tile-cases-badge" style="display:none;"></span>' : '';
+    return '<div class="apps-tile apps-module-tile" data-qa="module-tile-'+m.slug+'" onclick="mobileSwitchView(\''+m.view+'\')">'
+      + '<div class="at-name">'+m.icon+' '+esc(m.label)+badge+'</div>'
+      + '<div class="at-cat">Модуль</div>'
+      + '</div>';
+  }).join('');
+}
 function brokerAppsListHtml(){
+  var modTiles = brokerIsMobileMode() ? brokerMobileModuleTilesHtml() : '';
   var tiles = BROKER_PLUGINS.map(function(p){
     var st = brokerPluginTileState(p);
     return '<div class="apps-tile" data-qa="plugin-tile-'+esc(p.id)+'" onclick="brokerAppsOpenDetail(\''+p.id+'\')">'
@@ -6271,7 +6285,7 @@ function brokerAppsListHtml(){
   return '<div class="apps-wrap" data-qa="broker-apps-module">'
     + '<div class="apps-head"><h2>Apps</h2>'
     + '<div class="apps-muted">First-party tools for your broker desk. Plugins run locally in an isolated frame and get no market, mail, case, contact, team token, pairing, or chat data by default.</div></div>'
-    + '<div class="apps-grid">'+tiles+'</div>'
+    + '<div class="apps-grid">'+modTiles+tiles+'</div>'
     + '</div>';
 }
 function brokerAppsDetailHtml(id){
@@ -6736,7 +6750,6 @@ function mobileInitIfNeeded(){
         setTimeout(trySplit, 100);
     };
     trySplit();
-    try { mobileUpdateRailHint(); } catch(_) {}
     try { _setupTeamLongPress(); } catch(_) {}
 }
 
@@ -6772,15 +6785,6 @@ function _setupTeamLongPress(){
     }, { passive: true });
     document.addEventListener('touchend', clear, { passive: true });
     document.addEventListener('touchcancel', clear, { passive: true });
-}
-
-// Show/hide the «more modules ›» edge hint based on rail scroll position.
-function mobileUpdateRailHint(){
-    var wrap = document.getElementById('mobile-bottom-rail-wrap');
-    var rail = document.getElementById('mobile-bottom-rail');
-    if(!wrap || !rail) return;
-    var more = (rail.scrollLeft + rail.clientWidth) < (rail.scrollWidth - 4);
-    wrap.classList.toggle('has-more', more);
 }
 
 // Insert a draggable splitter between the pairs list (top half) and
@@ -6880,10 +6884,13 @@ function setupMobileMatchSplitter(){
 // Mobile tab switch — toggles tab active state and per-view data attrs,
 // then delegates to showView for the actual content swap. Called directly
 // from the tabbar onclick handlers so timing is deterministic.
-// Core-4 mobile rail: view-pane id + rail-button id per logical name.
+// Canon 5-slot mobile rail (wave №73): view-pane id + rail-button id per
+// logical name. Записи, чьих btn-id нет на рейле (team/cases/dedup/partners,
+// vessels), остаются переключаемыми — их открывают тайлы грида Apps.
 var MOBILE_VIEWS = {
     team:  { pane:'view-team',  btn:'mrail-team'  },
     match: { pane:'view-match', btn:'mrail-match' },
+    signals: { pane:'view-signals', btn:'mrail-signals' },
     cases: { pane:'view-cases', btn:'mrail-cases' },
     ex:    { pane:'view-ex',    btn:'mrail-ex'    },
     dedup: { pane:'view-dedup', btn:'mrail-dedup' },
@@ -6927,9 +6934,10 @@ function mobileSwitchView(name){
     try { mobileUpdateCasesBadge(); } catch(_) {}
 }
 
-// Mirror the desktop cases-badge count onto the mobile Дела rail button.
+// Mirror the desktop cases-badge count onto the mobile Дела module tile in
+// the Apps grid (the rail no longer carries Дела — canon wave №73).
 function mobileUpdateCasesBadge(){
-    var badge = document.getElementById('mrail-cases-badge');
+    var badge = document.getElementById('apps-tile-cases-badge');
     if(!badge) return;
     var n = 0;
     try {

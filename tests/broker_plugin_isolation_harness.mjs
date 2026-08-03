@@ -130,8 +130,8 @@ ok(HTML.includes('id="nav-dedup"') && /id="nav-dedup"[^>]*showView\('dedup'\)/.t
 ok(HTML.includes('id="nav-partners"') && /id="nav-partners"[^>]*showView\('partners'\)/.test(HTML), 'desktop Counterparties tab remains reachable');
 ok(!/id="nav-dedup"[^>]*(?:display\s*:\s*none|internal-tool)/.test(HTML), 'desktop Deduplicator tab is not hidden as an internal-only tool');
 ok(!/id="nav-partners"[^>]*(?:display\s*:\s*none|internal-tool)/.test(HTML), 'desktop Counterparties tab is not hidden as an internal-only tool');
-ok(!HTML.includes('id="mrail-dedup"') && /module-tile-dedup/.test(HTML) && /mobileSwitchView\('dedup'\)/.test(HTML), 'mobile Deduplicator left the rail but remains reachable via its Apps grid module tile (wave №73)');
-ok(!HTML.includes('id="mrail-partners"') && /module-tile-partners/.test(HTML) && /mobileSwitchView\('partners'\)/.test(HTML), 'mobile Counterparties left the rail but remains reachable via its Apps grid module tile (wave №73)');
+ok(!HTML.includes('id="mrail-dedup"') && /view:'dedup',\s+slug:'dedup'/.test(HTML) && /dedup:\s*\{\s*pane:'view-dedup',\s*btn:'mrail-dedup'\s*\}/.test(HTML), 'mobile Deduplicator left the rail but remains reachable via its Apps grid module tile (wave №73)');
+ok(!HTML.includes('id="mrail-partners"') && /view:'partners',\s+slug:'partners'/.test(HTML) && /partners:\s*\{\s*pane:'view-partners',\s*btn:'mrail-partners'\s*\}/.test(HTML), 'mobile Counterparties left the rail but remains reachable via its Apps grid module tile (wave №73)');
 ok(/dedup:\s*\{\s*pane:'view-dedup',\s*btn:'mrail-dedup'\s*\}/.test(HTML), 'mobile router maps Deduplicator to its view pane');
 ok(/partners:\s*\{\s*pane:'view-partners',\s*btn:'mrail-partners'\s*\}/.test(HTML), 'mobile router maps Counterparties to its view pane');
 ok(/id="view-apps"/.test(HTML), 'Apps view pane exists');
