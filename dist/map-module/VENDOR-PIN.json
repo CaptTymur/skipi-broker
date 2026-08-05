@@ -1,0 +1,36 @@
+{
+  "module": "@skipi/map",
+  "version": "0.2.3",
+  "source_repo": "skipi-map-module",
+  "source_commit": "3c84aa651606a69231d7c4859297d321b722ed4b",
+  "pinned_date": "2026-08-05",
+  "handoff": "skipi-ops/handoffs/HANDOFF-2026-08-05-manager-map-msi-stack-delivery.md",
+  "files": {
+    "dist/map-module/map.js": {
+      "source_path": "dist/map.js",
+      "git_blob": "e7afb5c8fe7611fe03e04211a6312c23b025b153"
+    },
+    "dist/map-module/map.css": {
+      "source_path": "dist/map.css",
+      "git_blob": "cff21c7879194190f11c34f0f2d73e78b0c25d16"
+    },
+    "dist/leaflet/world-land.geojson": {
+      "source_path": "vendor/leaflet/world-land.geojson",
+      "git_blob": "82488355de4742b23f16e36ca1b96f93d2d3dc25"
+    },
+    "dist/leaflet/world-coastline.geojson": {
+      "source_path": "vendor/leaflet/world-coastline.geojson",
+      "git_blob": "3d3ae4f0367b10f890a8decb005be09d9afe5ab6"
+    },
+    "dist/msi/warnings.geojson": {
+      "source_path": "data/msi/warnings.geojson",
+      "git_blob": "dbf7808bb942d0a1585db56f8eb3e496fc1f583a",
+      "note": "fixture MSI data; refreshed by tools/msi-collector (module repo), not by the home"
+    }
+  },
+  "host_owned": {
+    "dist/leaflet/leaflet.js": "Leaflet stays host-owned (module CONTRACT.md)",
+    "dist/leaflet/world.geojson": "countries geojson stays host-owned; module land/coast siblings vendored above"
+  },
+  "disclaimer": "Ситуационная осведомлённость. Не замена GMDSS (NAVTEX / SafetyNET / SafetyCast). Символика S-52-inspired, не certified ECDIS."
+}

@@ -1,0 +1,112 @@
+/* @skipi/map — module styles (namespaced, no host bleed) */
+.skipi-map { position: relative; width: 100%; height: 100%; min-height: 320px; }
+.skipi-map .leaflet-container { width: 100%; height: 100%; background: #c5d4e3; font: inherit; }
+/* Open ocean — light theme */
+.skipi-map .leaflet-container { background: #b9cfe3 !important; }
+/* Maritime / dark (host.theme = maritime|dark) — sea as dark navy */
+.skipi-map-theme-maritime .leaflet-container,
+.skipi-map-theme-dark .leaflet-container {
+  background: #0a1320 !important;
+}
+.skipi-map-layers {
+  position: absolute; top: 10px; right: 10px; z-index: 1000;
+  background: rgba(255,255,255,.94); border: 1px solid #c3ccd6; border-radius: 8px;
+  padding: 8px 10px; font: 13px/1.4 system-ui, sans-serif; box-shadow: 0 2px 8px rgba(0,0,0,.12);
+  max-height: 60%; overflow: auto;
+}
+.skipi-map-layer-row { display: block; white-space: nowrap; cursor: pointer; padding: 2px 0; }
+.skipi-map-layer-row input { vertical-align: middle; margin-right: 4px; }
+
+/* geo / MSI popups */
+.skipi-map-geo-popup .skipi-map-geo-pop { font: 12px/1.35 system-ui, sans-serif; max-width: 300px; }
+.skipi-map-geo-popup .skipi-map-geo-meta { color: #6a5a4a; font-size: 11px; }
+.skipi-map-geo-popup .skipi-map-geo-body {
+  margin-top: 6px; white-space: pre-wrap; max-height: 180px; overflow-y: auto;
+  color: #24313f; font-size: 11px;
+}
+.skipi-map-geo-popup .skipi-map-geo-disc {
+  margin-top: 6px; font-size: 9px; font-style: italic; color: #a06040;
+}
+
+/* Zoom-dependent district labels (areas / tracklines) */
+.leaflet-tooltip.skipi-map-geo-label {
+  background: rgba(42, 24, 12, 0.88);
+  color: #f5e0cc;
+  border: 1px solid rgba(196, 92, 38, 0.75);
+  border-radius: 4px;
+  padding: 2px 7px;
+  font: 600 11px/1.25 system-ui, sans-serif;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.leaflet-tooltip.skipi-map-geo-label::before { display: none; }
+.leaflet-tooltip.skipi-map-geo-label.is-on {
+  background: rgba(42, 24, 12, 0.92);
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+
+/* S-52-inspired MSI subjects (awareness UI — not certified ECDIS PL) */
+.skipi-msi-NAV   { --msi-c: #c000c0; }
+.skipi-msi-MET   { --msi-c: #2070b8; }
+.skipi-msi-SAR   { --msi-c: #c02828; }
+.skipi-msi-ICE   { --msi-c: #2088a0; }
+.skipi-msi-OTHER { --msi-c: #d07020; }
+
+.skipi-msi-caution {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--msi-c, #c000c0);
+  color: var(--msi-c, #c000c0);
+  font: 700 12px/14px system-ui, sans-serif;
+  text-align: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,.4);
+  pointer-events: auto;
+}
+.skipi-msi-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  color: #fff;
+  background: var(--msi-c, #888);
+  vertical-align: middle;
+  margin-left: 4px;
+}
+.skipi-map-geo-label.skipi-msi-NAV,
+.skipi-map-geo-label.skipi-msi-MET,
+.skipi-map-geo-label.skipi-msi-SAR,
+.skipi-map-geo-label.skipi-msi-ICE,
+.skipi-map-geo-label.skipi-msi-OTHER {
+  border-color: var(--msi-c, #c45c26);
+}
+
+.skipi-msi-legend {
+  position: absolute; left: 10px; bottom: 28px; z-index: 1000;
+  background: rgba(20, 28, 40, 0.92);
+  color: #e8eef5;
+  border: 1px solid rgba(120, 150, 180, 0.4);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: 11px/1.35 system-ui, sans-serif;
+  box-shadow: 0 2px 10px rgba(0,0,0,.35);
+  min-width: 150px;
+  pointer-events: none;
+}
+.skipi-msi-legend-title {
+  font-weight: 700; font-size: 11px; margin-bottom: 6px; letter-spacing: .02em;
+}
+.skipi-msi-legend-row {
+  display: flex; align-items: center; gap: 8px; margin: 3px 0;
+}
+.skipi-msi-swatch {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid var(--msi-c); color: var(--msi-c);
+  background: #fff; font: 700 11px/1 system-ui, sans-serif; flex-shrink: 0;
+}
+.skipi-msi-legend-note {
+  margin-top: 6px; font-size: 9px; color: #9ab; font-style: italic;
+}
