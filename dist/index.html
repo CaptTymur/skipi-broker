@@ -1766,14 +1766,27 @@ body.mobile-mode #settings-root .skipi-settings { --skipi-settings-mobile-height
 
 .desktop-stack-label { position:fixed; right:10px; bottom:8px; z-index:50; max-width:calc(100% - 20px); padding:4px 8px; border:1px solid var(--border,#ddd); border-radius:6px; background:var(--surface,#fff); color:var(--text2,#555); font-size:11px; font-weight:700; line-height:1.2; white-space:nowrap; pointer-events:none; box-shadow:0 1px 4px rgba(0,0,0,.08); }
 body.mobile-mode .desktop-stack-label { display:none; }
+
+/* Maritime Safety (MSI) overlay — vendored @skipi/map module (pin: dist/map-module/VENDOR-PIN.json).
+   Sits above the legacy viz map; toggled by the «Maritime Safety (MSI)» layer checkbox. */
+#viz-msi-wrap { position:absolute; inset:0; z-index:610; display:flex; flex-direction:column; background:#0a1320; }
+#viz-msi-map { flex:1; min-height:0; }
+#viz-msi-disclaimer { flex:0 0 auto; padding:5px 10px; font-size:10px; line-height:1.35;
+    color:#c9b48a; background:rgba(20,28,40,.96); border-top:1px solid rgba(196,92,38,.5); }
+/* Keep the mobile «Фильтры» button reachable above the MSI overlay so the layer can be toggled off. */
+#view-viz .viz-mobile-filter-btn { z-index:640; }
 </style>
 <link rel="stylesheet" href="leaflet/leaflet.css">
 <link rel="stylesheet" href="map.css">
+<!-- @skipi/map 0.2.3 — vendored module pin @ 3c84aa651606a69231d7c4859297d321b722ed4b
+     (manifest: dist/map-module/VENDOR-PIN.json; Leaflet stays host-owned) -->
+<link rel="stylesheet" href="map-module/map.css">
 <!-- @skipi/settings v0.3.0 (menu 4) — vendored module styles
      (sha pinned in dist/skipi-settings.SETTINGS_VERSION) -->
 <link rel="stylesheet" href="skipi-settings.css">
 <script src="leaflet/leaflet.js"></script>
 <script src="map.js"></script>
+<script src="map-module/map.js"></script>
 </head>
 <body>
 <div class="desktop-stack-label" id="desktop-stack-label" data-qa="desktop-stack-label">Skipi Broker · Stack SKIPI-2026.08-R1</div>
@@ -4727,6 +4740,12 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
                     </div>
                 </div>
                 <div class="viz-section">
+                    <label>Безопасность</label>
+                    <div class="viz-layer-toggle">
+                        <label><input type="checkbox" id="viz-show-msi" onchange="vizToggleMsi(this.checked)"> ⚠️ Maritime Safety (MSI)</label>
+                    </div>
+                </div>
+                <div class="viz-section">
                     <label>Регион (load)</label>
                     <select id="viz-region" onchange="renderVizMap()">
                         <option value="">все</option>
@@ -4772,6 +4791,13 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
         </div>
         <div class="viz-map-wrap">
             <div id="viz-map"></div>
+            <!-- Maritime Safety (MSI) overlay — rendered by the vendored @skipi/map module
+                 0.2.3 @ 3c84aa651606a69231d7c4859297d321b722ed4b; adapter is host-side
+                 (vizToggleMsi below). Awareness layer, not certified ECDIS / GMDSS. -->
+            <div id="viz-msi-wrap" style="display:none;">
+                <div id="viz-msi-map"></div>
+                <div id="viz-msi-disclaimer">Ситуационная осведомлённость. Не замена GMDSS (NAVTEX / SafetyNET / SafetyCast). Символика S-52-inspired, не certified ECDIS.</div>
+            </div>
             <button class="viz-mobile-filter-btn" type="button" onclick="vizToggleFilters()">&#9881; Фильтры</button>
             <div id="viz-empty-hint" style="display:none; position:absolute; top:12px; right:12px;
                 background:rgba(20,28,40,.92); color:#dcddde; border:1px solid rgba(0,69,100,.5);
@@ -9072,6 +9098,83 @@ async function teamSendWithLlm(){
         if(btn){ btn.disabled = false; btn.textContent = '🤖'; }
         ta.focus();
     }
+}
+
+// ---------- Карта: Maritime Safety (MSI) overlay ----------
+//
+// Host-side adapter for the vendored @skipi/map module
+// 0.2.3 @ 3c84aa651606a69231d7c4859297d321b722ed4b (dist/map-module/,
+// manifest dist/map-module/VENDOR-PIN.json). The module is DI-only
+// (SkipiMap.mount(el, host)) — it never touches broker globals; this
+// adapter supplies the data provider (static msi/warnings.geojson,
+// written by the module repo's msi-collector) and the toaster.
+// Awareness layer only: not certified ECDIS, not a GMDSS substitute.
+var _msiMapInstance = null;
+
+function _msiLayerConfig(){
+    return {
+        id: 'msi',
+        label: 'Maritime Safety (MSI)',
+        kind: 'geo',
+        stylePack: 's52-msi',
+        cautionMarks: true,
+        legend: true,
+        labels: true,
+        labelMinZoom: 4,
+        visible: true, // overlay itself is off by default; sidebar checkbox controls it
+        provider: async function(){
+            var r = await fetch('msi/warnings.geojson', { cache: 'no-cache' });
+            var gj = await r.json();
+            return (gj.features || []).map(function(f, i){
+                var p = f.properties || {};
+                return {
+                    id: p.id || ('msi-' + i),
+                    label: p.title || p.number || p.id,
+                    title: p.title, text: p.text, number: p.number,
+                    navArea: p.navArea, source: p.source, shape: p.shape,
+                    subject: p.subject, hazard: p.hazard, b2: p.b2,
+                    geometry: f.geometry, meta: p
+                };
+            });
+        }
+    };
+}
+
+function vizToggleMsi(on){
+    var wrap = document.getElementById('viz-msi-wrap');
+    if(!wrap) return;
+    if(!on){
+        wrap.style.display = 'none';
+        return;
+    }
+    if(!_msiMapInstance){
+        if(!(window.SkipiMap && typeof window.SkipiMap.mount === 'function')){
+            showToast('Модуль карты MSI не загружен', 'error');
+            var cb = document.getElementById('viz-show-msi');
+            if(cb) cb.checked = false;
+            return;
+        }
+        wrap.style.display = 'flex';
+        try {
+            _msiMapInstance = SkipiMap.mount(document.getElementById('viz-msi-map'), {
+                theme: 'maritime',
+                layers: [_msiLayerConfig()],
+                toast: function(msg, kind){ showToast(msg, kind || 'info'); }
+            });
+        } catch(e) {
+            wrap.style.display = 'none';
+            var cb2 = document.getElementById('viz-show-msi');
+            if(cb2) cb2.checked = false;
+            showToast('MSI карта не поднялась: ' + e, 'error');
+            return;
+        }
+    } else {
+        wrap.style.display = 'flex';
+    }
+    // Leaflet needs a size recalc after the container becomes visible.
+    setTimeout(function(){
+        try { if(_msiMapInstance && _msiMapInstance.map) _msiMapInstance.map.invalidateSize(); } catch(e){}
+    }, 60);
 }
 
 // ---------- Карта: port geocoding + focused lead view ----------
