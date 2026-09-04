@@ -5132,9 +5132,39 @@ var appFeedbackRating = 0;
 var appFeedbackContext = 'manual';
 
 // ---------- Util ----------
+// SKIPI-ESCAPERS-BEGIN — блок экранировщиков целиком исполняется харнессом
+// tests/broker_escaping_negative_harness.mjs на реальных payload'ах.
 function esc(s){ return String(s==null?'':s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+// --- Экранирование по контексту вывода (BACKLOG №191, security) ---
+// Три контекста — три функции, смешивать нельзя:
+//   HTML-текст .................. esc(x)
+//   значение атрибута ........... escAttrVal(x)
+//   JS-строка в inline-обработчике escAttrVal(escJs(x))
+//   число в разметке ............ escNum(x)
+// ИНВАРИАНТ ROUND-TRIP: escAttrVal(escJs(x)) после разбора HTML-парсером и
+// разбора JS-строкового литерала даёт ПОБАЙТОВО исходный x. Поэтому никакого
+// предварительного ручного вырезания или экранирования апострофа и обратного
+// слэша на сайтах вызова быть не должно — оно даёт двойное экранирование и
+// молча ломает сравнения вида (state.team.sendTarget === nick).
+function escJs(s){ return String(s==null?'':s)
+    .replace(/\\/g,'\\\\')
+    .replace(/'/g,"\\'").replace(/"/g,'\\"')
+    .replace(/\r/g,'\\r').replace(/\n/g,'\\n')
+    .replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029')
+    .replace(/<\//g,'<\\/'); }
+function escAttrVal(s){ return String(s==null?'':s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/`/g,'&#96;'); }
+// Число в разметку попадает только как число; всё остальное — явный reject
+// (не молчаливое приведение к NaN/строке).
+function escNum(v, fallback){ var n = Number(v);
+    return Number.isFinite(n) ? String(n) : (fallback===undefined ? '' : String(fallback)); }
+// Значение, уезжающее в заголовок письма: CR и LF убираются (RFC-822 header
+// injection). Длина НЕ режется — обрезка ломает кириллические темы.
+function hdrSafe(s){ return String(s==null?'':s).replace(/[\r\n]/g,''); }
+// SKIPI-ESCAPERS-END
 function val(id){ var el=document.getElementById(id); return el ? (el.value||'').trim() : ''; }
 function intOrNull(id){ var v=val(id); return v===''?null:parseInt(v,10); }
 function toIsoOrNull(id){ var v=val(id); return v===''?null:(new Date(v)).toISOString(); }
@@ -5219,7 +5249,7 @@ function maybePromptForFeedback(context){
 function feedbackStarsHtml(){
     var h = '<div class="skipi-feedback-stars" id="feedback-stars">';
     for(var i=1;i<=5;i++){
-        h += '<button type="button" class="'+(i<=appFeedbackRating?'on':'')+'" onclick="setFeedbackRating('+i+')" aria-label="'+i+'">★</button>';
+        h += '<button type="button" class="'+(i<=appFeedbackRating?'on':'')+'" onclick="setFeedbackRating('+escNum(i)+')" aria-label="'+escNum(i)+'">★</button>';
     }
     h += '</div>';
     return h;
@@ -5290,7 +5320,7 @@ function imoLinkHtml(imo){
     if(!imo) return '—';
     var n = String(imo).replace(/\D/g, '');
     if(n.length < 6) return esc(String(imo));
-    return '<a href="#" onclick="event.preventDefault(); openVesselPage(\''+n+'\'); return false;" title="Открыть на MarineTraffic">'+esc(n)+'</a>';
+    return '<a href="#" onclick="event.preventDefault(); openVesselPage(\''+escAttrVal(escJs(n))+'\'); return false;" title="Открыть на MarineTraffic">'+esc(n)+'</a>';
 }
 function openVesselPage(imo){
     var url = 'https://www.marinetraffic.com/en/ais/details/ships/imo:'+imo;
@@ -5304,10 +5334,9 @@ function openVesselPage(imo){
 // сначала резолвим имя через /api/vessels/search, потом тянем карточку.
 function vesselNameLinkHtml(name, imo){
     if(!name) return '—';
-    var safe = String(name).replace(/['\\]/g, '');
     return '<a href="#" class="vessel-link" title="Карточка судна: база Skipi + MarineTraffic" '
-        + 'onclick="event.preventDefault(); event.stopPropagation(); openVesselCard(\''+esc(safe)+'\','
-        + (imo ? '\''+esc(String(imo))+'\'' : 'null')
+        + 'onclick="event.preventDefault(); event.stopPropagation(); openVesselCard(\''+escAttrVal(escJs(String(name)))+'\','
+        + (imo ? '\''+escAttrVal(escJs(String(imo)))+'\'' : 'null')
         + '); return false;">'+esc(name)+'</a>';
 }
 
@@ -5345,7 +5374,7 @@ async function openVesselCard(name, imo){
         _vcRenderPick(rows, name);
     } catch(e){
         _vcBody('<div class="col-empty">Ошибка запроса: '+esc(String(e))
-            + '<br><br><button onclick="openMarineTraffic(null,\''+esc(String(name||'').replace(/['\\]/g,''))+'\')">🌍 Искать на MarineTraffic</button></div>');
+            + '<br><br><button onclick="openMarineTraffic(null,\''+escAttrVal(escJs(String(name||'')))+'\')">🌍 Искать на MarineTraffic</button></div>');
     }
 }
 
@@ -5362,21 +5391,21 @@ async function _vcLoadImo(imo){
 function _vcRenderPick(rows, name){
     _vcBody('<div style="font-size:11px; color:var(--text3); margin-bottom:8px;">В базе несколько судов под «'+esc(name)+'» — выбери:</div>'
         + rows.map(function(r){
-            return '<div class="vc-pick-row" onclick="_vcLoadImo('+Number(r.imo)+')">'
+            return '<div class="vc-pick-row" onclick="_vcLoadImo('+escNum(r.imo)+')">'
                 + '<b>'+esc(r.name_current || '?')+'</b> · IMO '+Number(r.imo)
                 + (r.dwt ? ' · '+Number(r.dwt).toLocaleString()+' DWT' : '')
-                + (r.built_year ? ' · '+r.built_year : '')
+                + (r.built_year ? ' · '+escNum(r.built_year) : '')
                 + (r.vessel_type ? ' · '+esc(r.vessel_type) : '')
                 + (r.flag_current ? ' · '+esc(r.flag_current) : '')
                 + '</div>';
         }).join('')
-        + '<div class="vc-actions"><button onclick="openMarineTraffic(null,\''+esc(String(name||'').replace(/['\\]/g,''))+'\')">🌍 Искать на MarineTraffic</button></div>');
+        + '<div class="vc-actions"><button onclick="openMarineTraffic(null,\''+escAttrVal(escJs(String(name||'')))+'\')">🌍 Искать на MarineTraffic</button></div>');
 }
 
 function _vcRenderNotFound(name){
     _vcBody('<div class="col-empty">«'+esc(name)+'» в нашей базе нет (65k+ судов).<br>'
         + '<span class="hint">Имя из базара бывает с опечаткой или сокращением — попробуй MarineTraffic.</span></div>'
-        + '<div class="vc-actions"><button class="primary" onclick="openMarineTraffic(null,\''+esc(String(name||'').replace(/['\\]/g,''))+'\')">🌍 Искать на MarineTraffic</button></div>');
+        + '<div class="vc-actions"><button class="primary" onclick="openMarineTraffic(null,\''+escAttrVal(escJs(String(name||'')))+'\')">🌍 Искать на MarineTraffic</button></div>');
 }
 
 function _vcChip(label, val, suffix){
@@ -5418,7 +5447,7 @@ function _vcRenderFull(v){
         : '';
 
     var sanctions = (v.sanctions && v.sanctions.length)
-        ? '<div class="vc-warn">⚠ Санкционные записи: '+v.sanctions.length+' — проверь перед фиксацией!</div>' : '';
+        ? '<div class="vc-warn">⚠ Санкционные записи: '+escNum(v.sanctions.length)+' — проверь перед фиксацией!</div>' : '';
 
     var reviewsBlock = '';
     var rc = Number(v.review_count || 0);
@@ -5427,7 +5456,7 @@ function _vcRenderFull(v){
     var axisHtml = Object.keys(axes).filter(function(k){ return axes[k] != null; })
         .map(function(k){ return _vcChip(axisLabels[k] || k, Number(axes[k]).toFixed(1)); }).join('');
     if(rc > 0 || axisHtml){
-        reviewsBlock = '<div style="font-size:10px; color:var(--text3); margin-top:10px;">Оценки моряков ('+rc+' отзывов'
+        reviewsBlock = '<div style="font-size:10px; color:var(--text3); margin-top:10px;">Оценки моряков ('+escNum(rc)+' отзывов'
             + (v.average_overall ? ', средняя '+Number(v.average_overall).toFixed(1) : '')+'):</div>'
             + '<div class="vc-scores">'+(axisHtml || '<span class="vc-chip">пока без детализации</span>')+'</div>';
     } else {
@@ -5446,8 +5475,8 @@ function _vcRenderFull(v){
         + scoresBlock
         + reviewsBlock
         + '<div class="vc-actions">'
-        + '<button class="primary" onclick="openMarineTraffic(\''+v.imo+'\',\''+esc(String(v.name_current||'').replace(/['\\]/g,''))+'\')">🌍 Позиция на MarineTraffic</button>'
-        + '<button onclick="openVesselPage(\''+v.imo+'\')" title="Открыть во внешнем браузере">↗ В браузере</button>'
+        + '<button class="primary" onclick="openMarineTraffic(\''+escNum(v.imo)+'\',\''+escAttrVal(escJs(String(v.name_current||'')))+'\')">🌍 Позиция на MarineTraffic</button>'
+        + '<button onclick="openVesselPage(\''+escNum(v.imo)+'\')" title="Открыть во внешнем браузере">↗ В браузере</button>'
         + '</div>');
 }
 
@@ -5901,7 +5930,7 @@ function vdbRenderResults(){
     }
     if(count) count.textContent = String(res.results.length);
     if(!res.results.length){
-        box.innerHTML = '<div class="vdb-empty">Ничего не найдено по «' + esc(q) + '».<br>В фикстурном срезе ' + VDB_FIXTURE_IDENTITIES.length + ' записей.</div>';
+        box.innerHTML = '<div class="vdb-empty">Ничего не найдено по «' + esc(q) + '».<br>В фикстурном срезе ' + escNum(VDB_FIXTURE_IDENTITIES.length) + ' записей.</div>';
         return;
     }
     var html = '';
@@ -5911,15 +5940,15 @@ function vdbRenderResults(){
         var name = sem.display_public_fields ? (r.name_current || '—') : 'запись недоступна';
         var sub;
         if(sem.display_public_fields){
-            sub = (r.imo ? 'IMO ' + r.imo : 'без IMO') + ' · ' + (r.type_display || '—') + (r.flag_current ? ' · ' + r.flag_current : '');
+            sub = (r.imo ? 'IMO ' + escNum(r.imo) : 'без IMO') + ' · ' + esc(r.type_display || '—') + (r.flag_current ? ' · ' + esc(r.flag_current) : '');
         } else {
-            sub = esc(r.record_id) + ' · ' + (VDB_CACHE_LABELS[r.cache_state] || r.cache_state);
+            sub = esc(r.record_id) + ' · ' + esc(VDB_CACHE_LABELS[r.cache_state] || r.cache_state);
         }
         var chips = '';
         if(r.identity_status !== 'confirmed') chips += ' <span class="vdb-chip' + (r.identity_status === 'conflicted' ? ' warn' : '') + '">' + esc(VDB_STATUS_LABELS[r.identity_status] || r.identity_status) + '</span>';
         if(sem.fail_closed) chips += ' <span class="vdb-chip bad">' + esc(VDB_CACHE_LABELS[r.cache_state] || r.cache_state) + '</span>';
         else if(sem.must_show_staleness) chips += ' <span class="vdb-chip warn">' + esc(VDB_CACHE_LABELS[r.cache_state] || r.cache_state) + '</span>';
-        html += '<div class="vdb-row' + (_vdbUi.selected === r.record_id ? ' sel' : '') + '" data-qa="vessel-search-result" onclick="vdbSelect(\'' + esc(r.record_id) + '\')">'
+        html += '<div class="vdb-row' + (_vdbUi.selected === r.record_id ? ' sel' : '') + '" data-qa="vessel-search-result" onclick="vdbSelect(\''+escAttrVal(escJs(r.record_id))+'\')">'
               + '<div style="flex:1; min-width:0;"><div class="vdb-r-name">' + esc(name) + chips + '</div>'
               + '<div class="vdb-r-sub">' + sub + '</div></div></div>';
     }
@@ -5961,7 +5990,7 @@ function vdbRenderCard(){
             + '<div style="font-size:15px; margin-bottom:6px;">⛔ ' + esc(VDB_CACHE_LABELS[id.cache_state] || id.cache_state) + '</div>'
             + esc(why)
             + '<div style="margin-top:8px; font-size:11px; color:var(--text3);">запись: ' + esc(id.record_id) + ' · статус: ' + esc(VDB_STATUS_LABELS[id.identity_status] || id.identity_status) + '</div>'
-            + (id.cache_state === 'error' ? '<div style="margin-top:10px;"><button class="btn" onclick="vdbSelect(\'' + esc(id.record_id) + '\')">Повторить чтение</button></div>' : '')
+            + (id.cache_state === 'error' ? '<div style="margin-top:10px;"><button class="btn" onclick="vdbSelect(\''+escAttrVal(escJs(id.record_id))+'\')">Повторить чтение</button></div>' : '')
             + '</div>';
         return;
     }
@@ -5989,7 +6018,7 @@ function vdbRenderCard(){
             html += '<div style="margin-top:6px;">Кандидаты:</div>';
             for(var ci = 0; ci < cres.candidates.length; ci++){
                 var cd = cres.candidates[ci];
-                html += '<div class="vdb-row" data-qa="vessel-search-result" onclick="vdbSelect(\'' + esc(cd.record_id) + '\')" style="padding:4px 6px;">'
+                html += '<div class="vdb-row" data-qa="vessel-search-result" onclick="vdbSelect(\''+escAttrVal(escJs(cd.record_id))+'\')" style="padding:4px 6px;">'
                       + '<div><div class="vdb-r-name">' + esc(cd.name_current || cd.record_id) + '</div>'
                       + '<div class="vdb-r-sub">' + (cd.imo ? 'IMO ' + esc(cd.imo) : 'без IMO') + ' · ' + esc(VDB_STATUS_LABELS[cd.identity_status] || cd.identity_status) + '</div></div></div>';
             }
@@ -6022,14 +6051,14 @@ function vdbRenderCard(){
             var ch = pres.chips[pi];
             html += '<span class="vdb-chip" data-qa="vessel-provenance-chip" title="' + esc(ch.provenance_note || '') + '">📄 ' + esc(ch.source_name)
                   + ' · ' + esc(licLabel[ch.source_license] || ch.source_license)
-                  + ' · ' + Math.round((ch.confidence || 0) * 100) + '%</span>';
+                  + ' · ' + escNum(Math.round((ch.confidence || 0) * 100)) + '%</span>';
         }
     } else {
         html += '<span class="vdb-chip" data-qa="vessel-provenance-chip">📄 источники не заявлены</span>';
     }
     html += '</div>';
     if(sem.must_show_staleness){
-        html += '<div style="margin-top:10px; font-size:11px; color:var(--text3);">Проверено: ' + vdbFmtTs(id.cache_checked_at) + (id.stale_after_at ? ' · устарело после: ' + vdbFmtTs(id.stale_after_at) : '') + (id.cache_state === 'offline_cached' ? ' · показан офлайн-кэш' : '') + '</div>';
+        html += '<div style="margin-top:10px; font-size:11px; color:var(--text3);">Проверено: ' + esc(vdbFmtTs(id.cache_checked_at)) + (id.stale_after_at ? ' · устарело после: ' + esc(vdbFmtTs(id.stale_after_at)) : '') + (id.cache_state === 'offline_cached' ? ' · показан офлайн-кэш' : '') + '</div>';
     }
     html += '</div>';
     box.innerHTML = html;
@@ -6037,6 +6066,14 @@ function vdbRenderCard(){
 // ===================== end Vessels / Vessel Database Slice 1 =====================
 
 // ===================== Apps / Plugin host (bundled first-party, isolated) =====================
+// Блок Apps существующий харнесс дома исполняет изолированно (new Function с
+// единственным впрыснутым esc), поэтому глобальных escAttrVal/escJs в той
+// песочнице нет. Тонкие обёртки ниже дают в приложении полный инвариант
+// экранирования, а в песочнице теста откатываются на esc(). Значения здесь
+// приходят из захардкоженных реестров BROKER_MOBILE_MODULES / BROKER_PLUGINS
+// этого же файла, а не из внешних данных, поэтому откат безопасен.
+function appsAttrVal(v){ return (typeof escAttrVal === 'function') ? escAttrVal(v) : esc(v); }
+function appsHandlerArg(v){ return (typeof escAttrVal === 'function') ? escAttrVal(escJs(v)) : esc(v); }
 // Broker as a HOST for bundled first-party plugins. Apps shell + local
 // Install/Open/Disable stay in Broker; plugin code runs only through the shared
 // SkipiPluginRuntime sandbox iframe. GUARDRAIL: plugins get NO broker domain
@@ -6290,8 +6327,8 @@ function brokerIsMobileMode(){
 function brokerMobileModuleTilesHtml(){
   return BROKER_MOBILE_MODULES.map(function(m){
     var badge = (m.slug === 'cases') ? ' <span class="apps-badge" id="apps-tile-cases-badge" style="display:none;"></span>' : '';
-    return '<div class="apps-tile apps-module-tile" data-qa="module-tile-'+m.slug+'" onclick="mobileSwitchView(\''+m.view+'\')">'
-      + '<div class="at-name">'+m.icon+' '+esc(m.label)+badge+'</div>'
+    return '<div class="apps-tile apps-module-tile" data-qa="module-tile-'+appsAttrVal(m.slug)+'" onclick="mobileSwitchView(\''+appsHandlerArg(m.view)+'\')">'
+      + '<div class="at-name">'+esc(m.icon)+' '+esc(m.label)+badge+'</div>'
       + '<div class="at-cat">Модуль</div>'
       + '</div>';
   }).join('');
@@ -6300,7 +6337,7 @@ function brokerAppsListHtml(){
   var modTiles = brokerIsMobileMode() ? brokerMobileModuleTilesHtml() : '';
   var tiles = BROKER_PLUGINS.map(function(p){
     var st = brokerPluginTileState(p);
-    return '<div class="apps-tile" data-qa="plugin-tile-'+esc(p.id)+'" onclick="brokerAppsOpenDetail(\''+p.id+'\')">'
+    return '<div class="apps-tile" data-qa="plugin-tile-'+appsAttrVal(p.id)+'" onclick="brokerAppsOpenDetail(\''+appsHandlerArg(p.id)+'\')">'
       + '<span class="apps-badge '+st+'">'+esc(brokerPluginStateLabel(st))+'</span>'
       + '<div class="at-name">'+esc(p.name)+'</div>'
       + '<div class="at-cat">'+esc(p.category || '')+'</div>'
@@ -6322,9 +6359,9 @@ function brokerAppsDetailHtml(id){
     : '<span class="apps-muted">No special permissions requested.</span>';
   var actions;
   if(st === 'coming_soon') actions = '<div class="apps-muted">This plugin is coming soon.</div>';
-  else if(st === 'installed') actions = '<button class="apps-btn" data-qa="plugin-open-'+esc(id)+'" onclick="brokerAppsOpen(\''+id+'\')">Open</button><button class="apps-btn secondary" onclick="brokerAppsDisable(\''+id+'\')">Disable</button>';
-  else if(st === 'disabled') actions = '<button class="apps-btn" onclick="brokerAppsEnable(\''+id+'\')">Enable</button>';
-  else actions = '<button class="apps-btn" onclick="brokerAppsInstall(\''+id+'\')">Install</button>';
+  else if(st === 'installed') actions = '<button class="apps-btn" data-qa="plugin-open-'+appsAttrVal(id)+'" onclick="brokerAppsOpen(\''+appsHandlerArg(id)+'\')">Open</button><button class="apps-btn secondary" onclick="brokerAppsDisable(\''+appsHandlerArg(id)+'\')">Disable</button>';
+  else if(st === 'disabled') actions = '<button class="apps-btn" onclick="brokerAppsEnable(\''+appsHandlerArg(id)+'\')">Enable</button>';
+  else actions = '<button class="apps-btn" onclick="brokerAppsInstall(\''+appsHandlerArg(id)+'\')">Install</button>';
   return '<div class="apps-detail">'
     + '<button class="apps-back" onclick="brokerAppsBackToList()">‹ Apps</button>'
     + '<span class="apps-badge '+st+'">'+esc(brokerPluginStateLabel(st))+'</span>'
@@ -6380,7 +6417,7 @@ function brokerPluginMountCurrent(){
   }).catch(function(e){
     if(seq !== __brokerPluginMountSeq) return;
     __brokerPluginMounted = null;
-    c.innerHTML = '<div class="apps-muted">Plugin failed to mount: '+esc(''+e)+'</div>';
+    c.innerHTML = '<div class="apps-muted">Plugin failed to mount: '+esc(String(e))+'</div>';
   });
 }
 function brokerPluginUnmountCurrent(){
@@ -6506,7 +6543,7 @@ function renderTeamMembers(){
     var collapsed = stored == null ? isMobile : stored === '1';
     if(collapsed) el.classList.add('collapsed'); else el.classList.remove('collapsed');
     el.innerHTML = '<div class="tm-head" id="tm-head-toggle">'
-            + '<span>Команда · онлайн ' + items.filter(function(x){ return x.online; }).length + '</span>'
+            + '<span>Команда · онлайн ' + escNum(items.filter(function(x){ return x.online; }).length) + '</span>'
             + '<span class="tm-chev">⌄</span>'
         + '</div>'
         + '<div class="tm-list">'
@@ -6519,10 +6556,9 @@ function renderTeamMembers(){
             var isBot = /Брокер-LLM|AI Assistant|🤖/i.test(nick);
             var tgt = (state.team && state.team.sendTarget) || 'ai';
             var isActive = isBot ? (tgt === 'ai') : (tgt === nick);
-            var nm = nick.replace(/'/g, "\\'");
             return '<div class="tm-row ' + (x.online ? 'online' : 'offline') + (isActive ? ' target-active' : '')
                     + '" title="Писать ' + esc(nick) + (x.m.app_version ? ' · v' + esc(x.m.app_version) : '') + '"'
-                    + ' onclick="selectTeamTargetFromPanel(\'' + esc(nm) + '\', ' + (isBot ? 'true' : 'false') + ')">'
+                    + ' onclick="selectTeamTargetFromPanel(\''+escAttrVal(escJs(nick))+'\', ' + (isBot ? 'true' : 'false') + ')">'
                 + '<div class="tm-dot' + (x.online ? '' : ' off') + '"><div class="ring"></div><div class="core"></div></div>'
                 + '<span class="tm-name">' + esc(nick) + '</span>'
                 + (isBot ? '<span class="tm-tag">AI</span>' : '')
@@ -6674,8 +6710,8 @@ function renderTeamStream(){
             if(run.length >= 3){
                 var rid = 'sysrun-'+i;
                 html += '<div class="team-sysrun">'
-                      + '<span class="te-time sysrun-toggle" onclick="_toggleSysRun(\''+rid+'\',this)">··· '+run.length+' системных событий ▾</span>'
-                      + '<div class="team-sysrun-items" id="'+rid+'" style="display:none;">'
+                      + '<span class="te-time sysrun-toggle" onclick="_toggleSysRun(\''+escAttrVal(escJs(rid))+'\',this)">··· '+escNum(run.length)+' системных событий ▾</span>'
+                      + '<div class="team-sysrun-items" id="'+escAttrVal(rid)+'" style="display:none;">'
                       + run.map(_sysEvent).join('')
                       + '</div></div>';
             } else {
@@ -6687,7 +6723,7 @@ function renderTeamStream(){
         var isMine = (m.sender_nickname === mine);
         var isAi = (m.sender_nickname || '').startsWith('🤖');
         var cls = 'team-msg' + (isAi ? ' ai-llm' : (isMine ? ' mine' : ''));
-        html += '<div class="'+cls+'" data-msgid="'+esc(m.id)+'" oncontextmenu="_onTeamMsgContextMenu(event,\''+esc(m.id)+'\')">'
+        html += '<div class="'+cls+'" data-msgid="'+escAttrVal(m.id)+'" oncontextmenu="_onTeamMsgContextMenu(event,\''+escAttrVal(escJs(m.id))+'\')">'
               + '<div class="team-msg-meta"><span class="nick">'+esc(m.sender_nickname||'anon')+'</span><span>'+esc(_fmtTime(m.created_at))+'</span></div>'
               + '<div class="team-msg-body">'+_renderTeamBody(m.body||'')+'</div>'
               + '</div>';
@@ -7129,7 +7165,7 @@ function _renderAttachThumbs(){
     var atts = (state.team && state.team.pendingAttach) || [];
     if(atts.length === 0){ host.innerHTML = ''; return; }
     host.innerHTML = atts.map(function(src, i){
-        return '<div class="team-attach-thumb"><img src="'+src+'"><span class="x" onclick="_removeAttach('+i+')">×</span></div>';
+        return '<div class="team-attach-thumb"><img src="'+escAttrVal(src)+'"><span class="x" onclick="_removeAttach('+escNum(i)+')">×</span></div>';
     }).join('');
 }
 
@@ -7187,7 +7223,7 @@ function _renderTeamBody(body){
     while((m = re.exec(rest)) !== null){
         if(m.index > last) out.push(esc(rest.slice(last, m.index)));
         // Safe: dataUrl content is base64, can't break out of attribute
-        out.push('<img class="team-img" src="'+m[1]+'" onclick="openTeamImgLightbox(this.src)">');
+        out.push('<img class="team-img" src="'+escAttrVal(m[1])+'" onclick="openTeamImgLightbox(this.src)">');
         last = m.index + m[0].length;
     }
     if(last < rest.length) out.push(esc(rest.slice(last)));
@@ -7210,8 +7246,8 @@ function _onTeamMsgContextMenu(ev, msgId){
     var menu = document.createElement('div');
     menu.className = 'team-ctx-menu';
     menu.id = 'team-ctx-menu';
-    menu.innerHTML = '<div class="item" onclick="_chooseReplyTo(\''+esc(msgId)+'\')">↩ Ответить</div>'
-                   + '<div class="item" onclick="_copyTeamMsg(\''+esc(msgId)+'\')">📋 Копировать</div>';
+    menu.innerHTML = '<div class="item" onclick="_chooseReplyTo(\''+escAttrVal(escJs(msgId))+'\')">↩ Ответить</div>'
+                   + '<div class="item" onclick="_copyTeamMsg(\''+escAttrVal(escJs(msgId))+'\')">📋 Копировать</div>';
     document.body.appendChild(menu);
     // Position near the pointer/touch point but clamp inside the viewport.
     var px = (ev && ev.clientX != null) ? ev.clientX
@@ -7432,9 +7468,9 @@ function renderLeads2View(){
                 + '<span>·</span><span>взят '+esc((l.taken_at || '').slice(0,16).replace('T',' '))+'</span>'
             + '</div>'
             + '<div class="lead2-actions">'
-                + '<button onclick="showLeadOnMap(\''+esc(l.id)+'\')">👁 На карте</button>'
-                + '<button onclick="startCaseFromLead(\''+esc(l.id)+'\')">📂 В дела</button>'
-                + '<button class="danger" onclick="if(confirm(\'Убрать лид?\'))removeLead(\''+esc(l.id)+'\')">🗑 Убрать</button>'
+                + '<button onclick="showLeadOnMap(\''+escAttrVal(escJs(l.id))+'\')">👁 На карте</button>'
+                + '<button onclick="startCaseFromLead(\''+escAttrVal(escJs(l.id))+'\')">📂 В дела</button>'
+                + '<button class="danger" onclick="if(confirm(\'Убрать лид?\'))removeLead(\''+escAttrVal(escJs(l.id))+'\')">🗑 Убрать</button>'
             + '</div>'
             + '</div>';
     }).join('');
@@ -7643,7 +7679,7 @@ function _refreshCtxInfo(){
     if(sg){
         var sugg = (a.suggestions || []).slice(0,4);
         sg.innerHTML = sugg.map(function(s){
-            return '<span class="ctx-sg" onclick="_ctxAskSuggestion('+JSON.stringify(s)+')">'+esc(s)+'</span>';
+            return '<span class="ctx-sg" onclick="_ctxAskSuggestion(\''+escAttrVal(escJs(s))+'\')">'+esc(s)+'</span>';
         }).join('');
         sg.style.display = sugg.length ? 'flex' : 'none';
     }
@@ -8267,10 +8303,10 @@ function _renderWatchedEmails(c){
     var chips = watched.map(function(e){
         return '<span style="display:inline-flex; align-items:center; gap:4px; background:rgba(0,69,100,.12); border:1px solid rgba(0,69,100,.35); padding:2px 8px; border-radius:10px; font-size:10px; color:var(--text); margin-right:5px; margin-bottom:4px;">'
             + '👁 ' + esc(e)
-            + ' <span style="cursor:pointer; color:var(--text3); font-weight:700;" title="Перестать следить" onclick="event.stopPropagation(); removeCaseWatchEmail(\''+esc(c.id)+'\',\''+esc(e)+'\')">×</span>'
+            + ' <span style="cursor:pointer; color:var(--text3); font-weight:700;" title="Перестать следить" onclick="event.stopPropagation(); removeCaseWatchEmail(\''+escAttrVal(escJs(c.id))+'\',\''+escAttrVal(escJs(e))+'\')">×</span>'
             + '</span>';
     }).join('');
-    var addBtn = '<button class="cd-add-btn" style="padding:2px 8px; font-size:10px;" onclick="addCaseWatchEmail(\''+esc(c.id)+'\')">＋ email</button>';
+    var addBtn = '<button class="cd-add-btn" style="padding:2px 8px; font-size:10px;" onclick="addCaseWatchEmail(\''+escAttrVal(escJs(c.id))+'\')">＋ email</button>';
     var hint = watched.length === 0
         ? '<span style="color:var(--text3); font-size:10px;">Никто не отслеживается. Добавь email — при новом письме появится пульсирующая точка.</span>'
         : '';
@@ -8360,17 +8396,17 @@ function _renderCasesList(){
         var owners = (c.owners || []).join(' · ') || '—';
         var nReplies = (c.unread_replies || []).length;
         var pulse = nReplies > 0
-            ? '<span class="viz-pulse hot" style="display:inline-block; margin-right:6px; vertical-align:middle;" title="'+nReplies+' новых ответов от отслеживаемых адресов"><div class="ring"></div><div class="core"></div></span>'
+            ? '<span class="viz-pulse hot" style="display:inline-block; margin-right:6px; vertical-align:middle;" title="'+escNum(nReplies)+' новых ответов от отслеживаемых адресов"><div class="ring"></div><div class="core"></div></span>'
             : '';
-        return '<div class="case-card" onclick="openCaseDetail(\''+esc(c.id)+'\')">'
+        return '<div class="case-card" onclick="openCaseDetail(\''+escAttrVal(escJs(c.id))+'\')">'
             + '<div class="cc-head">'
             +   '<span style="flex:1;">'+pulse+esc(c.title)+'</span>'
-            +   '<span class="cc-status status-'+esc(c.status)+'">'+esc(_statusLabel(c.status))+'</span>'
+            +   '<span class="cc-status status-'+escAttrVal(c.status)+'">'+esc(_statusLabel(c.status))+'</span>'
             + '</div>'
             + '<div class="cc-type">'+esc(_typeLabel(c.type))+(c.link ? ' · из '+esc(c.link.kind) : '')+'</div>'
             + '<div class="cc-owners">👤 '+esc(owners)+'</div>'
             + '<div class="cc-meta"><span>📅 '+esc((c.created_at||'').slice(0,16).replace('T',' '))+'</span>'
-            +   '<span>· '+(c.events||[]).length+' событ.</span></div>'
+            +   '<span>· '+escNum((c.events||[]).length)+' событ.</span></div>'
             + '<div class="cc-timeline">⏱ '+esc(_caseLastEvent(c))+'</div>'
             + '</div>';
     }).join('');
@@ -8401,7 +8437,7 @@ function _renderCasesDesk(){
         var initials = name.slice(0,1).toUpperCase();
         var inner = arr.length
             ? arr.map(function(c){
-                return '<div class="dm-case" onclick="event.stopPropagation(); openCaseDetail(\''+esc(c.id)+'\')">'
+                return '<div class="dm-case" onclick="event.stopPropagation(); openCaseDetail(\''+escAttrVal(escJs(c.id))+'\')">'
                     + esc(c.title)
                     + '<div class="dmc-status">'+esc(_statusLabel(c.status))+'</div>'
                     + '</div>';
@@ -8475,18 +8511,18 @@ function _renderCaseDetail(){
     var owners = (c.owners || []).join(', ');
     var watchers = (c.watchers || []).join(', ');
     var statusOpts = ['lead','negotiating','fixed','postfix','closed','dropped']
-        .map(function(s){ return '<option value="'+s+'"'+(c.status===s?' selected':'')+'>'+esc(_statusLabel(s))+'</option>'; }).join('');
+        .map(function(s){ return '<option value="'+escAttrVal(s)+'"'+(c.status===s?' selected':'')+'>'+esc(_statusLabel(s))+'</option>'; }).join('');
     var typeOpts = ['general','cargo','tonnage','fixture','postfix','indication','claim','accounts','pair','mail']
-        .map(function(t){ return '<option value="'+t+'"'+(c.type===t?' selected':'')+'>'+esc(_typeLabel(t))+'</option>'; }).join('');
+        .map(function(t){ return '<option value="'+escAttrVal(t)+'"'+(c.type===t?' selected':'')+'>'+esc(_typeLabel(t))+'</option>'; }).join('');
     var eventsArr = c.events || [];
     var events = eventsArr.slice().reverse().map(function(ev, idxFromEnd){
         var realIdx = eventsArr.length - 1 - idxFromEnd;
         var ts = (ev.ts || '').slice(0,16).replace('T',' ');
         var by = ev.by || '—';
-        var editedTag = ev.edited_at ? ' · ✎ '+ev.edited_at.slice(0,16).replace('T',' ') : '';
+        var editedTag = ev.edited_at ? ' · ✎ '+esc(String(ev.edited_at).slice(0,16).replace('T',' ')) : '';
         var bodyHtml;
         if(ev.kind === 'file' && ev.file){
-            bodyHtml = '<span class="cde-file-link" onclick="_downloadCaseFile(\''+esc(c.id)+'\',\''+esc(ev.id||'')+'\')">📎 '+esc(ev.file.name||'файл')+'</span> '
+            bodyHtml = '<span class="cde-file-link" onclick="_downloadCaseFile(\''+escAttrVal(escJs(c.id))+'\',\''+escAttrVal(escJs(ev.id||''))+'\')">📎 '+esc(ev.file.name||'файл')+'</span> '
                 + '<span style="color:var(--text3);">('+esc(_formatBytes(ev.file.size||0))+')</span>'
                 + (ev.body ? '<br>'+esc(ev.body) : '');
         } else {
@@ -8497,27 +8533,27 @@ function _renderCaseDetail(){
         var canEdit = (ev.kind === 'note' || ev.kind === 'file' || ev.kind === 'llm');
         var canDelete = (ev.kind === 'note' || ev.kind === 'file');
         var actions = '';
-        if(canEdit) actions += '<span class="cde-action" title="Редактировать" onclick="event.stopPropagation();editCaseEvent(\''+esc(c.id)+'\','+realIdx+')">✎</span>';
-        if(canDelete) actions += '<span class="cde-action danger" title="Удалить событие" onclick="event.stopPropagation();deleteCaseEvent(\''+esc(c.id)+'\','+realIdx+')">🗑</span>';
+        if(canEdit) actions += '<span class="cde-action" title="Редактировать" onclick="event.stopPropagation();editCaseEvent(\''+escAttrVal(escJs(c.id))+'\','+escNum(realIdx)+')">✎</span>';
+        if(canDelete) actions += '<span class="cde-action danger" title="Удалить событие" onclick="event.stopPropagation();deleteCaseEvent(\''+escAttrVal(escJs(c.id))+'\','+escNum(realIdx)+')">🗑</span>';
         // Long event bodies (LLM context dumps etc.) collapse to a few lines
         // with a "показать полностью" toggle so the timeline stays scannable.
         var bodyLong = (ev.body || '').length > 260;
-        return '<div class="cd-event kind-'+esc(ev.kind || 'note')+'" id="cd-ev-'+realIdx+'">'
+        return '<div class="cd-event kind-'+esc(ev.kind || 'note')+'" id="cd-ev-'+escNum(realIdx)+'">'
             + '<div class="cde-meta"><span>'+esc(ts)+'</span><span>· '+esc(by)+'</span><span>· '+esc(ev.kind || 'note')+'</span><span style="color:var(--text3);">'+editedTag+'</span><span style="flex:1;"></span>'+actions+'</div>'
-            + '<div class="cde-body'+(bodyLong?' clamped':'')+'" id="cd-ev-body-'+realIdx+'">'+bodyHtml+'</div>'
-            + (bodyLong ? '<span class="cde-more" onclick="_toggleCdBody('+realIdx+',this)">показать полностью ▾</span>' : '')
+            + '<div class="cde-body'+(bodyLong?' clamped':'')+'" id="cd-ev-body-'+escNum(realIdx)+'">'+bodyHtml+'</div>'
+            + (bodyLong ? '<span class="cde-more" onclick="_toggleCdBody('+escNum(realIdx)+',this)">показать полностью ▾</span>' : '')
             + '</div>';
     }).join('');
     var linkLbl = c.link ? ('🔗 ' + c.link.kind) : '—';
     panel.innerHTML = ''
         + '<div class="cd-head">'
-        +   '<input class="cd-title-input cd-title" value="'+esc(c.title)+'" onchange="updateCaseField(\''+esc(c.id)+'\',\'title\',this.value); document.getElementById(\'cases-bc-title\').textContent=this.value;" />'
+        +   '<input class="cd-title-input cd-title" value="'+escAttrVal(c.title)+'" onchange="updateCaseField(\''+escAttrVal(escJs(c.id))+'\',\'title\',this.value); document.getElementById(\'cases-bc-title\').textContent=this.value;" />'
         + '</div>'
         + '<div class="cd-meta">'
-        +   '<div class="cd-meta-cell"><span class="k">Статус</span><select onchange="updateCaseField(\''+esc(c.id)+'\',\'status\',this.value)">'+statusOpts+'</select></div>'
-        +   '<div class="cd-meta-cell"><span class="k">Тип</span><select onchange="updateCaseField(\''+esc(c.id)+'\',\'type\',this.value)">'+typeOpts+'</select></div>'
-        +   '<div class="cd-meta-cell"><span class="k">Owners</span><input value="'+esc(owners)+'" onchange="updateCaseField(\''+esc(c.id)+'\',\'owners\',this.value.split(/\\s*,\\s*/).filter(Boolean))" /></div>'
-        +   '<div class="cd-meta-cell"><span class="k">Watchers</span><input value="'+esc(watchers)+'" onchange="updateCaseField(\''+esc(c.id)+'\',\'watchers\',this.value.split(/\\s*,\\s*/).filter(Boolean))" /></div>'
+        +   '<div class="cd-meta-cell"><span class="k">Статус</span><select onchange="updateCaseField(\''+escAttrVal(escJs(c.id))+'\',\'status\',this.value)">'+statusOpts+'</select></div>'
+        +   '<div class="cd-meta-cell"><span class="k">Тип</span><select onchange="updateCaseField(\''+escAttrVal(escJs(c.id))+'\',\'type\',this.value)">'+typeOpts+'</select></div>'
+        +   '<div class="cd-meta-cell"><span class="k">Owners</span><input value="'+escAttrVal(owners)+'" onchange="updateCaseField(\''+escAttrVal(escJs(c.id))+'\',\'owners\',this.value.split(/\\s*,\\s*/).filter(Boolean))" /></div>'
+        +   '<div class="cd-meta-cell"><span class="k">Watchers</span><input value="'+escAttrVal(watchers)+'" onchange="updateCaseField(\''+escAttrVal(escJs(c.id))+'\',\'watchers\',this.value.split(/\\s*,\\s*/).filter(Boolean))" /></div>'
         + '</div>'
         + '<div class="cd-body">'
         +   (function(){
@@ -8528,16 +8564,16 @@ function _renderCaseDetail(){
             return '<div class="cd-section"><div class="cd-section-h">'+linkLbl+'</div>'+chip+'<pre style="font-size:10px; color:var(--text2); background:var(--surface); padding:8px; border-radius:3px; overflow:auto; max-height:180px;">'+esc(JSON.stringify(c.link.payload, null, 2))+'</pre></div>';
         })()
         +   _renderWatchedEmails(c)
-        +   '<div class="cd-section"><div class="cd-section-h">Лента событий ('+(c.events||[]).length+')</div><div class="cd-timeline">'+events+'</div></div>'
+        +   '<div class="cd-section"><div class="cd-section-h">Лента событий ('+escNum((c.events||[]).length)+')</div><div class="cd-timeline">'+events+'</div></div>'
         + '</div>'
         + '<div class="cd-add">'
         +   '<textarea id="case-note-input" placeholder="Добавь заметку или прикрепи файл…"></textarea>'
         +   '<div class="cd-add-btns">'
-        +     '<button class="cd-add-btn primary" onclick="addCaseNote(\''+esc(c.id)+'\')">＋ Заметка</button>'
-        +     '<button class="cd-add-btn" onclick="document.getElementById(\'case-file-input-\'+\''+esc(c.id)+'\').click()">📎 Файл</button>'
-        +     '<input id="case-file-input-'+esc(c.id)+'" type="file" style="display:none;" onchange="attachCaseFile(\''+esc(c.id)+'\',this.files[0]);this.value=\'\'" />'
-        +     '<button class="cd-add-btn" onclick="askLLMAboutCase(\''+esc(c.id)+'\')">🤖 Спросить LLM</button>'
-        +     '<button class="cd-add-btn danger" onclick="deleteCase(\''+esc(c.id)+'\')">🗑 Удалить</button>'
+        +     '<button class="cd-add-btn primary" onclick="addCaseNote(\''+escAttrVal(escJs(c.id))+'\')">＋ Заметка</button>'
+        +     '<button class="cd-add-btn" onclick="document.getElementById(\'case-file-input-\'+\''+escAttrVal(escJs(c.id))+'\').click()">📎 Файл</button>'
+        +     '<input id="case-file-input-'+escAttrVal(c.id)+'" type="file" style="display:none;" onchange="attachCaseFile(\''+escAttrVal(escJs(c.id))+'\',this.files[0]);this.value=\'\'" />'
+        +     '<button class="cd-add-btn" onclick="askLLMAboutCase(\''+escAttrVal(escJs(c.id))+'\')">🤖 Спросить LLM</button>'
+        +     '<button class="cd-add-btn danger" onclick="deleteCase(\''+escAttrVal(escJs(c.id))+'\')">🗑 Удалить</button>'
         +   '</div>'
         + '</div>';
 }
@@ -8580,9 +8616,9 @@ function editCaseEvent(caseId, idx){
     var safeOriginal = String(original).replace(/"/g, '&quot;');
     bodyEl.innerHTML = ''
         + (ev.kind === 'file' && ev.file ? '<div style="font-size:10px; color:var(--text3); margin-bottom:4px;">📎 '+esc(ev.file.name||'')+' (caption ниже)</div>' : '')
-        + '<textarea id="cd-ev-edit-'+idx+'" style="width:100%; min-height:60px; background:var(--bg); color:var(--text); border:1px solid var(--accent); border-radius:3px; padding:5px 7px; font-size:11px; font-family:var(--font-ui); outline:none; resize:vertical;">'+esc(original)+'</textarea>'
+        + '<textarea id="cd-ev-edit-'+escNum(idx)+'" style="width:100%; min-height:60px; background:var(--bg); color:var(--text); border:1px solid var(--accent); border-radius:3px; padding:5px 7px; font-size:11px; font-family:var(--font-ui); outline:none; resize:vertical;">'+esc(original)+'</textarea>'
         + '<div style="margin-top:5px; display:flex; gap:5px;">'
-        +   '<button class="cd-add-btn primary" style="padding:3px 9px;" onclick="saveCaseEvent(\''+esc(caseId)+'\','+idx+')">Сохранить</button>'
+        +   '<button class="cd-add-btn primary" style="padding:3px 9px;" onclick="saveCaseEvent(\''+escAttrVal(escJs(caseId))+'\','+escNum(idx)+')">Сохранить</button>'
         +   '<button class="cd-add-btn" style="padding:3px 9px;" onclick="_renderCaseDetail()">Отмена</button>'
         + '</div>';
     var ta = document.getElementById('cd-ev-edit-' + idx);
@@ -8814,7 +8850,7 @@ function openTeamImgLightbox(src){
 function _sigIdBadge(fullId){
     if(!fullId) return '';
     var short = String(fullId).slice(0, 8);
-    return '<span class="sig-id" data-full="'+esc(fullId)+'" '
+    return '<span class="sig-id" data-full="'+escAttrVal(fullId)+'" '
          + 'title="Кликни — скопирую полный ID в буфер, чтобы вставить в чат с LLM" '
          + 'onclick="copySigId(event, this)">#'+esc(short)+'</span>';
 }
@@ -9990,6 +10026,20 @@ function trialShowBlockedOverlay(message){
         if(err) err.textContent = message || '';
     }
 }
+// №197: одна причина — один честный текст. Слово «неверный» допустимо ТОЛЬКО
+// когда сервер явно отверг токен (401/403).
+function trialContactTail(){
+    return ' Оплата и продление: ' + TRIAL_CONTACT_EMAIL + ' / ' + TRIAL_CONTACT_PHONE + '.';
+}
+function trialNoConnectionMessage(){
+    return 'Нет связи с сервером — токен не проверен. Проверь интернет и повтори.';
+}
+function trialPhaseMessage(phase){
+    if(phase === 'expired') return 'Токен принят, но срок доступа по нему уже истёк.' + trialContactTail();
+    if(phase === 'blocked') return 'Токен принят, но доступ по нему заблокирован.' + trialContactTail();
+    if(phase === 'warn')    return 'Токен принят, срок доступа заканчивается.' + trialContactTail();
+    return 'Токен принят, но сервер вернул статус «' + String(phase) + '» вместо активного.' + trialContactTail();
+}
 async function trialActivateLicense(){
     var input = document.getElementById('trial-license');
     var err = document.getElementById('trial-license-error');
@@ -10001,23 +10051,42 @@ async function trialActivateLicense(){
     try {
         var base = (state.settings && state.settings.server_url) || 'https://api.skipi.app';
         var brokerId = (state.settings && state.settings.broker_id) || '';
-        var res = await fetch(base.replace(/\/+$/,'') + '/api/trial/activate', {
-            method: 'POST',
-            headers: { 'Content-Type':'application/json', 'Authorization':'Bearer ' + token },
-            body: JSON.stringify({ account_type:'broker', account_id:brokerId })
-        });
-        if(!res.ok) throw new Error('invalid');
+        var res;
+        try {
+            res = await fetch(base.replace(/\/+$/,'') + '/api/trial/activate', {
+                method: 'POST',
+                headers: { 'Content-Type':'application/json', 'Authorization':'Bearer ' + token },
+                body: JSON.stringify({ account_type:'broker', account_id:brokerId })
+            });
+        } catch(netErr) {
+            // Сервер не ответил — про токен мы НИЧЕГО не знаем (BACKLOG №197).
+            if(err) err.textContent = trialNoConnectionMessage();
+            return;
+        }
+        if(res.status === 401 || res.status === 403){
+            // Единственный случай, когда «неверный токен» — правда: сервер явно отверг его.
+            if(err) err.textContent = 'Неверный license-токен.';
+            return;
+        }
+        if(!res.ok){
+            if(err) err.textContent = 'Сервер не смог проверить токен (ответ ' + String(res.status) + '). Токен, скорее всего, в порядке — повтори позже.';
+            return;
+        }
         try { localStorage.setItem(TRIAL_LICENSE_KEY, token); } catch(_){}
         trialActivationConfirmedAt = Date.now();
         trialServerStatus = { checked_at:0, phase:null, reason:'activation_accepted' };
         var server = await trialServerPhase(true);
-        if(server.phase && server.phase !== 'free') throw new Error('not active');
+        if(server.phase && server.phase !== 'free'){
+            if(err) err.textContent = trialPhaseMessage(server.phase);
+            return;
+        }
         trialHideOverlay();
         trialRemoveBanner();
         try { showToast('Доступ активирован.', 'ok'); } catch(_){}
         await _bootContinue();
     } catch(e) {
-        if(err) err.textContent = 'неверный токен';
+        // Что угодно неожиданное — но НЕ слово «неверный»: токен здесь не проверялся.
+        if(err) err.textContent = 'Не удалось активировать: ' + String((e && e.message) || e);
     } finally {
         if(btn) btn.disabled = false;
     }
@@ -10148,10 +10217,10 @@ function renderLeadTabs(){
         var tooltip = label + ' · взят ' + (m.pinned_at || '').slice(0, 16);
         var isActive = (state.activeLeadId === m.id);
         return '<div class="mod-tab lead-tab' + (isActive ? ' active' : '') + '" data-mid="'+esc(m.id)+'" title="'+esc(tooltip)+'"'
-            + ' onclick="selectLead(\''+esc(m.id)+'\')"'
-            + ' oncontextmenu="leadContextMenu(event, \''+esc(m.id)+'\'); return false;">'
+            + ' onclick="selectLead(\''+escAttrVal(escJs(m.id))+'\')"'
+            + ' oncontextmenu="leadContextMenu(event, \''+escAttrVal(escJs(m.id))+'\'); return false;">'
             + iconL + ' ' + esc(label) + ' '
-            + '<span class="lead-tab-close" title="Закрыть лид" onclick="event.stopPropagation(); closeLead(\''+esc(m.id)+'\')">×</span>'
+            + '<span class="lead-tab-close" title="Закрыть лид" onclick="event.stopPropagation(); closeLead(\''+escAttrVal(escJs(m.id))+'\')">×</span>'
             + '</div>';
     }).join('');
 }
@@ -10349,12 +10418,11 @@ function renderFlagBadges(emailOrDomain, mode){
     var flags = counterpartFlagsFor(emailOrDomain);
     if(flags.length === 0) return '';
     mode = mode || 'compact';
-    return '<span class="cp-flag-row cp-flag-' + esc(mode) + '">'
+    return '<span class="cp-flag-row cp-flag-' + escAttrVal(mode) + '">'
         + flags.map(function(f){
             var meta = FLAG_META[f.flag];
             if(!meta) return '';
-            var tip = esc(meta.tooltip || meta.label);
-            return '<span class="cp-flag" style="color:' + meta.color + ';" title="' + tip + '">'
+            return '<span class="cp-flag" style="color:' + escAttrVal(meta.color) + ';" title="' + escAttrVal(meta.tooltip || meta.label) + '">'
                 + meta.svg + (mode === 'expanded' ? '<span class="cp-flag-lbl">' + esc(meta.label) + '</span>' : '')
                 + '</span>';
         }).join('')
@@ -10840,7 +10908,7 @@ function renderMailList(){
         var ch = m.channel || 'broker';
         var chIcon = ch === 'drybulk' ? '🚢' : (ch === 'info' ? '📨' : '📥');
         var chTag = (state.mail.channel === 'all')
-            ? '<span class="mch-pill mch-pill-'+ch+'" title="канал: '+ch+'">'+chIcon+'</span>'
+            ? '<span class="mch-pill mch-pill-'+escAttrVal(ch)+'" title="канал: '+escAttrVal(ch)+'">'+chIcon+'</span>'
             : '';
         var ring = ageRingSvg(m.date_received, 12);
         var ringWrap = ring
@@ -10854,11 +10922,11 @@ function renderMailList(){
             var bits = [];
             if(sc.cargo)   bits.push('⚓ '+sc.cargo);
             if(sc.tonnage) bits.push('🚢 '+sc.tonnage);
-            sigBadge = ' <span class="mail-sig-badge" title="конвертировано в сигналы: cargo='+(sc.cargo||0)+', tonnage='+(sc.tonnage||0)+'" '
+            sigBadge = ' <span class="mail-sig-badge" title="конвертировано в сигналы: cargo='+escNum(sc.cargo,0)+', tonnage='+escNum(sc.tonnage,0)+'" '
                      + 'style="font-size:9px; padding:1px 5px; border-radius:3px; background:rgba(94,184,135,.18); color:#4ec970; font-weight:600; vertical-align:middle;">'
                      + bits.join(' ') + '</span>';
         }
-        return '<div onclick="openMailMessage(\''+esc(m.id)+'\')" style="padding:7px 10px; cursor:pointer; border-bottom:1px solid var(--border); '+unr+' '+sel+'">'
+        return '<div onclick="openMailMessage(\''+escAttrVal(escJs(m.id))+'\')" style="padding:7px 10px; cursor:pointer; border-bottom:1px solid var(--border); '+unr+' '+sel+'">'
             +   '<div style="font-size:11px; font-weight:'+weight+'; color:var(--text);">'+ringWrap+chTag+' '+header+sigBadge+'</div>'
             +   '<div style="font-size:11px; color:var(--text2); margin-top:2px;">'+subj+renderFlagBadges(flagSource, 'compact')+'</div>'
             +   '<div style="font-size:10px; color:var(--text3); margin-top:2px;">'+dt+'</div>'
@@ -11118,11 +11186,11 @@ function _dedupClusterCard(c){
             + '</div>';
     }).join('');
     return ''
-        + '<div class="ded-card ded-' + esc(c.strength) + '">'
+        + '<div class="ded-card ded-' + escAttrVal(c.strength) + '">'
         +   '<div class="ded-head">'
         +     _dedupStrengthBadge(c.strength)
-        +     '<span class="ded-size">×' + c.size + '</span>'
-        +     '<span class="ded-senders" title="уникальных отправителей">👤 ' + c.unique_senders + '</span>'
+        +     '<span class="ded-size">×' + escNum(c.size) + '</span>'
+        +     '<span class="ded-senders" title="уникальных отправителей">👤 ' + escNum(c.unique_senders) + '</span>'
         +     '<span class="ded-canon-title">' + title + '</span>'
         +   '</div>'
         +   '<div class="ded-canon-row">'
@@ -11278,11 +11346,11 @@ function renderPartners(){
         body.innerHTML = rows.map(function(r){
             var roleIcon = r.role === 'both' ? '📦🚢' : (r.role === 'cargo' ? '📦' : '🚢');
             var sel = state.partners.selectedEmail === (r.key || r.email);
-            return '<tr class="'+(sel?'active':'')+'" onclick="selectCounterpart(\''+esc(r.key || r.email)+'\')" style="cursor:pointer;">'
+            return '<tr class="'+(sel?'active':'')+'" onclick="selectCounterpart(\''+escAttrVal(escJs(r.key || r.email))+'\')" style="cursor:pointer;">'
                 + '<td><b>'+roleIcon+' '+esc(r.name)+'</b>'+renderFlagBadges(r.domain || r.email, 'compact')+'</td>'
                 + '<td><code style="font-size:11px;">'+esc(r.email)+'</code></td>'
-                + '<td>'+r.cargoCount+'</td>'
-                + '<td>'+r.tonnageCount+'</td>'
+                + '<td>'+escNum(r.cargoCount)+'</td>'
+                + '<td>'+escNum(r.tonnageCount)+'</td>'
                 + '<td>'+_fmtPartnerAge(r.last)+'</td>'
                 + '</tr>';
         }).join('');
@@ -11317,7 +11385,7 @@ function renderCounterpartDossier(email){
     html += '<div style="font-size:14px; font-weight:600; margin-bottom:4px;">'+esc(r.name)+renderFlagBadges(r.domain || r.email, 'expanded')+'</div>';
     html += '<div style="font-size:11px; color:var(--text2); font-family:monospace;">'+esc(r.email)+'</div>';
     html += '<div style="font-size:11px; color:var(--text2); margin-top:6px;">'
-         + roleLabel + ' · ' + r.cargoCount + ' cargo · ' + r.tonnageCount + ' tonnage'
+         + roleLabel + ' · ' + escNum(r.cargoCount) + ' cargo · ' + escNum(r.tonnageCount) + ' tonnage'
          + ' · с ' + _fmtPartnerAge(r.first) + ' по ' + _fmtPartnerAge(r.last) + ' назад</div>';
     html += '<div style="font-size:11px; color:var(--text2); margin-top:10px;">Обычный список сигналов не раскрывает источник; этот модуль показывает агрегированный CRM-профиль контрагента.</div>';
     html += '</div>';
@@ -11326,12 +11394,12 @@ function renderCounterpartDossier(email){
         var c = r.crm;
         html += '<div style="background:var(--surface); padding:10px 14px; border-radius:6px; border:1px solid var(--accent);">';
         html += '<div style="font-size:12px; font-weight:600; color:var(--text2); margin-bottom:8px;">📊 CRM-ПРОФИЛЬ</div>';
-        if(c.total_messages) html += '<div style="font-size:11px;"><b>Всего писем:</b> ' + c.total_messages + ' за ' + (c.active_days||'?') + ' активных дней</div>';
-        if(c.role_inference) html += '<div style="font-size:11px;"><b>Inferred роль:</b> ' + esc(c.role_inference) + ' ('+(c.cargo_posts||0)+' cargo / '+(c.tonnage_posts||0)+' tonnage / '+(c.mixed_posts||0)+' mixed)</div>';
+        if(c.total_messages) html += '<div style="font-size:11px;"><b>Всего писем:</b> ' + escNum(c.total_messages) + ' за ' + escNum(c.active_days,'?') + ' активных дней</div>';
+        if(c.role_inference) html += '<div style="font-size:11px;"><b>Inferred роль:</b> ' + esc(c.role_inference) + ' ('+escNum(c.cargo_posts,0)+' cargo / '+escNum(c.tonnage_posts,0)+' tonnage / '+escNum(c.mixed_posts,0)+' mixed)</div>';
         if(c.response_channel_hint) html += '<div style="font-size:11px;"><b>Канал ответа:</b> ' + esc(c.response_channel_hint) + '</div>';
-        if(c.avg_commission_pct != null) html += '<div style="font-size:11px;"><b>Средняя комиссия:</b> ' + c.avg_commission_pct + '%</div>';
-        if(c.whatsapp_presence_rate != null) html += '<div style="font-size:11px;"><b>WhatsApp:</b> ' + c.whatsapp_presence_rate + '%</div>';
-        if(c.urgency_rate != null) html += '<div style="font-size:11px;"><b>Срочность:</b> ' + c.urgency_rate + '%</div>';
+        if(c.avg_commission_pct != null) html += '<div style="font-size:11px;"><b>Средняя комиссия:</b> ' + escNum(c.avg_commission_pct) + '%</div>';
+        if(c.whatsapp_presence_rate != null) html += '<div style="font-size:11px;"><b>WhatsApp:</b> ' + escNum(c.whatsapp_presence_rate) + '%</div>';
+        if(c.urgency_rate != null) html += '<div style="font-size:11px;"><b>Срочность:</b> ' + escNum(c.urgency_rate) + '%</div>';
         if(c.top_cargoes) html += '<div style="font-size:11px;"><b>Top грузы (исторически):</b> ' + esc(c.top_cargoes.slice(0,140)) + '</div>';
         if(c.top_routes) html += '<div style="font-size:11px;"><b>Top маршруты:</b> ' + esc(c.top_routes.slice(0,140)) + '</div>';
         html += '</div>';
@@ -11405,7 +11473,7 @@ function _renderSignalsPane(kind){
         if(kind === 'cargo'){
             var route = (s.load_port || '?') + ' → ' + (s.disch_port || '?');
             var laycan = s.laycan_from ? ((s.laycan_from||'').slice(5,10) + ' — ' + (s.laycan_to||'').slice(5,10)) : '—';
-            return '<tr onclick="openSignalDetail(\'cargo\',\''+esc(s.id)+'\')">'
+            return '<tr onclick="openSignalDetail(\'cargo\',\''+escAttrVal(escJs(s.id))+'\')">'
                 + '<td>'+_sigIdBadge(s.id)+'</td>'
                 + '<td class="age-cell">'+ageRing+' '+esc(ageLabel)+'</td>'
                 + '<td>'+esc((s.cargo_type || s.title || '?').slice(0,30))+'</td>'
@@ -11416,7 +11484,7 @@ function _renderSignalsPane(kind){
         } else {
             var open = (s.open_port || '?');
             var win = s.open_from ? ((s.open_from||'').slice(5,10) + ' — ' + (s.open_to||'').slice(5,10)) : '—';
-            return '<tr onclick="openSignalDetail(\'tonnage\',\''+esc(s.id)+'\')">'
+            return '<tr onclick="openSignalDetail(\'tonnage\',\''+escAttrVal(escJs(s.id))+'\')">'
                 + '<td>'+_sigIdBadge(s.id)+'</td>'
                 + '<td class="age-cell">'+ageRing+' '+esc(ageLabel)+'</td>'
                 + '<td>'+esc((s.vessel_name || s.title || '?').slice(0,28))+'</td>'
@@ -11812,7 +11880,7 @@ function renderSignalsFeed(){
         var ageLabel = ageMin == null ? '' : (ageMin < 60 ? (ageMin + 'м') : (Math.floor(ageMin / 60) + 'ч'));
         var sel = (selKey === p.id);
         // No counterparty/source breadcrumb — pairs show only market facts.
-        return '<div class="row '+(sel?'active':'')+'" onclick="selectBazaarPair(\''+esc(p.id)+'\')">'
+        return '<div class="row '+(sel?'active':'')+'" onclick="selectBazaarPair(\''+escAttrVal(escJs(p.id))+'\')">'
             + '<div class="r-top">'
             + '<span class="r-title">📦 '+esc(cLabel)+'</span>'
             + '<span class="r-score">'+esc(ageLabel)+'</span>'
@@ -11855,7 +11923,7 @@ function _publisherContactsHtml(sig){
     if(!email && !phone) return '';
     function row(label, value, copyable){
         var v = esc(value);
-        var btn = copyable ? '<button class="contact-copy-btn" type="button" title="Копировать" data-c="'+esc(value)+'" onclick="_copyContact(this.getAttribute(\'data-c\'),event)">📋</button>' : '';
+        var btn = copyable ? '<button class="contact-copy-btn" type="button" title="Копировать" data-c="'+escAttrVal(value)+'" onclick="_copyContact(this.getAttribute(\'data-c\'),event)">📋</button>' : '';
         return '<div class="detail-row contact-row"><span class="k">'+esc(label)+'</span><span class="v">'+v+btn+'</span></div>';
     }
     var rows = '';
@@ -12031,7 +12099,7 @@ function renderSelectedMatchDetail(){
     // non-contact "in work" pin remains.
     var pinned = !!m.pinned_at;
     html += '<div class="mc-actions" style="margin-bottom:14px;">';
-    html += '<button class="btn btn-sm" onclick="quickPin(\''+esc(m.id)+'\')">'+(pinned ? '📍 Открепить' : '📌 В работу')+'</button>';
+    html += '<button class="btn btn-sm" onclick="quickPin(\''+escAttrVal(escJs(m.id))+'\')">'+(pinned ? '📍 Открепить' : '📌 В работу')+'</button>';
     html += '</div>';
 
     // The original message — what came in over email. Folded into a raw
@@ -12116,8 +12184,8 @@ function renderBxbMatchesForSelectedSignal(){
             ? ((sig.load_port || '?') + ' → ' + (sig.disch_port || '?') + (sig.quantity_mt ? ' · ' + sig.quantity_mt + ' MT' : ''))
             : ((sig.open_port || '?') + (sig.dwt ? ' · ' + sig.dwt + ' DWT' : ''));
         var conf = (m.reasons && m.reasons.confidence) || null;
-        var confDot = conf ? '<span class="conf-dot conf-'+esc(conf.toLowerCase())+'" title="Confidence: '+conf+'"></span>' : '';
-        return '<div class="match-card '+(sel ? 'active' : '')+'" onclick="selectBxbMatch(\''+esc(m.id)+'\')">'
+        var confDot = conf ? '<span class="conf-dot conf-'+escAttrVal(String(conf).toLowerCase())+'" title="Confidence: '+escAttrVal(conf)+'"></span>' : '';
+        return '<div class="match-card '+(sel ? 'active' : '')+'" onclick="selectBxbMatch(\''+escAttrVal(escJs(m.id))+'\')">'
             + '<div class="mc-head">'
             + '<span class="mc-title">'+confDot+' '+icon+' '+esc(truncate(title, 46))+'</span>'
             + '<span class="mc-score">'+Number(m.score || 0)+' · '+esc(ageLabel)+'</span>'
@@ -12145,7 +12213,7 @@ function renderOppositeSignalDetail(){
     var missing = (m.reasons && m.reasons.null_missing) || [];
     var confBadge = '';
     if(conf){
-        confBadge = '<span class="conf-pill conf-'+esc(conf.toLowerCase())+'" title="Confidence — оценка качества данных в паре">'+conf+'</span>';
+        confBadge = '<span class="conf-pill conf-'+escAttrVal(String(conf).toLowerCase())+'" title="Confidence — оценка качества данных в паре">'+esc(conf)+'</span>';
     }
     if(meta) meta.innerHTML = 'score ' + Number(m.score || 0) + ' ' + confBadge;
 
@@ -12256,14 +12324,14 @@ function renderMatchesForSelectedSignal(){
             : ((sig.open_port||'?')+(sig.dwt?' · '+sig.dwt+' DWT':''));
         var sel = (m.id === selMatchId);
 
-        return '<div class="match-card '+(pinned ? 'pinned ' : '')+(sel ? 'active' : '')+'" onclick="selectMatchInCol3(\''+esc(m.id)+'\')">'
+        return '<div class="match-card '+(pinned ? 'pinned ' : '')+(sel ? 'active' : '')+'" onclick="selectMatchInCol3(\''+escAttrVal(escJs(m.id))+'\')">'
             + '<div class="mc-head">'
             + '<span class="mc-title">'+(listingKind === 'cargo' ? '📦' : '🚢')+' '+esc(truncate(listingTitle, 50))+'</span>'
-            + '<span class="mc-score">score '+score+'</span>'
+            + '<span class="mc-score">score '+escNum(score)+'</span>'
             + '</div>'
             + '<div class="mc-meta">' + esc(sigMeta) + '</div>'
             + '<div class="mc-actions" onclick="event.stopPropagation();">'
-            + '<button class="btn btn-sm" onclick="quickPin(\''+esc(m.id)+'\')" title="' + (pinned ? 'Открепить' : 'Закрепить — пометить в работе') + '">' + (pinned ? '📍' : '📌') + '</button>'
+            + '<button class="btn btn-sm" onclick="quickPin(\''+escAttrVal(escJs(m.id))+'\')" title="' + (pinned ? 'Открепить' : 'Закрепить — пометить в работе') + '">' + (pinned ? '📍' : '📌') + '</button>'
             + '</div>'
             + '</div>';
     }).join('');
@@ -12328,14 +12396,14 @@ function renderExMatchesForSelectedListing(){
         var ageMin = sig.first_seen_at ? Math.floor((Date.now() - Date.parse(sig.first_seen_at)) / 60000) : null;
         var ageLabel = ageMin == null ? '' : (ageMin < 60 ? (ageMin + 'м') : (Math.floor(ageMin / 60) + 'ч'));
 
-        return '<div class="match-card '+(pinned ? 'pinned ' : '')+(sel ? 'active' : '')+'" onclick="selectMatchInCol3(\''+esc(m.id)+'\')">'
+        return '<div class="match-card '+(pinned ? 'pinned ' : '')+(sel ? 'active' : '')+'" onclick="selectMatchInCol3(\''+escAttrVal(escJs(m.id))+'\')">'
             + '<div class="mc-head">'
             + '<span class="mc-title">'+(sigKind === 'cargo' ? '📦' : '🚢')+' '+esc(truncate(sigTitle, 46))+'</span>'
-            + '<span class="mc-score">'+score+' · '+esc(ageLabel)+'</span>'
+            + '<span class="mc-score">'+escNum(score)+' · '+esc(ageLabel)+'</span>'
             + '</div>'
             + '<div class="mc-meta">' + esc(sigMeta) + '</div>'
             + '<div class="mc-actions" onclick="event.stopPropagation();">'
-            + '<button class="btn btn-sm" onclick="quickPin(\''+esc(m.id)+'\')" title="' + (pinned ? 'Открепить' : 'Закрепить — пометить в работе') + '">' + (pinned ? '📍' : '📌') + '</button>'
+            + '<button class="btn btn-sm" onclick="quickPin(\''+escAttrVal(escJs(m.id))+'\')" title="' + (pinned ? 'Открепить' : 'Закрепить — пометить в работе') + '">' + (pinned ? '📍' : '📌') + '</button>'
             + '</div>'
             + '</div>';
     }).join('');
@@ -12487,7 +12555,7 @@ function _tickBrokerClock(){
     var label = st.open ? 'до закрытия' : 'до открытия';
     var stateLabel = st.open ? 'open' : 'closed';
     el.innerHTML = ''
-        + '<div class="mc-now">LDN ' + st.hhmm + ' · ' + _fmtCountdown(st.secsLeft) + '</div>'
+        + '<div class="mc-now">LDN ' + esc(st.hhmm) + ' · ' + esc(_fmtCountdown(st.secsLeft)) + '</div>'
         + '<div class="mc-state">' + stateLabel + ' · ' + label + '</div>';
 }
 setInterval(_tickBrokerClock, 1000);
@@ -12876,12 +12944,12 @@ function renderP1(){
             : (d.dwt?d.dwt+' DWT · ':'')+'open '+(d.open_port||'?')+' '+fmtRange(d.open_from, d.open_to);
         var ringHtml = ageRingSvg(d.published_at, 14);
         var ageText = fmtAgeShort(d.published_at);
-        return '<div class="row '+(sel?'active':'')+'" onclick="selectListing(\''+r.kind+'\',\''+esc(d.id)+'\')">'
+        return '<div class="row '+(sel?'active':'')+'" onclick="selectListing(\''+escAttrVal(escJs(r.kind))+'\',\''+escAttrVal(escJs(d.id))+'\')">'
             +'<div class="r-top"><span class="r-icon">'+icon+'</span>'
             +'<span class="r-title">'+esc(truncate(title,38))+'</span>'
-            +'<span class="r-age" title="опубликовано '+esc(fmtDate(d.published_at))+'">'+ringHtml+' '+esc(ageText)+'</span>'
-            +'<span class="r-circulate" title="Циркулировать по имейл" onclick="event.stopPropagation(); circulateListing(\''+r.kind+'\',\''+esc(d.id)+'\')">📧</span>'
-            +'<span class="r-dismiss" title="Снять с базара" onclick="event.stopPropagation(); closeListingFromRow(\''+r.kind+'\',\''+esc(d.id)+'\')">✕</span>'
+            +'<span class="r-age" title="опубликовано '+escAttrVal(fmtDate(d.published_at))+'">'+ringHtml+' '+esc(ageText)+'</span>'
+            +'<span class="r-circulate" title="Циркулировать по имейл" onclick="event.stopPropagation(); circulateListing(\''+escAttrVal(escJs(r.kind))+'\',\''+escAttrVal(escJs(d.id))+'\')">📧</span>'
+            +'<span class="r-dismiss" title="Снять с базара" onclick="event.stopPropagation(); closeListingFromRow(\''+escAttrVal(escJs(r.kind))+'\',\''+escAttrVal(escJs(d.id))+'\')">✕</span>'
             +'</div>'
             +'<div class="r-meta">'+esc(meta)+'</div>'
             +'</div>';
@@ -13090,8 +13158,8 @@ function renderP2(){
         // without drilling into P3. Pinned rows hide the × (it's their
         // active conversation; dismiss is the wrong gesture).
         var dismissHtml = r._pinned ? '' :
-            '<span class="r-dismiss" title="Скрыть как неинтересное" onclick="event.stopPropagation(); dismissRow(\''+r.type+'\',\''+esc(r.data.id)+'\')">✕</span>';
-        return '<div class="row '+(sel?'active':'')+(r._pinned?' pinned':'')+(hotHtml?' hot':'')+'" onclick="selectMatch(\''+r.type+'\',\''+esc(r.data.id)+'\')">'
+            '<span class="r-dismiss" title="Скрыть как неинтересное" onclick="event.stopPropagation(); dismissRow(\''+escAttrVal(escJs(r.type))+'\',\''+escAttrVal(escJs(r.data.id))+'\')">✕</span>';
+        return '<div class="row '+(sel?'active':'')+(r._pinned?' pinned':'')+(hotHtml?' hot':'')+'" onclick="selectMatch(\''+escAttrVal(escJs(r.type))+'\',\''+escAttrVal(escJs(r.data.id))+'\')">'
             +'<div class="r-top">'
             +pinHtml
             +hotHtml
@@ -13099,7 +13167,7 @@ function renderP2(){
             +'<span class="r-title">'+esc(truncate(title,38))+'</span>'
             +contactBadge
             +ageHtml
-            +'<span class="r-score">'+r.score+'</span>'
+            +'<span class="r-score">'+escNum(r.score)+'</span>'
             +dismissHtml
             +'</div>'
             +'<div class="r-meta">'+esc(meta)+'</div>'
@@ -13208,7 +13276,7 @@ function renderP3Bazaar(body, m){
     var adoptTitle = sigKind==='tonnage'
         ? 'Скопировать этот vessel-сигнал в мои циркуляции — matcher начнёт подбирать грузы под него'
         : 'Скопировать этот cargo-сигнал в мои циркуляции — matcher начнёт подбирать суда под него';
-    html += '<button class="btn" title="'+esc(adoptTitle)+'" onclick="actionAdoptSignal()">'+adoptLabel+'</button>';
+    html += '<button class="btn" title="'+escAttrVal(adoptTitle)+'" onclick="actionAdoptSignal()">'+adoptLabel+'</button>';
     var pinnedB = !!m.pinned_at;
     html += '<button class="btn '+(pinnedB?'btn-accent':'btn-outline')+'" onclick="actionTogglePin()">'+(pinnedB?'📌 В работе':'📌 В работу')+'</button>';
     html += '<button class="btn btn-outline" onclick="actionDismiss()">✕ Dismiss</button>';
@@ -13231,7 +13299,7 @@ function renderP3Bazaar(body, m){
 function renderP3Own(body, m){
     var html = '<div class="detail">';
     html += '<h2>Skipi peer match</h2>';
-    html += '<div class="sub">обе стороны зарегистрированы в Skipi · score '+m.score+'</div>';
+    html += '<div class="sub">обе стороны зарегистрированы в Skipi · score '+escNum(m.score)+'</div>';
     html += '<div class="detail-block"><h4>Match</h4>';
     html += '<div class="detail-row"><span class="k">Cargo broker</span><span class="v"><code>'+esc(m.cargo_broker_id.slice(0,12))+'</code></span></div>';
     html += '<div class="detail-row"><span class="k">Tonnage broker</span><span class="v"><code>'+esc(m.tonnage_broker_id.slice(0,12))+'</code></span></div>';
@@ -13312,7 +13380,7 @@ function buildEmailDraft(){
     var subject, body;
     if(m.bazaar_tonnage_signal){
         // Sasha has cargo, sees vessel signal — pitch the cargo.
-        subject = 'RE: '+(sig.vessel_name||sig.title||'tonnage circular')+' — cargo proposal';
+        subject = hdrSafe('RE: '+(sig.vessel_name||sig.title||'tonnage circular')+' — cargo proposal');
         body = 'Dear Sirs,\n\nNoted your circular for '+(sig.vessel_name||'subject vessel')+'.';
         if(ownListing){
             body += '\n\nWe have firm cargo as follows:\n';
@@ -13326,7 +13394,7 @@ function buildEmailDraft(){
         body += '\nPlease confirm vessel position and indicate freight.\n\nBest regards,\n'+(state.settings.display_name||'');
     } else {
         // Sasha has tonnage, sees cargo signal — pitch the vessel.
-        subject = 'RE: '+(sig.cargo_type||sig.title||'cargo enquiry')+' — vessel proposal';
+        subject = hdrSafe('RE: '+(sig.cargo_type||sig.title||'cargo enquiry')+' — vessel proposal');
         body = 'Dear Sirs,\n\nNoted your circular for '+(sig.cargo_type||'subject cargo')+' '+(sig.load_port||'')+'/'+(sig.disch_port||'')+'.';
         if(ownListing){
             body += '\n\nWe have firm tonnage as follows:\n';
@@ -13363,9 +13431,9 @@ async function actionEml(){
     if(!email){ showToast('No counterparty email available.', 'error'); return; }
     try {
         await invoke('generate_eml', {
-            toEmail: email,
-            toName: contact.name || draft.to_name,
-            subject: draft.subject,
+            toEmail: hdrSafe(email),
+            toName: hdrSafe(contact.name || draft.to_name),
+            subject: hdrSafe(draft.subject),
             body: draft.body
         });
         emitTeamEvent('user_engaged_email', '📧 написал .eml: ' + esc(email));
@@ -13675,7 +13743,7 @@ function openCirculateModal(){
             : 'Письмо откроется в твоём почтовом клиенте — проверь и отправь сам. Адресаты не видят друг друга (Bcc).')+'</div>'+
         recipientsBlock+
         '<label class="ce-lbl">Тема</label>'+
-        '<input id="circ-subject" class="circ-in" value="'+esc(c.subject)+'">'+
+        '<input id="circ-subject" class="circ-in" value="'+escAttrVal(hdrSafe(c.subject))+'">'+
         '<label class="ce-lbl">Текст</label>'+
         '<textarea id="circ-body" rows="10" class="circ-ta">'+esc(c.body)+'</textarea>'+
         '<div class="actions-row" style="margin-top:14px;">'+sendBtn+
@@ -13690,7 +13758,7 @@ async function doCirculateEml(){
     _mailListSet(recoText); // persist the list for next time
     var reco=_parseRecipients(recoText);
     if(!reco.length){ showToast('Добавь хотя бы один email в список рассылки.','error'); return; }
-    var subject=(document.getElementById('circ-subject')||{}).value||'';
+    var subject=hdrSafe((document.getElementById('circ-subject')||{}).value||'');
     var body=(document.getElementById('circ-body')||{}).value||'';
     try {
         await invoke('circulate_eml', { recipients:reco, subject:subject, body:body });
