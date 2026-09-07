@@ -1497,6 +1497,17 @@ fn rfc822_now() -> String {
 /// and the counterparty in To:, write it to a temp file, and hand it
 /// off to the OS so the user's default mail client opens it as a
 /// pre-filled draft. The user reviews and hits Send themselves; their
+/// Значение, уезжающее в заголовок RFC-822, чистится от CR и LF: иначе
+/// внешняя строка (тема, имя контрагента, адрес) может дописать в письмо свой
+/// заголовок — например `Bcc:` (header injection, BACKLOG №191).
+///
+/// Длина НЕ режется намеренно: заголовки идут сырым UTF-8 при
+/// `Content-Transfer-Encoding: 8bit`, и обрезка по длине разрубила бы
+/// кириллическую тему.
+fn header_safe(value: &str) -> String {
+    value.chars().filter(|c| *c != '\r' && *c != '\n').collect()
+}
+
 /// own mail client retains the canonical Sent record.
 #[tauri::command]
 fn generate_eml(
@@ -1540,9 +1551,9 @@ fn generate_eml(
          \r\n\
          {body}\r\n",
         date = rfc822_now(),
-        from = from_header,
-        to = to_header,
-        subject = subject,
+        from = header_safe(&from_header),
+        to = header_safe(&to_header),
+        subject = header_safe(&subject),
         body = body_with_footer,
     );
 
@@ -1613,10 +1624,10 @@ fn circulate_eml(
          \r\n\
          {body}\r\n",
         date = rfc822_now(),
-        from = from_header,
-        to = s.reply_to,
-        bcc = bcc,
-        subject = subject,
+        from = header_safe(&from_header),
+        to = header_safe(&s.reply_to),
+        bcc = header_safe(&bcc),
+        subject = header_safe(&subject),
         body = body_with_footer,
     );
     let mut path = dirs::data_local_dir()
@@ -2012,4 +2023,70 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::header_safe;
+
+    /// Полезная нагрузка из матрицы негативов карточки №191: тема судна плюс
+    /// CRLF плюс собственный заголовок отправителя.
+    const INJECTION: &str = "MV X\r\nBcc: attacker@evil.com";
+
+    #[test]
+    fn header_safe_strips_cr_and_lf() {
+        let cleaned = header_safe(INJECTION);
+        assert!(!cleaned.contains('\r'), "CR остался в значении заголовка");
+        assert!(!cleaned.contains('\n'), "LF остался в значении заголовка");
+    }
+
+    #[test]
+    fn header_safe_blocks_injected_header_line() {
+        let block = format!(
+            "Subject: {subject}\r\nMIME-Version: 1.0\r\n",
+            subject = header_safe(INJECTION)
+        );
+        let lines: Vec<&str> = block.split("\r\n").filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), 2, "инъекция добавила строку заголовка: {block:?}");
+        assert!(
+            !lines.iter().any(|l| l.starts_with("Bcc:")),
+            "инъекция создала собственный Bcc: {block:?}"
+        );
+    }
+
+    #[test]
+    fn header_safe_is_identity_on_normal_values() {
+        for value in [
+            "RE: MV NORDIC WIND — cargo proposal",
+            "Ivan Petrov <ivan@example.com>",
+            "a@example.com, b@example.com",
+        ] {
+            assert_eq!(header_safe(value), value, "нормальное значение изменилось");
+        }
+    }
+
+    /// Обрезки по длине быть не должно: заголовок едет сырым UTF-8 при
+    /// Content-Transfer-Encoding: 8bit, и обрезка разрубила бы кириллицу.
+    #[test]
+    fn header_safe_does_not_truncate_cyrillic() {
+        let subject = "Тема письма про перевозку зерна из Новороссийска в Александрию \
+                       с очень длинным описанием условий фрахта и деталями рейса";
+        assert_eq!(header_safe(subject), subject);
+        assert_eq!(header_safe(subject).chars().count(), subject.chars().count());
+    }
+
+    /// Инъекция может прийти в каждое из четырёх подставляемых значений —
+    /// From, To, Bcc, Subject: чистится каждое, а не только тема.
+    #[test]
+    fn header_safe_covers_every_substituted_header() {
+        for raw in [
+            "Sasha \r\nBcc: attacker@evil.com <sasha@example.com>",
+            "counterparty@example.com\r\nBcc: attacker@evil.com",
+            "a@example.com, b@example.com\r\nX-Evil: 1",
+            INJECTION,
+        ] {
+            let cleaned = header_safe(raw);
+            assert!(!cleaned.contains('\r') && !cleaned.contains('\n'), "{raw:?} не очищен");
+        }
+    }
 }

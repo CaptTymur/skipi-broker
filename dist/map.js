@@ -23,18 +23,18 @@ function _miniRouteSvg(loadCoord, dischCoord){
     }
     var p1 = proj(loadCoord), p2 = proj(dischCoord);
     var parts = [];
-    parts.push('<rect x="0" y="0" width="'+w+'" height="'+h+'" fill="transparent"/>');
+    parts.push('<rect x="0" y="0" width="'+escNum(w)+'" height="'+escNum(h)+'" fill="transparent"/>');
     if(p1 && p2){
-        parts.push('<line x1="'+p1[0]+'" y1="'+p1[1]+'" x2="'+p2[0]+'" y2="'+p2[1]+'"'
+        parts.push('<line x1="'+escNum(p1[0])+'" y1="'+escNum(p1[1])+'" x2="'+escNum(p2[0])+'" y2="'+escNum(p2[1])+'"'
             + ' stroke="#004564" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.7"/>');
     }
     if(p1){
-        parts.push('<circle cx="'+p1[0]+'" cy="'+p1[1]+'" r="5" fill="#4ec970" stroke="#fff" stroke-width="1.2"/>');
+        parts.push('<circle cx="'+escNum(p1[0])+'" cy="'+escNum(p1[1])+'" r="5" fill="#4ec970" stroke="#fff" stroke-width="1.2"/>');
     }
     if(p2){
-        parts.push('<circle cx="'+p2[0]+'" cy="'+p2[1]+'" r="4" fill="#e55561" stroke="#fff" stroke-width="1"/>');
+        parts.push('<circle cx="'+escNum(p2[0])+'" cy="'+escNum(p2[1])+'" r="4" fill="#e55561" stroke="#fff" stroke-width="1"/>');
     }
-    return '<svg viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="xMidYMid meet">'+parts.join('')+'</svg>';
+    return '<svg viewBox="0 0 '+escNum(w)+' '+escNum(h)+'" preserveAspectRatio="xMidYMid meet">'+parts.join('')+'</svg>';
 }
 
 // --- extracted from skipi-broker dist/index.html:7170 (showLeadOnMap) ---
@@ -475,8 +475,8 @@ function _tlRedraw(){
             var marker = L.circleMarker(loadC, {
                 radius: 6, color: color, weight: 2, fillColor: color, fillOpacity: 0.55,
             });
-            var tip = (c.cargo_type || 'cargo') + ' · ' + (c.quantity_mt || '?') + 'mt'
-                    + ' · ' + (c.load_port || '?') + '→' + (c.disch_port || '?');
+            var tip = esc(c.cargo_type || 'cargo') + ' · ' + esc(c.quantity_mt || '?') + 'mt'
+                    + ' · ' + esc(c.load_port || '?') + '→' + esc(c.disch_port || '?');
             marker.bindTooltip(tip, { className: 'viz-cargo-label' });
             state.viz.layer.addLayer(marker);
             var dischC = _portCoords(c.disch_port);
@@ -496,9 +496,9 @@ function _tlRedraw(){
             var marker = L.circleMarker(openC, {
                 radius: 5, color: '#004564', weight: 2, fillColor: '#004564', fillOpacity: 0.55,
             });
-            var tip = (v.vessel_name || v.vessel_type || 'tonnage')
-                    + (v.dwt ? ' · ' + v.dwt + 'DWT' : '')
-                    + ' @ ' + (v.open_port || '?');
+            var tip = esc(v.vessel_name || v.vessel_type || 'tonnage')
+                    + (v.dwt ? ' · ' + esc(v.dwt) + 'DWT' : '')
+                    + ' @ ' + esc(v.open_port || '?');
             marker.bindTooltip(tip, { className: 'viz-cargo-label' });
             state.viz.layer.addLayer(marker);
         });
@@ -565,14 +565,14 @@ async function renderVizFlows(){
             color: color, weight: weight, opacity: 0.78,
         });
         var tip = '<b>'+esc(flow.from_country)+' → '+esc(flow.to_country)+'</b>'
-            + '<br>сигналов: '+flow.signals
-            + '<br>объём: '+(flow.total_mt ? (flow.total_mt > 1e6 ? (flow.total_mt/1e6).toFixed(1)+'M MT' : (flow.total_mt/1000).toFixed(0)+'k MT') : '—')
+            + '<br>сигналов: '+escNum(flow.signals)
+            + '<br>объём: '+esc(flow.total_mt ? (flow.total_mt > 1e6 ? (flow.total_mt/1e6).toFixed(1)+'M MT' : (flow.total_mt/1000).toFixed(0)+'k MT') : '—')
             + '<br>топ-груз: '+esc(flow.top_cargo || '?')
             + '<br>'+esc(flow.top_load_port || '?')+' → '+esc(flow.top_disch_port || '?');
         var br = flow.cargo_breakdown || {};
         var brKeys = Object.keys(br).slice(0, 5);
         if(brKeys.length){
-            tip += '<br><span style="color:#888; font-size:10px;">распределение: ' + brKeys.map(function(k){ return esc(k)+' '+br[k]; }).join(', ') + '</span>';
+            tip += '<br><span style="color:#888; font-size:10px;">распределение: ' + brKeys.map(function(k){ return esc(k)+' '+escNum(br[k]); }).join(', ') + '</span>';
         }
         line.bindTooltip(tip, { className:'viz-cargo-label', direction:'top', sticky:true });
         state.viz.layer.addLayer(line);
@@ -734,9 +734,9 @@ function renderVizMap(){
                 iconSize:[14,14], iconAnchor:[7,7],
             });
             var marker = L.marker(loadC, { icon:icon, riseOnHover:true });
-            var label = (s.cargo_type || s.title || '?')
-                      + (s.quantity_mt ? ' · '+s.quantity_mt+' MT' : '')
-                      + ' <span class="vz-badge">' + matches.length + '</span>';
+            var label = esc(s.cargo_type || s.title || '?')
+                      + (s.quantity_mt ? ' · '+esc(s.quantity_mt)+' MT' : '')
+                      + ' <span class="vz-badge">' + escNum(matches.length) + '</span>';
             marker.bindTooltip(label, { className:'viz-cargo-label', direction:'top', offset:[0,-10] });
             marker.on('click', function(){ vizOpenSignalMatches(s.id); });
             state.viz.layer.addLayer(marker);
@@ -750,7 +750,7 @@ function renderVizMap(){
                     radius: 3.5, color:cargoColor, weight:1.2,
                     fillColor:cargoColor, fillOpacity:0.45,
                 });
-                dischDot.bindTooltip('↓ ' + (s.disch_port || '?'), { className:'viz-cargo-label', direction:'top', offset:[0,-4] });
+                dischDot.bindTooltip('↓ ' + esc(s.disch_port || '?'), { className:'viz-cargo-label', direction:'top', offset:[0,-4] });
                 dischDot.on('click', function(){ vizOpenSignalMatches(s.id); });
                 state.viz.layer.addLayer(dischDot);
             }
@@ -767,7 +767,7 @@ function renderVizMap(){
             hintHost.style.display = 'none';
         } else if(visible.length === 0){
             hintHost.style.display = '';
-            hintHost.innerHTML = '<b>'+cargoes.length+'</b> совпадений в базе,<br>'
+            hintHost.innerHTML = '<b>'+escNum(cargoes.length)+'</b> совпадений в базе,<br>'
                 + 'но порты ('+esc((cargoes[0] && cargoes[0].load_port) || '?')+'…)<br>'
                 + 'не распознаны в каталоге координат.';
         } else {
@@ -819,8 +819,8 @@ function _vizRenderList(visible){
         var title = (s.cargo_type || s.title || '?').slice(0, 30);
         var meta = (s.quantity_mt ? s.quantity_mt+' MT · ' : '') + (s.load_port || '?')+' → '+(s.disch_port || '?');
         var nMatches = (s._vizMatches && s._vizMatches.length) || 0;
-        var badge = nMatches ? ' <span class="vz-badge" style="background:#004564;color:#fff;padding:0 5px;border-radius:8px;font-size:9px;">'+nMatches+'</span>' : '';
-        return '<div class="viz-list-item" onclick="vizOpenSignalMatches(\''+esc(s.id)+'\')">'
+        var badge = nMatches ? ' <span class="vz-badge" style="background:#004564;color:#fff;padding:0 5px;border-radius:8px;font-size:9px;">'+escNum(nMatches)+'</span>' : '';
+        return '<div class="viz-list-item" onclick="vizOpenSignalMatches(\''+escAttrVal(escJs(s.id))+'\')">'
              + '<div class="vli-title">'+esc(title)+badge+'</div>'
              + '<div class="vli-meta">'+esc(meta)+'</div>'
              + '</div>';
