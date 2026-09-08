@@ -1,0 +1,128 @@
+// Shared Broker demonstration. Loaded before the host's first inline script.
+// Demo reads come from this module only; no identity, profile or native IPC is
+// consulted. The host still uses its normal views, map and settings renderer.
+(function (global) {
+    'use strict';
+    var here = new URL(global.location.href);
+    var nativeOrigin = here.protocol === 'tauri:' || here.hostname === 'tauri.localhost';
+    var active = global.__SKIPI_BROKER_DEMO__ === true || (nativeOrigin && here.searchParams.get('demo') === '1');
+    var memory = Object.create(null);
+    var language = here.searchParams.get('lang');
+    memory['skipi-ui-language'] = language === 'ru' ? 'ru' : 'en';
+    var storage = active ? Object.freeze({
+        getItem: function (key) { return Object.prototype.hasOwnProperty.call(memory, key) ? memory[key] : null; },
+        setItem: function (key, value) { memory[String(key)] = String(value); },
+        removeItem: function (key) { delete memory[String(key)]; }
+    }) : null;
+    function clone(value) { return JSON.parse(JSON.stringify(value)); }
+    function unavailable() { return new Error('This action is unavailable in Demo. Sign in to work with your team.'); }
+    function deny() { return Promise.reject(unavailable()); }
+    var started = Date.now();
+    function date(days, minutes) { return new Date(started + days * 86400000 - (minutes || 0) * 60000).toISOString(); }
+    var routes = [
+        ['Wheat', 6500, 'Constanta', 'Alexandria', 'RO', 'EG'],
+        ['Steel coils', 12000, 'Marmara', 'Casablanca', 'TR', 'MA'],
+        ['Fertilizer', 18000, 'Rotterdam', 'Lagos', 'NL', 'NG'],
+        ['Rice', 8500, 'Kandla', 'Dar es Salaam', 'IN', 'TZ'],
+        ['Soybeans', 28000, 'Santos', 'Barcelona', 'BR', 'ES'],
+        ['Timber', 4200, 'Riga', 'Hamburg', 'LV', 'DE'],
+        ['Cement', 15000, 'Mersin', 'Tema', 'TR', 'GH'],
+        ['Sugar', 22000, 'Santos', 'Alexandria', 'BR', 'EG']
+    ];
+    var cargo = routes.map(function (r, i) {
+        return { id: 'demo-cargo-' + (i + 1), title: r[1] + ' MT ' + r[0] + ' (sample)', cargo_type: r[0],
+            quantity_mt: r[1], load_port: r[2], disch_port: r[3], load_country: r[4], disch_country: r[5],
+            laycan_from: date(2 + i), laycan_to: date(6 + i), first_seen_at: date(0, 10 + i * 20),
+            published_at: date(0, 10 + i * 20), status: 'active', description: 'Fictional sample cargo for the Skipi Broker demonstration.' };
+    });
+    var tonnage = routes.map(function (r, i) {
+        return { id: 'demo-tonnage-' + (i + 1), title: 'MV Sample ' + (i + 1), vessel_name: 'MV Sample ' + (i + 1),
+            vessel_type: 'Dry bulk', dwt: Math.round(r[1] * 1.12), open_port: r[2], open_country: r[4],
+            open_from: date(1 + i), open_to: date(7 + i), first_seen_at: date(0, 15 + i * 20),
+            published_at: date(0, 15 + i * 20), status: 'active', description: 'Fictional sample vessel; not available for charter.' };
+    });
+    var pairs = cargo.map(function (c, i) {
+        return { id: 'demo-pair-' + (i + 1), cargo_signal: c, tonnage_signal: tonnage[i],
+            score: 94 - i * 3, created_at: date(0, 5 + i * 15), reasons: ['Sample capacity and port compatibility'] };
+    });
+    var matches = pairs.map(function (p, i) {
+        return { id: 'demo-match-' + (i + 1), cargo_listing: cargo[i], bazaar_tonnage_signal: tonnage[i],
+            bazaar_cargo_signal: cargo[i], score: p.score, created_at: p.created_at, reasons: p.reasons };
+    });
+    var settings = { broker_id: 'demo-local', bearer_token: '', server_url: '', display_name: 'Sample Chartering (Demo)',
+        reply_to: 'broker@sample.example.invalid', team_nickname: 'Demo Broker', chat_sound: false };
+    var reads = {
+        get_settings: function () { return settings; },
+        get_build_info: function () { return { component: 'Broker', component_version: '0.1.152', source_identifier: 'unknown', verification_status: 'unavailable' }; },
+        fetch_my_cargo: function () { return cargo.slice(0, 3); },
+        fetch_my_tonnage: function () { return tonnage.slice(0, 3); },
+        fetch_matches_inbox: function () { return { own_matches: [], bazaar_matches: matches }; },
+        fetch_bazaar_pairs: function () { return pairs; },
+        fetch_bazaar_signal_list: function (args) {
+            if (args.kind !== 'cargo' && args.kind !== 'tonnage') throw unavailable();
+            return args.kind === 'cargo' ? cargo : tonnage;
+        },
+        fetch_bazaar_cross_matches: function () { return pairs; },
+        fetch_analytics_flows: function () { return routes.map(function (r) { return { top_load_port: r[2], top_disch_port: r[3],
+            from_country: r[4], to_country: r[5], top_cargo: r[0], signals: 1, total_mt: r[1] }; }); },
+        fetch_counterparts: function () { return [{ id: 'demo-company', company_name: 'Sample Chartering (Demo)',
+            primary_domain: 'sample.example.invalid', role_inference: 'mixed', cargo_posts: 8, tonnage_posts: 8,
+            email: 'desk@sample.example.invalid', first_seen_at: date(-3), last_seen_at: date(0, 10) }]; },
+        fetch_counterpart_flags: function () { return []; },
+        fetch_duplicate_clusters: function () { return []; },
+        fetch_case_seeds: function () { return []; },
+        fetch_team_messages: function () { return [{ id: 'demo-message', sender_nickname: 'Demo Broker',
+            body: 'Welcome! These cargoes and vessels are fictional. Explore the map, matches and other modules.', created_at: date(0, 10) }]; },
+        fetch_team_members: function () { return [{ nickname: 'Demo Broker', last_seen_at: date(0) }]; },
+        get_mailbox_status: function () { return { configured: true, demo: true, email_masked: 'broker@sample.example.invalid' }; },
+        fetch_mail_signal_counts: function () { return {}; },
+        search_vessels: function () { return []; },
+        fetch_vessel: function () { return null; }
+    };
+    function invoke(command, args) {
+        if (!active || !Object.prototype.hasOwnProperty.call(reads, command)) return deny();
+        try { return Promise.resolve(clone(reads[command](args || {}))); }
+        catch (error) { return Promise.reject(error); }
+    }
+    function enter() {
+        if (nativeOrigin) {
+            var url = new URL(here.href); url.searchParams.set('demo', '1'); url.hash = '';
+            global.location.assign(url.href);
+        } else global.location.assign('/app/broker/desktop/demo/');
+    }
+    function exit() {
+        if (nativeOrigin) {
+            var url = new URL(here.href); url.searchParams.delete('demo'); url.hash = '';
+            global.location.assign(url.href);
+        } else global.location.assign('/app/broker/desktop/');
+    }
+
+    if (active) {
+        var rawFetch = global.fetch;
+        var base = global.document.baseURI;
+        var geography = ['leaflet/world.geojson', 'leaflet/world-land.geojson', 'leaflet/world-coastline.geojson'].map(function (p) { return new URL(p, base).href; });
+        var msi = new URL('msi/warnings.geojson', base).href;
+        global.fetch = function (input, options) {
+            if (typeof input !== 'string' && !(input instanceof URL)) return deny();
+            var url;
+            try { url = new URL(String(input), base); } catch (_) { return deny(); }
+            if (options && options.method && String(options.method).toUpperCase() !== 'GET') return deny();
+            if (url.href === msi) return Promise.resolve({ ok: true, json: function () { return Promise.resolve({ type: 'FeatureCollection', features: [] }); } });
+            if (geography.indexOf(url.href) < 0 || typeof rawFetch !== 'function') return deny();
+            return rawFetch.call(global, url.href, { method: 'GET', credentials: 'omit', redirect: 'error' });
+        };
+        // No alternate network transport can turn a local Demo action into a
+        // server request. Native commands are separately selected by the host.
+        ['XMLHttpRequest', 'WebSocket', 'EventSource'].forEach(function (key) {
+            global[key] = function () { throw unavailable(); };
+        });
+        global.open = function () { return null; };
+        if (global.navigator && global.navigator.sendBeacon) global.navigator.sendBeacon = function () { return false; };
+        global.document.addEventListener('submit', function (event) { event.preventDefault(); }, true);
+        global.document.addEventListener('click', function (event) {
+            var link = event.target && event.target.closest && event.target.closest('a[href]');
+            if (link) { event.preventDefault(); try { global.showToast(unavailable().message, 'info'); } catch (_) {} }
+        }, true);
+    }
+    Object.defineProperty(global, 'SkipiBrokerDemo', { value: Object.freeze({ active: active, storage: storage, invoke: invoke, enter: enter, exit: exit }), writable: false, configurable: false });
+})(window);
