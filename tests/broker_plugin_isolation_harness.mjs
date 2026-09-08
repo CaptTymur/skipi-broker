@@ -104,6 +104,15 @@ function makeSharedHost() {
   };
 }
 
+// The extracted Apps host now uses the page's actual locale callbacks. Bootstrap
+// those exact dictionaries/functions instead of leaving their dependency absent.
+let fixtureLocale='ru';
+const localeBlock=HTML.slice(HTML.indexOf('var UI_STRINGS={'),HTML.indexOf('// Apply translations'));
+const localeHost=new Function('localStorage','UI_LANG_KEY','UI_LANG_VALID',localeBlock+'\nreturn {tr,getUiLang};')(
+  {getItem:()=>fixtureLocale},'skipi-ui-language',{en:true,ru:true});
+const demoTextSource=HTML.match(/function _demoText\(en, ru\)\{[^}]+\}/)[0];
+const fixtureDemoText=new Function('getUiLang','return '+demoTextSource)(localeHost.getUiLang);
+const fixtureIsDemo=()=>false;
 const appsBlock = extractAppsBlock();
 const counterpartiesBlock = extractCounterpartiesBlock();
 const partnersOpenBlock = extractPartnersOpenBlock();
@@ -156,11 +165,11 @@ ok(/setAttribute\('sandbox', 'allow-scripts'\)/.test(RUNTIME_SOURCE) && !/allow-
 section('real Broker bundled loader fail-closed behavior');
 const ctx = installFakeDom();
 new Function(RUNTIME_SOURCE)();
-const M = new Function('showToast', 'esc',
+const M = new Function('showToast', 'esc','tr','_demoText','_isDemo','getUiLang',
   appsBlock + '\nreturn {'
   + 'BROKER_PLUGIN_HOST_RUNTIME_VERSION, BROKER_PLUGIN_HOST_RUNTIME_SHA256, BROKER_PLUGINS, BROKER_PLUGIN_BUNDLES,'
   + 'brokerBundledLoader, brokerClonePack, brokerInstallBundledPack, brokerAppsListHtml, brokerPluginRuntime'
-  + '};')(() => {}, esc);
+  + '};')(() => {}, esc,localeHost.tr,fixtureDemoText,fixtureIsDemo,localeHost.getUiLang);
 
 ok(M.BROKER_PLUGIN_HOST_RUNTIME_VERSION === EXPECTED_RUNTIME_VERSION, 'Broker records shared runtime version ' + EXPECTED_RUNTIME_VERSION);
 ok(M.BROKER_PLUGIN_HOST_RUNTIME_SHA256 === EXPECTED_RUNTIME_SHA, 'Broker records shared runtime sha256');
@@ -410,8 +419,8 @@ section('mobile rail canon: Apps grid module tiles');
 const canonAppsBlock = extractAppsBlock();
 let MC = null;
 try {
-  MC = new Function('showToast', 'esc', canonAppsBlock
-    + '\nreturn { BROKER_MOBILE_MODULES, brokerMobileModuleTilesHtml, brokerAppsListHtml };')(() => {}, esc);
+  MC = new Function('showToast', 'esc','tr','_demoText','_isDemo','getUiLang', canonAppsBlock
+    + '\nreturn { BROKER_MOBILE_MODULES, brokerMobileModuleTilesHtml, brokerAppsListHtml };')(() => {}, esc,localeHost.tr,fixtureDemoText,fixtureIsDemo,localeHost.getUiLang);
 } catch (_) { MC = null; }
 ok(!!MC, 'Apps block exposes BROKER_MOBILE_MODULES + brokerMobileModuleTilesHtml');
 const MOD_CANON = [
@@ -419,6 +428,7 @@ const MOD_CANON = [
   { view: 'signals',  slug: 'bazaar',       label: 'Базар' },
   { view: 'match',    slug: 'matches',      label: 'Совпадения' },
   { view: 'viz',      slug: 'map',          label: 'Карта' },
+  { view: 'mail',     slug: 'mail',         label: 'Почта' },
   { view: 'cases',    slug: 'cases',        label: 'Дела' },
   { view: 'team',     slug: 'team',         label: 'Команда' },
   { view: 'dedup',    slug: 'dedup',        label: 'Дубли' },
@@ -435,6 +445,11 @@ for (const m of MOD_CANON) {
   ok(tile.includes("mobileSwitchView('" + m.view + "')"), 'module tile ' + m.slug + ' opens ' + m.view);
   ok(tile.includes(m.label), 'module tile ' + m.slug + ' is labeled «' + m.label + '»');
 }
+fixtureLocale='en';
+const englishTiles=MC.brokerMobileModuleTilesHtml();
+ok(englishTiles.includes('My positions')&&englishTiles.includes('Mail')&&englishTiles.includes('Counterparties'),'actual English mobile module labels are complete');
+fixtureLocale='ru';
+ok(MC.brokerMobileModuleTilesHtml().includes('Контрагенты'),'an explicit Russian preference persists through the actual locale callbacks');
 ok(modTilesHtml.includes('id="apps-tile-cases-badge"'), 'cases module tile carries the Дела counter element');
 ok(HTML.includes("getElementById('apps-tile-cases-badge')"), 'mobileUpdateCasesBadge is redirected to the Apps grid cases tile');
 ok(canonAppsBlock.includes('\'<div class="apps-grid">\'+modTiles+tiles+\'</div>\''), 'module tiles render BEFORE plugin tiles in the Apps grid');

@@ -213,9 +213,9 @@ for (const member of wheat.members) {
 assert.ok(!wheat.members.some(m => m.position_id === 'demo-cargo-near-wheat'), 'different discharge is never merged');
 assert.ok(companies.every(c => c.first_seen && c.last_seen), 'CRM uses the fields consumed by the actual renderer');
 for (const company of companies) {
-  const sourceMails = inbox.messages.filter(m => m.counterpart_id === company.id);
+  const sourceMails = inbox.messages.concat((await showcase.invoke('fetch_mail_inbox', {folder:'SENT'})).messages).filter(m => m.counterpart_id === company.id);
   assert.equal(company.total_messages, sourceMails.length);
-  assert.equal(company.cargo_posts, sourceMails.filter(m => m.position_kind === 'cargo').length);
+  assert.equal(company.cargo_posts, sourceMails.filter(m => m.folder === 'INBOX').reduce((n,m)=>n+m.position_ids.filter(id=>id.includes('cargo')).length,0));
 }
 assert.equal(typeof showcase.mailList, 'function');
 assert.equal(showcase.mailList('INBOX').length, inbox.messages.length);
@@ -232,6 +232,7 @@ const renderer = { _isDemo:()=>true, getUiLang:()=> 'en', _demoText:en=>en,
   esc:value=>String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),
   escNum:value=>String(Number(value)||0), escAttrVal:value=>String(value).replace(/"/g,'&quot;'), escJs:value=>String(value).replace(/'/g,"\\'") };
 vm.createContext(renderer);
+vm.runInContext(html.slice(html.indexOf('function demoPositionLabel(p){'),html.indexOf('// ===== End Demo showcase Assistant host =====')),renderer);
 vm.runInContext(rendererSource, renderer);
 const unsafeGroup = { ...wheat, summary:'<img src="https://pixel.example.invalid/canary" onerror="alert(1)">' };
 assert.ok(!renderer._dedupClusterCard(unsafeGroup).includes('<img'), 'group summary is inert text at the actual renderer');

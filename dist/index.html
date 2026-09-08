@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker · Stack SKIPI-2026.08-R1</title>
+<link rel="stylesheet" href="skipi-assistant.css">
 <script src="broker-demo.js"></script>
 <script>
 // A missing Demo asset must never fall through to a real profile transport.
@@ -507,6 +508,7 @@ Object.assign(UI_STRINGS.en, {"demo.cargoDuplicates": "📦 Cargo duplicates", "
 Object.assign(UI_STRINGS.ru, {"demo.cargoDuplicates": "📦 Дубли грузов", "demo.tonnageDuplicates": "🚢 Дубли тоннажа", "demo.refresh": "Обновить", "demo.partners": "🤝 Контрагенты", "demo.dossier": "Профиль контрагента", "demo.partner": "Контрагент", "demo.domain": "Домен", "demo.lastSeen": "Последний раз", "demo.allSides": "Все стороны", "demo.cargoSide": "Грузовая сторона", "demo.tonnageSide": "Судовая сторона", "demo.bothSides": "Обе стороны", "demo.inbox": "📥 Входящие", "demo.sent": "📤 Отправленные", "demo.chooseMail": "Выберите письмо", "demo.chooseHint": "Выберите письмо в списке, чтобы прочитать его.", "demo.backMail": "‹ Список писем", "demo.backPartners": "‹ Список контрагентов", "demo.searchPartners": "Поиск компании или домена…"});
 function tr(key){
     var lang=getUiLang();
+    if(key==='nav.team'&&window.SkipiBrokerDemo&&window.SkipiBrokerDemo.active)return lang==='ru'?'✦ Ассистент':'✦ Assistant';
     return (UI_STRINGS[lang]&&UI_STRINGS[lang][key]) || UI_STRINGS.en[key] || UI_STRINGS.ru[key] || key;
 }
 // Apply translations to every element with a data-i18n attribute. Called
@@ -526,6 +528,7 @@ function applyI18n(){
     }
     var placeholders=document.querySelectorAll('[data-i18n-placeholder]');
     for(var ph=0;ph<placeholders.length;ph++) placeholders[ph].placeholder=tr(placeholders[ph].getAttribute('data-i18n-placeholder'));
+    document.querySelectorAll('[data-i18n-aria]').forEach(function(el){el.setAttribute('aria-label',tr(el.getAttribute('data-i18n-aria')));});
     var titleEls=document.querySelectorAll('[data-i18n-title]');
     for(var j=0;j<titleEls.length;j++){
         var k2=titleEls[j].getAttribute('data-i18n-title');
@@ -541,7 +544,8 @@ function setUiLang(lang){
         if(state.view === 'mail') { renderMailList(); if(state.mail.selectedId) openMailMessage(state.mail.selectedId); }
         if(state.view === 'dedup') renderDedup();
         if(state.view === 'partners') renderPartners();
-        if(state.view === 'apps') brokerAppsRender();
+        if(state.view === 'apps') brokerDemoAppsRefreshLocale();
+        if(typeof demoAssistantController!=='undefined'&&demoAssistantController)demoAssistantController.reset();
     }
     // The @skipi/settings shell re-reads host.getUiLang()/host.t() and redraws
     // itself after host.setUiLang resolves — no extra hook needed here.
@@ -1325,6 +1329,22 @@ body.mobile-mode .mrail-btn:active { background:rgba(0,69,100,0.30); }
 .cp-flag-lbl { font-size:10px; font-weight:500; white-space:nowrap; }
 .cp-flag-row.cp-flag-expanded .cp-flag { padding:2px 6px; }
 
+
+
+.demo-assistant-shell{display:none;flex-direction:column;min-height:0;height:100%;width:100%;max-width:1100px;margin:auto;}
+body.demo-mode #view-team .team-fullscreen-wrap{display:none;}
+body.demo-mode .demo-assistant-shell{display:flex;}
+.demo-assistant-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--border);font-size:12px;}
+.demo-assistant-toolbar select{flex:1;min-width:150px;max-width:520px;padding:8px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:5px;}
+#demo-assistant-status{padding:8px 16px;color:var(--accent-text);font-size:12px;font-weight:600;}
+#demo-assistant-context{margin:0 16px 8px;border:1px solid var(--border);border-radius:7px;padding:8px 12px;max-height:220px;overflow:auto;font-size:12px;}
+#demo-assistant-context summary{cursor:pointer;line-height:1.5;}
+.demo-context-record{padding:10px 0;border-top:1px solid var(--border);line-height:1.5;overflow-wrap:anywhere;}
+.demo-context-record small{display:block;color:var(--text2);}.demo-context-record p{white-space:pre-wrap;font-size:11px;}
+#demo-assistant-mount{flex:1;min-height:0;overflow:hidden;}
+.demo-corpus-summary{padding:9px 12px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:12px;line-height:1.5;}
+body.demo-mode .demo-current-terms{font-size:12px;padding:9px;background:var(--surface2);border-radius:6px;margin:8px 0;line-height:1.5;}
+@media(max-width:700px){.demo-assistant-toolbar{padding:8px;gap:6px;}#demo-assistant-context{margin:0 8px 6px;max-height:150px;}#demo-assistant-status{padding:6px 8px;}body.demo-mode #view-team{min-height:0;}}
 
 /* Synthetic story drill-downs reuse the normal Mail / Duplicates / CRM panes. */
 .demo-story-note { padding:12px 14px; border:1px solid var(--border); border-radius:8px; background:var(--surface2); font-size:12px; line-height:1.5; margin-bottom:12px; }
@@ -4487,7 +4507,7 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
     <button class="mtop-home app-header-logo" id="mtop-home" data-qa="app-header-logo" type="button" onclick="mobileSwitchView('match')" title="Домой — Совпадения" aria-label="Домой — Совпадения"><img src="assets/skipi-broker-icon.png" alt="" draggable="false"></button>
     <div class="mtop-brand">Skipi Broker</div>
     <button class="mtop-assistant" id="mtop-assistant" type="button" onclick="showCtxBar()" title="AI-ассистент" aria-label="AI-ассистент">&#10022;</button>
-    <button class="mtop-gear" data-qa="app-header-settings" type="button" onclick="openSettings()" title="Настройки" aria-label="Настройки">&#9881;</button>
+    <button class="mtop-gear" data-qa="app-header-settings" type="button" onclick="openSettings()" data-i18n-title="top.gear" data-i18n-aria="top.gear" title="Settings" aria-label="Settings">&#9881;</button>
 </div>
 
 <!-- Mobile-only bottom module rail (visible only on body.mobile-mode).
@@ -4764,6 +4784,7 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
          Server endpoint /api/bazaar/duplicate-clusters does the work;
          client just renders. -->
     <div class="view-pane view-signals-stack" id="view-dedup" style="display:none;">
+        <div id="demo-duplicates-summary" class="demo-corpus-summary" style="display:none;"></div>
         <div class="signals-cols">
             <div class="signals-col">
                 <div class="col-head">
@@ -5146,6 +5167,10 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
     <!-- View 5: Команда — full-screen group chat where team members + LLM
          all share one room. team-block migrates here when this tab is active. -->
     <div class="view-pane view-team-stack" id="view-team" style="display:none;">
+        <section class="demo-assistant-shell" aria-label="Skipi Assistant">
+            <div class="demo-assistant-toolbar"><label id="demo-assistant-case-label" for="demo-assistant-case">Selected case</label><select id="demo-assistant-case" data-qa="demo-assistant-case" onchange="demoAssistantSelect(this.value)"></select><button class="btn" id="demo-assistant-reset" data-qa="demo-assistant-reset" onclick="demoAssistantReset()">Reset case</button></div>
+            <div id="demo-assistant-status"></div><details id="demo-assistant-context" data-qa="demo-assistant-context"></details><div id="demo-assistant-mount" data-qa="demo-assistant-mount"></div>
+        </section>
         <div class="team-fullscreen-wrap">
             <div class="team-members" id="team-members"></div>
             <div class="team-mount" id="team-mount-team"></div>
@@ -5224,6 +5249,8 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
 <div class="toast-host" id="toast-host"></div>
 
 <script src="plugin-host-bridge.js"></script>
+<script src="broker-demo-apps.js"></script>
+<script src="skipi-assistant.js"></script>
 <!-- @skipi/settings v0.3.0 (menu 4) — vendored module bytes; publishes
      window.SkipiSettings. sha256 pinned in dist/skipi-settings.SETTINGS_VERSION
      and skipi-verify. -->
@@ -6225,6 +6252,116 @@ function vdbRenderCard(){
 }
 // ===================== end Vessels / Vessel Database Slice 1 =====================
 
+// ===== Demo showcase Assistant host =====
+// This controller owns only a bounded synthetic packet and a local example promise.
+function createDemoAssistantController(container, capability, moduleApi, ui){
+    var generation=0,instance=null,packet=null,pending=[],disposed=false;
+    function invalidate(){
+        generation++;
+        pending.splice(0).forEach(function(p){clearTimeout(p.timer);p.reject(new Error('Demo example cancelled'));});
+        if(instance){instance.destroy();instance=null;}
+    }
+    function select(id){
+        if(disposed)throw new Error('Demo assistant closed');
+        var next=capability.casePacket(id); // corpus allowlist; never DOM/profile harvest
+        invalidate();
+        packet=JSON.parse(JSON.stringify(next));
+        var snapshot=JSON.parse(JSON.stringify(packet)),epoch=generation,locale=ui.locale();
+        function deepFreeze(v){if(v&&typeof v==='object'){Object.keys(v).forEach(function(k){deepFreeze(v[k]);});Object.freeze(v);}return v;}
+        deepFreeze(snapshot);
+        ui.context(snapshot);
+        if(!moduleApi||moduleApi.version!=='0.1.0'||typeof moduleApi.mount!=='function'){
+            ui.unavailable();return;
+        }
+        var host={
+            getContext:function(){return {surface:ui.mobile()?'mobile':'desktop',locale:locale,theme:ui.theme()};},
+            getI18n:function(key){return ui.i18n(key);},
+            sendMessage:function(text,history){
+                if(disposed||epoch!==generation)return Promise.reject(new Error('Demo example cancelled'));
+                // History is local UI state. Neither it nor text is sent to a provider.
+                var question=String(text||'').slice(0,2000);
+                return new Promise(function(resolve,reject){
+                    var job={reject:reject,timer:null};
+                    job.timer=setTimeout(function(){
+                        pending=pending.filter(function(p){return p!==job;});
+                        if(disposed||epoch!==generation){reject(new Error('Demo example cancelled'));return;}
+                        resolve(capability.sampleResponse(snapshot,question,locale));
+                    },180);
+                    pending.push(job);
+                });
+            },
+            onClose:function(){ui.close();}
+        };
+        try{instance=moduleApi.mount(container,host);}catch(_){invalidate();ui.unavailable();}
+    }
+    return Object.freeze({
+        select:select,
+        current:function(){return packet&&packet.case_id;},
+        reset:function(){if(packet)select(packet.case_id);},
+        focus:function(){if(instance)instance.focus();},
+        theme:function(){if(instance)instance.applyTheme(ui.theme());},
+        dispose:function(){if(disposed)return;invalidate();packet=null;disposed=true;},
+        generation:function(){return generation;}
+    });
+}
+var demoAssistantController=null;
+function demoAssistantEnsure(){
+    if(!_isDemo()||!brokerDemo)return null;
+    var root=document.getElementById('demo-assistant-mount');
+    if(!root)return null;
+    if(!demoAssistantController){
+        demoAssistantController=createDemoAssistantController(root,brokerDemo,window.SkipiAssistant,{
+            locale:getUiLang,mobile:brokerIsMobileMode,theme:brokerCurrentTheme,
+            context:demoAssistantRenderContext,
+            unavailable:function(){root.innerHTML='<div class="demo-story-note">'+esc(_demoText('The sample assistant could not load. Reload Demo to try again.','Пример ассистента не загрузился. Перезагрузите демо.'))+'</div>';},
+            close:function(){_demoShowView('viz');},
+            i18n:function(key){
+                var strings={
+                    'assistant.title':_demoText('Skipi Assistant','Скипи Ассистент'),
+                    'assistant.subtitle':_demoText('Sample response · demo preview','Пример ответа · демоверсия'),
+                    'assistant.empty.title':_demoText('Discuss this fictional case','Разберите вымышленный кейс'),
+                    'assistant.empty.sub':_demoText('Prepared examples use only the sample inputs shown above.','Подготовленные примеры используют только показанные выше вводные.'),
+                    'assistant.suggest.1':_demoText('Why are these duplicates?','Почему это повторы?'),
+                    'assistant.suggest.2':_demoText('What changed in the terms?','Что изменилось в условиях?'),
+                    'assistant.suggest.3':_demoText('Draft clarification questions.','Составь вопросы для уточнения.'),
+                    'assistant.error.generic':_demoText('This local example is unavailable. Reset the case and try again.','Локальный пример недоступен. Сбросьте кейс и повторите.')
+                };
+                return Object.prototype.hasOwnProperty.call(strings,key)?strings[key]:null;
+            }
+        });
+        demoAssistantController.select('demo-group-wheat');
+    }
+    return demoAssistantController;
+}
+function demoAssistantRenderContext(packet){
+    var picker=document.getElementById('demo-assistant-case');
+    picker.innerHTML=brokerDemo.listCases().map(function(c){return '<option value="'+escAttrVal(c.id)+'">'+esc(c.title)+'</option>';}).join('');
+    picker.value=packet.case_id;
+    document.getElementById('demo-assistant-case-label').textContent=_demoText('Selected case','Выбранный кейс');
+    document.getElementById('demo-assistant-reset').textContent=_demoText('Reset case','Сбросить кейс');
+    document.getElementById('demo-assistant-status').textContent=_demoText('Sample response · demo preview','Пример ответа · демоверсия');
+    document.getElementById('demo-assistant-context').innerHTML='<summary>'+esc(packet.title)+' · '+escNum(packet.records.length)+' '+esc(_demoText('sample inputs','примеров вводных'))+'</summary>'
+        + packet.records.map(function(r){return '<div class="demo-context-record"><b>'+esc(r.subject||r.title)+'</b>'
+            + '<small>'+esc(r.kind==='mail'?r.folder+' · '+r.from_name+' · '+r.at.slice(0,16).replace('T',' '):demoPositionLabel(r))+'</small>'
+            + (r.excerpt?'<p>'+esc(r.excerpt)+'</p>':'')+'</div>';}).join('');
+}
+function demoAssistantOpen(caseId){
+    if(!_isDemo())return;
+    var controller=demoAssistantEnsure();
+    if(!controller)return;
+    if(caseId&&caseId!==controller.current())controller.select(caseId);
+    _demoShowView('team');controller.focus();
+}
+function demoAssistantSelect(id){var c=demoAssistantEnsure();if(c)c.select(id);}
+function demoAssistantReset(){var c=demoAssistantEnsure();if(c)c.reset();}
+function demoAssistantStop(){if(demoAssistantController){demoAssistantController.dispose();demoAssistantController=null;}}
+function demoPositionLabel(p){
+    var route=p.load_port?p.load_port+' → '+p.disch_port:(p.open_port||'');
+    var title=p.cargo_type||p.vessel_name||p.title||'';
+    return title+' · '+(p.quantity_mt?p.quantity_mt+' MT':(p.dwt?p.dwt+' DWT':''))+' · '+route+' · '+(p.laycan_from||p.open_from||p.window_from||'').slice(0,10)+' – '+(p.laycan_to||p.open_to||p.window_to||'').slice(0,10);
+}
+// ===== End Demo showcase Assistant host =====
+
 // ===================== Apps / Plugin host (bundled first-party, isolated) =====================
 // Блок Apps существующий харнесс дома исполняет изолированно (new Function с
 // единственным впрыснутым esc), поэтому глобальных escAttrVal/escJs в той
@@ -6245,12 +6382,14 @@ var BROKER_PLUGIN_ALLOWED_PERMISSIONS = ['local_storage', 'theme'];
 var BROKER_PLUGIN_SCOPE_DENY = /^(broker|bazaar|match|signal|case|mail|team|contact|counterparty|token|device|pairing|chat)[._:-]/i;
 
 var BROKER_PLUGINS = [];
+if(_isDemo()&&window.SkipiBrokerDemoApps)BROKER_PLUGINS=window.SkipiBrokerDemoApps.catalog(getUiLang());
 
 var brokerAppsState = { screen: 'list', pluginId: null };
 var __brokerPluginMounted = null;     // { id, runtime }
 var __brokerPluginMountSeq = 0;
 var __brokerPluginThemeSubs = [];
 var __brokerPluginRuntime = null;
+var __demoPluginFence = null;
 
 function brokerPluginMeta(id){ for(var i=0;i<BROKER_PLUGINS.length;i++){ if(BROKER_PLUGINS[i].id===id) return BROKER_PLUGINS[i]; } return null; }
 function brokerPluginsLoadState(){ try { return JSON.parse(localStorage.getItem('skipi_broker_plugins') || '{}'); } catch(e){ return {}; } }
@@ -6347,6 +6486,8 @@ var BROKER_PLUGIN_BUNDLES = {
   }
 };
 
+if(_isDemo()&&window.SkipiBrokerDemoApps)Object.assign(BROKER_PLUGIN_BUNDLES,window.SkipiBrokerDemoApps.bundles(getUiLang()));
+
 function brokerHasBundledPlugin(id){ return !!BROKER_PLUGIN_BUNDLES[id]; }
 function brokerPluginStorageKey(slug, k){ return 'skipi_broker_plugin_' + slug + '_' + k; }
 function brokerCurrentTheme(){ return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'; }
@@ -6441,8 +6582,12 @@ function brokerRuntimeHost(){
   };
 }
 function brokerGetPluginRuntime(create){
+  if(_isDemo()&&create!==false&&!__demoPluginFence){
+    if(__brokerPluginRuntime||!window.SkipiBrokerDemoApps){if(__brokerPluginRuntime)__brokerPluginRuntime.close();return null;}
+    try{__demoPluginFence=window.SkipiBrokerDemoApps.installFence(function(){return __brokerPluginRuntime;});}catch(_){return null;}
+  }
   if(!__brokerPluginRuntime && create !== false && window.SkipiPluginRuntime && typeof window.SkipiPluginRuntime.create === 'function'){
-    __brokerPluginRuntime = window.SkipiPluginRuntime.create({
+    __brokerPluginRuntime = (_isDemo()?function(cfg){return window.SkipiBrokerDemoApps.createPreviewRuntime(window.SkipiPluginRuntime.create,cfg);}:window.SkipiPluginRuntime.create)({
       enabled:true,
       loader:brokerBundledLoader,
       host:brokerRuntimeHost(),
@@ -6459,6 +6604,9 @@ function brokerPluginNotifyTheme(){
   if(rt && rt.pushTheme) rt.pushTheme(t);
 }
 
+function brokerDemoAppsStop(){brokerPluginUnmountCurrent();if(__demoPluginFence){__demoPluginFence.dispose();__demoPluginFence=null;}__brokerPluginRuntime=null;}
+function brokerDemoAppsRefreshLocale(){if(!_isDemo())return;brokerAppsResetToList();if(window.SkipiBrokerDemoApps){BROKER_PLUGINS=window.SkipiBrokerDemoApps.catalog(getUiLang());Object.assign(BROKER_PLUGIN_BUNDLES,window.SkipiBrokerDemoApps.bundles(getUiLang()));}brokerAppsRender();}
+function brokerDemoAppOpen(id){if(!_isDemo())return;if(brokerPluginInstall(id))brokerAppsOpen(id);}
 function brokerAppsRoot(){ return document.getElementById('apps-root'); }
 function brokerAppsRender(){
   var host = brokerAppsRoot();
@@ -6487,7 +6635,7 @@ function brokerIsMobileMode(){
 }
 function brokerMobileModuleTilesHtml(){
   return BROKER_MOBILE_MODULES.map(function(m){
-    var key = {ex:'nav.exclusives',signals:'nav.signals',match:'nav.matches',viz:'nav.map',mail:'nav.mail',cases:'nav.cases',team:'nav.team',dedup:'nav.duplicates',partners:'nav.counterparts'}[m.view];
+    var key = {ex:'rail.ex',signals:'rail.bazaar',match:'rail.matches',viz:'rail.map',mail:'nav.mail',cases:'nav.cases',team:'nav.team',dedup:'nav.duplicates',partners:'nav.counterparts'}[m.view];
     var label = key ? tr(key) : m.label;
     var badge = (m.slug === 'cases') ? ' <span class="apps-badge" id="apps-tile-cases-badge" style="display:none;"></span>' : '';
     return '<div class="apps-tile apps-module-tile" data-qa="module-tile-'+appsAttrVal(m.slug)+'" onclick="mobileSwitchView(\''+appsHandlerArg(m.view)+'\')">'
@@ -6501,7 +6649,7 @@ function brokerAppsListHtml(){
   var tiles = BROKER_PLUGINS.map(function(p){
     var st = brokerPluginTileState(p);
     return '<div class="apps-tile" data-qa="plugin-tile-'+appsAttrVal(p.id)+'" onclick="brokerAppsOpenDetail(\''+appsHandlerArg(p.id)+'\')">'
-      + '<span class="apps-badge '+st+'">'+esc(brokerPluginStateLabel(st))+'</span>'
+      + '<span class="apps-badge '+st+'">'+esc(_isDemo()?_demoText('Demo preview','Демоверсия'):brokerPluginStateLabel(st))+'</span>'
       + '<div class="at-name">'+esc(p.name)+'</div>'
       + '<div class="at-cat">'+esc(p.category || '')+'</div>'
       + '<div class="at-sum">'+esc(p.summary || '')+'</div>'
@@ -6510,11 +6658,12 @@ function brokerAppsListHtml(){
   if(!tiles) tiles = '<div class="apps-empty" data-qa="broker-apps-empty">No broker apps are shipped in this release yet.</div>';
   return '<div class="apps-wrap" data-qa="broker-apps-module">'
     + '<div class="apps-head"><h2>Apps</h2>'
-    + '<div class="apps-muted">First-party tools for your broker desk. Plugins run locally in an isolated frame and get no market, mail, case, contact, team token, pairing, or chat data by default.</div></div>'
+    + '<div class="apps-muted">'+esc(_isDemo()?_demoText('Explore two useful broker tools with fixed fictional examples.','Два полезных инструмента брокера с фиксированными вымышленными примерами.'):'First-party tools for your broker desk. Plugins run locally in an isolated frame and get no market, mail, case, contact, team token, pairing, or chat data by default.')+'</div></div>'
     + '<div class="apps-grid">'+modTiles+tiles+'</div>'
     + '</div>';
 }
 function brokerAppsDetailHtml(id){
+  if(_isDemo()){var sample=brokerPluginMeta(id);if(!sample)return brokerAppsListHtml();return '<div class="apps-detail"><button class="apps-back" onclick="brokerAppsBackToList()">‹ Apps</button><h2>'+esc(sample.name)+'</h2><p class="apps-muted">'+esc(sample.summary)+'</p><div class="demo-story-note">'+esc(_demoText('Demo preview · fictional examples only','Демоверсия · только вымышленные примеры'))+'</div><button class="apps-btn" data-qa="demo-app-open" onclick="brokerDemoAppOpen(\''+appsHandlerArg(id)+'\')">'+esc(_demoText('Open preview','Открыть пример'))+'</button></div>';}
   var p = brokerPluginMeta(id); if(!p) return brokerAppsListHtml();
   var st = brokerPluginTileState(p);
   var perms = (p.permissions && p.permissions.length)
@@ -6541,8 +6690,8 @@ function brokerAppsHostHtml(id){
   var p = brokerPluginMeta(id) || { name:id };
   return '<div class="apps-host">'
     + '<div class="apps-host-bar"><span class="aht" id="apps-host-title">'+esc(p.name)+'</span>'
-    + '<button class="apps-btn secondary" onclick="brokerPluginCloseHost()">Close</button></div>'
-    + '<div class="apps-host-container" id="apps-host-container"><div class="apps-muted">Starting isolated app...</div></div>'
+    + '<button class="apps-btn secondary" onclick="brokerPluginCloseHost()">'+esc(_demoText('Close','Закрыть'))+'</button></div>'
+    + '<div class="apps-host-container" id="apps-host-container"><div class="apps-muted">'+esc(_demoText('Opening preview…','Открываем пример…'))+'</div></div>'
     + '</div>';
 }
 function brokerAppsOpenDetail(id){ brokerAppsState = { screen:'detail', pluginId:id }; brokerAppsRender(); }
@@ -6589,6 +6738,7 @@ function brokerPluginUnmountCurrent(){
     try { __brokerPluginMounted.runtime.close(); } catch(e){}
   }
   __brokerPluginMounted = null;
+  if(_isDemo()&&__brokerPluginRuntime){__brokerPluginRuntime.close();__brokerPluginRuntime=null;}
 }
 function brokerPluginCloseHost(){ brokerPluginUnmountCurrent(); brokerAppsState = { screen:'detail', pluginId:brokerAppsState.pluginId }; brokerAppsRender(); }
 function renderAppsView(){ brokerAppsRender(); }
@@ -7794,6 +7944,7 @@ function hideCtxBar(){
 // history (Q&A only) rendered, input focused. Not available on Desk (the AI
 // is already a chat participant there).
 function showCtxBar(){
+    if(_isDemo()){demoAssistantOpen();return;}
     if(state.view === 'team') return;
     ctxState.hidden = false;
     var bar  = document.getElementById('ctx-chat-bar');
@@ -7815,6 +7966,12 @@ function showCtxBar(){
 // manages the ✦ orb (shown on working views, hidden on Desk) and refreshes the
 // overlay's context if it happens to be open.
 function updateCtxBarVisibility(){
+    if(_isDemo()){
+        var bar=document.getElementById('ctx-chat-bar'),bd=document.getElementById('ctx-backdrop'),orb=document.getElementById('ctx-chat-restore');
+        if(bar)bar.classList.add('hidden');if(bd)bd.classList.remove('show');
+        if(orb){orb.title=_demoText('Skipi Assistant','Скипи Ассистент');orb.setAttribute('aria-label',orb.title);orb.classList.toggle('show',state.view!=='team');}
+        return;
+    }
     var bar  = document.getElementById('ctx-chat-bar');
     var bd   = document.getElementById('ctx-backdrop');
     var rest = document.getElementById('ctx-chat-restore');
@@ -10025,6 +10182,8 @@ async function _authEnterDemo(){
     if(brokerDemo) brokerDemo.enter();
 }
 async function _exitDemo(){
+    if(typeof demoAssistantStop==='function')demoAssistantStop();
+    if(typeof brokerDemoAppsStop==='function')brokerDemoAppsStop();
     if(brokerDemo) brokerDemo.exit();
 }
 async function _authGateSubmit(){
@@ -10814,9 +10973,10 @@ function _demoMailLinks(m){
     return '<div class="demo-story-note" data-qa="demo-mail-provenance">'
         + '<b>'+esc(_demoText('Trace this sample','Связи этого примера'))+'</b><br>'
         + esc(m.event && (getUiLang() === 'ru' ? m.event_ru : m.event) || '')
-        + ' · '+esc(m.position_id || '')
+        + '<details><summary>'+escNum(brokerDemo.positionsForMail(m.id).length)+' '+esc(_demoText('position mentions · current terms','упоминаний позиций · текущие условия'))+'</summary>'+brokerDemo.positionsForMail(m.id).map(function(p){return '<p>'+esc(demoPositionLabel(p))+'</p>';}).join('')+'</details>'
         + '<div class="demo-story-actions">'
-        + (m.group_id ? '<button class="btn btn-accent" data-qa="demo-mail-group" onclick="demoOpenGroup(\''+escAttrVal(escJs(m.group_id))+'\')">'+esc(_demoText('View duplicate group','Открыть группу повторов'))+'</button>' : '<span>'+esc(_demoText('Separate position · excluded from Alexandria group','Отдельная позиция · вне группы Александрии'))+'</span>')
+        + (m.group_id ? '<button class="btn btn-accent" data-qa="demo-mail-group" onclick="demoOpenGroup(\''+escAttrVal(escJs(m.group_id))+'\')">'+esc(_demoText('View duplicate group','Открыть группу повторов'))+'</button>' : '<span>'+esc(_demoText('Distinct positions · no duplicate group in these samples','Отдельные позиции · группы повторов в этих примерах нет'))+'</span>')
+        + '<button class="btn" data-qa="demo-mail-assistant" onclick="demoAssistantOpen(\''+escAttrVal(escJs(m.group_id||(m.position_kind==='cargo'?'demo-case-cargo-circular':'demo-case-tonnage-circular')))+'\')">'+esc(_demoText('Discuss sample','Разобрать пример'))+'</button>'
         + '<button class="btn" data-qa="demo-mail-company" onclick="demoOpenCompany(\''+escAttrVal(escJs(m.counterpart_id))+'\')">'+esc(_demoText('View counterparty','Открыть контрагента'))+'</button></div></div>';
 }
 function _renderDemoMail(){
@@ -11189,7 +11349,7 @@ async function openMailMessage(id){
     var dbody = document.getElementById('mail-detail-body');
     var dtitle = document.getElementById('mail-detail-title');
     var replyBtn = document.getElementById('mail-reply-btn');
-    if(dbody) dbody.innerHTML = '<div style="padding:30px; text-align:center; color:var(--text3);">Загружаю…</div>';
+    if(dbody) dbody.innerHTML = '<div style="padding:30px; text-align:center; color:var(--text3);">'+esc(_demoText('Loading…','Загружаю…'))+'</div>';
     try {
         var m = _isDemo() ? _demoMessage(id) : await invoke('fetch_mail_message', { messageId: id });
         if(state.mail.selectedId !== id) return;
@@ -11227,7 +11387,7 @@ async function openMailMessage(id){
         }
         if(dbody) dbody.innerHTML = (_isDemo() ? '<button class="btn demo-mobile-back" onclick="_demoBackToList(\'mail\')">'+esc(tr('demo.backMail'))+'</button>' : '') + _demoMailLinks(m) + meta + bodyContent;
     } catch(e){
-        if(dbody) dbody.innerHTML = '<div style="color:var(--accent); padding:20px;">Ошибка: '+esc(String(e))+'</div>';
+        if(dbody) dbody.innerHTML = '<div style="color:var(--accent); padding:20px;">'+esc(_demoText('Error: ','Ошибка: '))+''+esc(String(e))+'</div>';
     }
 }
 
@@ -11367,18 +11527,22 @@ function _dedupStrengthBadge(s){
 }
 
 function _dedupClusterCard(c){
+    var sizeLabel = escNum(c.size);
     if(_isDemo() && c.id){
         return '<details class="ded-card demo-group" id="'+escAttrVal(c.id)+'" data-qa="demo-duplicate-group">'
             + '<summary><b>'+esc(c.summary || '')+'</b><br>'
-            + escNum(c.size)+' '+esc(_demoText('occurrences','появления'))+' · '+escNum(c.duplicate_count)+' '+esc(_demoText('duplicates','повтора'))
+            + esc(sizeLabel)+' '+esc(_demoText('occurrences','появления'))+' · '+escNum(c.duplicate_count)+' '+esc(_demoText('duplicates','повтора'))
             + ' · '+escNum(c.unique_senders)+' '+esc(_demoText('senders','отправителя'))+'</summary>'
+            + '<div class="demo-current-terms"><b>'+esc(_demoText('Latest recorded terms','Последние показанные условия'))+'</b><br>'+esc(demoPositionLabel(c.position))+'<br>'+esc(c.position.status==='withdrawn'?_demoText('Reported withdrawn · excluded from active matching','Сообщён отзыв · исключено из активных совпадений'):_demoText('Active sample position','Активная позиция примера'))+'</div>'
+            + '<div class="demo-story-actions"><button class="btn btn-accent" data-qa="demo-group-assistant" onclick="demoAssistantOpen(\''+escAttrVal(escJs(c.id))+'\')">'+esc(_demoText('Discuss this case','Разобрать кейс'))+'</button></div>'
             + '<p>'+esc(_demoText('One position. Occurrences include the original message.','Одна позиция. Исходное письмо входит в число появлений.'))+'</p>'
             + (c.members || []).map(function(m){ return '<div class="demo-occurrence">'
                 + '<b>'+esc(getUiLang() === 'ru' ? m.event_ru : m.event)+'</b>'
                 + '<small>'+esc((m.first_seen_at || '').slice(0,16).replace('T',' '))+' · '+esc(m.posted_by_name)+'</small>'
                 + '<div>'+esc(m.title)+'</div><div class="demo-story-actions">'
                 + '<button class="btn" data-qa="demo-occ-mail-'+escAttrVal(m.mail_id)+'" onclick="demoOpenMail(\''+escAttrVal(escJs(m.mail_id))+'\')">'+esc(_demoText('Read source message','Читать исходное письмо'))+'</button>'
-                + '<button class="btn" data-qa="demo-occ-company-'+escAttrVal(m.counterpart_id)+'" onclick="demoOpenCompany(\''+escAttrVal(escJs(m.counterpart_id))+'\')">'+esc(_demoText('Counterparty','Контрагент'))+'</button></div></div>'; }).join('')+'</details>';
+                + '<button class="btn" data-qa="demo-occ-company-'+escAttrVal(m.counterpart_id)+'" onclick="demoOpenCompany(\''+escAttrVal(escJs(m.counterpart_id))+'\')">'+esc(_demoText('Counterparty','Контрагент'))+'</button></div></div>'; }).join('')
+            + (c.events.length?'<h4>'+esc(_demoText('Revisions and status notices · not additional duplicates','Исправления и статус · не дополнительные повторы'))+'</h4>'+c.events.map(function(e){return '<div class="demo-occurrence"><b>'+esc(_demoText({revision:'Revision',withdrawal:'Withdrawal notice',stale:'After withdrawal: unconfirmed'}[e.type],{revision:'Исправление',withdrawal:'Сообщение об отзыве',stale:'После отзыва: не подтверждено'}[e.type]))+'</b><small>'+esc(e.at.slice(0,16).replace('T',' '))+'</small><div>'+esc(e.title)+'</div><div class="demo-story-actions"><button class="btn" onclick="demoOpenMail(\''+escAttrVal(escJs(e.mail_id))+'\')">'+esc(_demoText('Read status message','Читать сообщение о статусе'))+'</button></div></div>';}).join(''):'')+'</details>';
     }
     var canonical = (c.members || []).filter(function(m){ return m.is_canonical; })[0] || (c.members||[])[0] || {};
     var copies = (c.members || []).filter(function(m){ return !m.is_canonical; });
@@ -11403,7 +11567,7 @@ function _dedupClusterCard(c){
         + '<div class="ded-card ded-' + escAttrVal(c.strength) + '">'
         +   '<div class="ded-head">'
         +     _dedupStrengthBadge(c.strength)
-        +     '<span class="ded-size">×' + escNum(c.size) + '</span>'
+        +     '<span class="ded-size">×' + esc(sizeLabel) + '</span>'
         +     '<span class="ded-senders" title="уникальных отправителей">👤 ' + escNum(c.unique_senders) + '</span>'
         +     '<span class="ded-canon-title">' + title + '</span>'
         +   '</div>'
@@ -11429,6 +11593,12 @@ function renderDedup(){
     if(tCount) tCount.textContent = tonnage.length;
     var totalSize = cargo.reduce(function(a,c){return a+(c.size||0);},0)
                   + tonnage.reduce(function(a,c){return a+(c.size||0);},0);
+    if(_isDemo()){
+        var groups=cargo.concat(tonnage),summary=document.getElementById('demo-duplicates-summary');
+        var repeats=groups.reduce(function(n,g){return n+g.duplicate_count;},0),events=groups.reduce(function(a,g){return a.concat(g.events||[]);},[]);
+        if(summary){summary.style.display='';summary.textContent=groups.length+' '+_demoText('groups','групп')+' · '+totalSize+' '+_demoText('source appearances','появлений в источниках')+' · '+repeats+' '+_demoText('exact repeats','точных повторов')+' · '+events.filter(function(e){return e.type==='revision';}).length+' '+_demoText('revisions','исправления')+' · '+events.filter(function(e){return e.type==='withdrawal';}).length+' '+_demoText('withdrawal','отзыв');}
+        totalSize=repeats;
+    }
     if(badge){
         if(totalSize > 0){ badge.textContent = totalSize; badge.style.display = ''; }
         else { badge.style.display = 'none'; }
@@ -11598,7 +11768,7 @@ function renderCounterpartDossier(email){
             + '<div class="demo-story-note" data-qa="demo-counterparty-pattern"><h3>'+esc(r.name)+'</h3>'
             + '<p>'+esc(_demoText('Pattern in sample data','Паттерн в примерах'))+'</p><p>'
             + esc(getUiLang() === 'ru' ? c.pattern_ru : c.pattern)+'</p>'
-            + '<p>'+escNum(c.total_messages)+' '+esc(_demoText('messages','письма'))+' · '+escNum(c.cargo_posts)+' cargo · '+escNum(c.tonnage_posts)+' tonnage</p></div>'
+            + '<p>'+escNum(c.total_messages)+' '+esc(_demoText('messages exchanged','писем в переписке'))+' ('+escNum(c.incoming_messages)+' '+esc(_demoText('incoming','входящих'))+' / '+escNum(c.sent_messages)+' '+esc(_demoText('sent','отправленных'))+')</p><p>'+esc(_demoText('Incoming position mentions','Упоминания позиций во входящих'))+': '+escNum(c.cargo_posts)+' cargo · '+escNum(c.tonnage_posts)+' tonnage</p></div>'
             + '<b>'+esc(_demoText('Source messages','Исходные письма'))+'</b>'
             + '<div class="demo-story-actions">'+c.evidence_ids.map(function(id){ var m=brokerDemo.mailMessage(id); return '<button class="btn" data-qa="demo-profile-mail-'+escAttrVal(id)+'" onclick="demoOpenMail(\''+escAttrVal(escJs(id))+'\')">'+esc(m.subject)+'</button>'; }).join('')+'</div>';
         return;
@@ -11812,7 +11982,7 @@ function showView(name){
 
     // Team chat now lives ONLY on the «Команда» tab (spec §4) — no corner dock
     // in ex/match. Migrate the team-block into team-mount-team and keep it there.
-    if(name === 'team'){
+    if(name === 'team' && !_isDemo()){
         var teamBlock = document.getElementById('team-block');
         var teamMount = document.getElementById('team-mount-team');
         if(teamBlock && teamMount && teamBlock.parentNode !== teamMount){
@@ -11823,7 +11993,7 @@ function showView(name){
     // 2026-06-13). Migration/visibility toggling resets scrollHeight, so
     // defer past layout and force-pin to bottom; also clear the unread badge
     // since the user is now looking at the newest messages.
-    if(name === 'team'){
+    if(name === 'team' && !_isDemo()){
         var _pinTeamBottom = function(){
             var s = document.getElementById('team-stream');
             if(!s) return;
@@ -11836,6 +12006,7 @@ function showView(name){
         requestAnimationFrame(function(){ _pinTeamBottom(); requestAnimationFrame(_pinTeamBottom); });
         setTimeout(_pinTeamBottom, 80);
     }
+    if(name==='team'&&_isDemo())demoAssistantEnsure();
     // First entry to Сигналы: lazy-load the active signal lists.
     if(name === 'signals' && !state.signalsBrowse.loaded){
         refreshSignalsBrowse();
