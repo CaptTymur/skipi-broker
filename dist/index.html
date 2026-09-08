@@ -197,6 +197,7 @@ var UI_STRINGS={
         "status.minutes":"м",
         "status.hours":"ч",
         "map.msiNotice":"Ситуационная осведомлённость. Не замена GMDSS (NAVTEX / SafetyNET / SafetyCast). Символика S-52-inspired, не certified ECDIS.",
+        "map.demoMsiUnavailable":"Данные морской безопасности недоступны в демо.",
         'demo.notice':'Демо · Вымышленные данные','demo.exit':'Выйти из демо',
         'nav.exclusives':'📋 Эксклюзивы','nav.matches':'🎯 Совпадения','nav.signals':'🛒 Базар',
         'nav.duplicates':'🔍 Дубли','nav.counterparts':'🤝 Контрагенты',
@@ -329,7 +330,7 @@ var UI_STRINGS={
         "map.period":"Period (days)",
         "map.window":"Look back (days)",
         "map.dayLayers":"Layers on this day",
-        "map.timelineHint":"Move the slider to see when sample signals appeared and closed. Press Play to animate.",
+        "map.timelineHint":"Move the slider to see when signals appeared and closed. Press Play to animate.",
         "map.safety":"Safety",
         "map.region":"Loading region",
         "map.size":"Size",
@@ -353,6 +354,7 @@ var UI_STRINGS={
         "status.minutes":"m",
         "status.hours":"h",
         "map.msiNotice":"Situational awareness. Does not replace GMDSS (NAVTEX / SafetyNET / SafetyCast). S-52-inspired symbols; not certified ECDIS.",
+        "map.demoMsiUnavailable":"Live maritime safety information is unavailable in Demo.",
         'demo.notice':'Demo · Fictional sample data','demo.exit':'Exit demo',
         'nav.exclusives':'📋 Exclusives','nav.matches':'🎯 Matches','nav.signals':'🛒 Bazaar',
         'nav.duplicates':'🔍 Duplicates','nav.counterparts':'🤝 Counterparties',
@@ -498,8 +500,8 @@ var UI_STRINGS={
     },
 };
 function getUiLang(){
-    var lang=localStorage.getItem(UI_LANG_KEY)||'ru';
-    return UI_LANG_VALID[lang]?lang:'ru';
+    var lang=localStorage.getItem(UI_LANG_KEY)||'en';
+    return UI_LANG_VALID[lang]?lang:'en';
 }
 function tr(key){
     var lang=getUiLang();
@@ -1892,6 +1894,11 @@ body.mobile-mode .desktop-stack-label { display:none; }
     color:#c9b48a; background:rgba(20,28,40,.96); border-top:1px solid rgba(196,92,38,.5); }
 /* Keep the mobile «Фильтры» button reachable above the MSI overlay so the layer can be toggled off. */
 #view-viz .viz-mobile-filter-btn { z-index:640; }
+/* Outrank the later map stylesheet: Leaflet panes must not intercept the
+   mobile filter button, drawer, or its tap-to-close backdrop. */
+body.mobile-mode #view-viz.view-viz-stack .viz-mobile-filter-btn { z-index:640; }
+body.mobile-mode #view-viz.view-viz-stack .viz-sidebar-backdrop { z-index:650; }
+body.mobile-mode #view-viz.view-viz-stack .viz-sidebar { z-index:660; }
 </style>
 <link rel="stylesheet" href="leaflet/leaflet.css">
 <link rel="stylesheet" href="map.css">
@@ -4859,7 +4866,8 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
                 <div class="viz-section">
                     <label data-i18n="map.safety">Безопасность</label>
                     <div class="viz-layer-toggle">
-                        <label><input type="checkbox" id="viz-show-msi" onchange="vizToggleMsi(this.checked)"> ⚠️ Maritime Safety (MSI)</label>
+                        <label><input type="checkbox" id="viz-show-msi" disabled onchange="vizToggleMsi(this.checked)"> ⚠️ Maritime Safety (MSI)</label>
+                        <span id="viz-msi-demo-notice" style="display:none; font-size:11px; color:var(--text2);" data-i18n="map.demoMsiUnavailable">Live maritime safety information is unavailable in Demo.</span>
                     </div>
                 </div>
                 <div class="viz-section">
@@ -9293,6 +9301,7 @@ function _msiLayerConfig(){
 
 function vizToggleMsi(on){
     if(brokerBootstrapBlocked) return;
+    if(_isDemo()){ _demoGuard(); return; }
     var wrap = document.getElementById('viz-msi-wrap');
     if(!wrap) return;
     if(!on){
@@ -10222,6 +10231,8 @@ async function _bootContinue(){
     try {
         var _dm = _isDemo();
         var _db=document.getElementById('demo-banner'); if(_db) _db.style.display = _dm ? 'flex' : 'none';
+        var _msiControl=document.getElementById('viz-show-msi'); if(_msiControl) _msiControl.disabled = _dm;
+        var _msiNotice=document.getElementById('viz-msi-demo-notice'); if(_msiNotice) _msiNotice.style.display = _dm ? 'block' : 'none';
         document.body.classList.toggle('demo-mode', _dm);
     } catch(_){}
     if(await trialGateApply() === 'blocked') return;
@@ -10741,7 +10752,7 @@ function _demoMessage(id){
     var bodies = {
         'demo-1':'Good day,\n\nMV Aurora (12,500 dwt, geared) opens Constanta shortly. Seeking cargo Black Sea / East Med. Please advise suitable parcels.\n\nBest regards,\nOceanic Bulk Chartering',
         'demo-2':'Dear Captain,\n\nWe have firm 5,000 mt steel coils Marmara → Alexandria, prompt laycan. Kindly advise tonnage and freight idea.\n\nMeridian Shipbrokers',
-        'demo-3':'Hello,\n\nWheat in bulk 6,000 mt Reni → Mersin, laycan next weeke, suitable geared handysize. Awaiting your best offers.\n\nBlack Sea Grain',
+        'demo-3':'Hello,\n\nWheat in bulk 6,000 mt Reni → Mersin, laycan next week, suitable geared handysize. Awaiting your best offers.\n\nBlack Sea Grain',
         'demo-s1':'Thanks — proposing MV Aurora for your steel coils, full details to follow shortly.'
     };
     var all = _DEMO_MAIL('INBOX').concat(_DEMO_MAIL('SENT'));

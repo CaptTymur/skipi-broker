@@ -159,6 +159,21 @@ const msiProvider = html.slice(html.indexOf('function _msiLayerConfig(){'), html
 vm.runInContext(msiProvider, missingMsi.ctx);
 assert.equal((await missingMsi.ctx._msiLayerConfig().provider()).length, 0);
 assert.equal(missingMsi.counts.network, 0, 'manual MSI provider cannot reach live data when Demo module is missing');
+const demoMsi = fixture();
+vm.runInContext(bridge, demoMsi.ctx);
+let msiMounted = 0;
+demoMsi.ctx.SkipiMap = { mount() { msiMounted++; } };
+demoMsi.ctx._msiMapInstance = null;
+demoMsi.ctx._msiLayerConfig = () => ({});
+demoMsi.ctx.showToast = () => {};
+demoMsi.ctx.document.getElementById = () => ({ style: {}, checked: false });
+const msiToggle = html.slice(html.indexOf('function vizToggleMsi(on){'), html.indexOf('// ---------- Карта: port geocoding'));
+vm.runInContext(msiToggle, demoMsi.ctx);
+demoMsi.ctx.vizToggleMsi(true);
+assert.equal(msiMounted, 0, 'Demo cannot present an empty layer as live maritime safety information');
+vm.runInContext(msiToggle.replace('if(_isDemo()){ _demoGuard(); return; }', ''), demoMsi.ctx);
+demoMsi.ctx.vizToggleMsi(true);
+assert.throws(() => assert.equal(msiMounted, 0), /AssertionError/, 'removing the safety guard trips the real mount caller oracle');
 
 // A deliberate removal of the host binding must trip the same real-store
 // canary oracle. This verifies the isolation test, not merely the fixture.
@@ -167,8 +182,12 @@ unbound.ctx.getUiLang();
 assert.throws(() => assert.equal(unbound.counts.storage, 0), /AssertionError/, 'negative control catches a real-profile storage read');
 
 const deniedStorage = fixture({ demo: false, url: 'https://tauri.localhost/index.html', storageDenied: true });
-assert.equal(deniedStorage.ctx.getUiLang(), 'ru', 'a denied live storage getter uses page memory without aborting boot');
-deniedStorage.ctx.setUiLang('en');
-assert.equal(deniedStorage.ctx.getUiLang(), 'en');
+assert.equal(deniedStorage.ctx.getUiLang(), 'en', 'a denied live storage getter defaults to English without aborting boot');
+deniedStorage.ctx.setUiLang('ru');
+assert.equal(deniedStorage.ctx.getUiLang(), 'ru');
 assert.equal(deniedStorage.counts.storage, 1, 'the denied live getter is acquired only once');
+const liveLanguage = fixture({ demo: false });
+assert.equal(liveLanguage.ctx.getUiLang(), 'en', 'a fresh live profile defaults to English');
+liveLanguage.ctx.setUiLang('ru');
+assert.equal(liveLanguage.ctx.getUiLang(), 'ru', 'an explicit live Russian preference is preserved');
 console.log('Broker Demo: actual early script, invoke rebind, boot, storage, commands, network and exit isolation PASS');
