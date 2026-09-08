@@ -121,3 +121,58 @@ facade.close();await lateReject;finishInstall({ok:true,pack:{id:'old'}});await P
 assert.equal(closeCount,1);
 assert.throws(()=>facade.open('sample',{}),/closed/,'one Demo runtime cannot be reopened with another mutable active');
 console.log('Broker showcase: pending preview install cancellation and no runtime reuse PASS');
+
+// Reviewer regressions exercise the shipped controller, Team renderers and map index.
+const correctionFailures=[];
+async function correction(name,run){try{await run();console.log('Correction PASS:',name);}catch(error){correctionFailures.push(name+': '+error.message);console.error('Correction RED:',name,error.message);}}
+await correction('throwing sample response settles, recovers, resets and disposes',async()=>{
+ let shouldThrow=true;
+ const ctl=cc.createDemoAssistantController({}, {...capability,sampleResponse:(...args)=>{if(shouldThrow)throw Error('CONTROLLED_RESPONSE_FAILURE');return capability.sampleResponse(...args);}},moduleApi,ui);
+ ctl.select('demo-group-wheat');
+ let outcome='pending';const result=hosts.at(-1).sendMessage('What changed?',[]).then(()=>{outcome='resolved';},error=>{outcome=error.message;});
+ let escaped=false;try{queue.at(-1)();}catch(_){escaped=true;}
+ await Promise.resolve();await Promise.resolve();
+ assert.equal(escaped,false,'response exception must reject the host promise, not escape its timer');
+ assert.equal(outcome,'CONTROLLED_RESPONSE_FAILURE');await result;
+ shouldThrow=false;const recovery=hosts.at(-1).sendMessage('What changed?',[]);queue.at(-1)();assert.match(await recovery,/Sample response/);
+ ctl.reset();const afterReset=hosts.at(-1).sendMessage('What changed?',[]);const resetRejected=assert.rejects(afterReset,/cancelled/);ctl.reset();await resetRejected;
+ const afterDispose=hosts.at(-1).sendMessage('What changed?',[]);const disposeRejected=assert.rejects(afterDispose,/cancelled/);ctl.dispose();await disposeRejected;
+});
+await correction('Demo Team read/write zero; live renderer preserved',()=>{
+ const teamSource=html.slice(html.indexOf('function renderTeamUnread(){'),html.indexOf('function _showTeamNewBadge(){'));
+ let reads=0,demoMode=true;
+ const stream={innerHTML:'SENTINEL'},unread={style:{},textContent:''};
+ const st={};Object.defineProperty(st,'team',{get(){reads++;return {messages:[],unread:4};}});
+ const tc={state:st,_isDemo:()=>demoMode,document:{getElementById:id=>id==='team-stream'?stream:unread}};
+ vm.createContext(tc);vm.runInContext(teamSource,tc);
+ tc.renderTeamUnread();tc.renderTeamStream();assert.equal(reads,0);assert.equal(stream.innerHTML,'SENTINEL');
+ demoMode=false;tc.renderTeamUnread();tc.renderTeamStream();assert.ok(reads>0);assert.notEqual(stream.innerHTML,'SENTINEL');
+});
+await correction('actual canonical Map index has one entry per market pair',async()=>{
+ const mapSource=fs.readFileSync(path.join(ROOT,'dist/map.js'),'utf8');
+ const start=mapSource.indexOf('function _vizCargoSignalMatchIndex(){'),end=mapSource.indexOf('\n// ---',start);
+ const mc={state:{bazaarPairs:await demo.invoke('fetch_bazaar_pairs'),inbox:await demo.invoke('fetch_matches_inbox')}};
+ vm.createContext(mc);vm.runInContext(mapSource.slice(start,end),mc);
+ const index=mc._vizCargoSignalMatchIndex();assert.equal(Object.values(index).flat().length,7);
+ assert.ok(Object.values(index).every(rows=>rows.length===1));
+});
+if(correctionFailures.length)throw Error(correctionFailures.join('\n'));
+const selectSource=html.slice(html.indexOf('function selectMatch(type, id){'),html.indexOf('// ---------- P3 —'));
+const selected=[];const sm={_isDemo:()=>true,state:{inbox:{own_matches:[],bazaar_matches:[]},bazaarPairs:[{id:'demo-pair-test'}]},_demoShowView:name=>assert.equal(name,'match'),selectBazaarPair:id=>selected.push(id)};
+vm.createContext(sm);vm.runInContext(selectSource,sm);sm.selectMatch('bazaar','demo-pair-test');assert.deepEqual(selected,['demo-pair-test'],'canonical Map pair IDs reach the actual pair detail selection');
+for(const locale of ['en','ru']){
+ const wheatChange=demo.sampleResponse(demo.casePacket('demo-group-wheat'),'What changed?',locale);
+ assert.match(wheatChange,/6,500 MT/);assert.match(wheatChange,/6,800 MT/);
+ const steelChange=demo.sampleResponse(demo.casePacket('demo-group-steel'),'What changed?',locale);
+ assert.match(steelChange,locale==='ru'?/отзыве/:/withdrawn/);
+ assert.match(steelChange,locale==='ru'?/не подтверждает возобновление/:/does not establish reactivation/);
+}
+assert.equal(demo.formatCount(1,['sender','senders'],['отправитель','отправителя','отправителей'],'en'),'1 sender');
+assert.equal(demo.formatCount(1,['repeat','repeats'],['повтор','повтора','повторов'],'ru'),'1 повтор');
+assert.equal(demo.formatCount(11,['repeat','repeats'],['повтор','повтора','повторов'],'ru'),'11 повторов');
+assert.equal(demo.formatCount(22,['repeat','repeats'],['повтор','повтора','повторов'],'ru'),'22 повтора');
+assert.ok(!demo.mailMessage('demo-mail-003').body_text.includes('Source: demo-mail-'));
+const ownCargo=await demo.invoke('fetch_my_cargo'),ownMarket=(await demo.invoke('fetch_matches_inbox')).bazaar_matches;
+assert.equal(ownMarket.length,3);
+assert.ok(ownMarket.every(m=>ownCargo.some(c=>c.id===m.cargo_listing.id)&&m.bazaar_tonnage_signal&&!m.bazaar_cargo_signal));
+console.log('Correction PASS: lifecycle examples, plurals, human source and distinct own/market DTOs');

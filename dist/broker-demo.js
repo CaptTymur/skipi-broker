@@ -63,7 +63,7 @@
         { id: 'demo-mail-003', counterpart_id: companies[1].id, from: 'desk@havenline.example.invalid', from_name: 'Havenline Brokers',
             subject: 'Fwd: Larkspur · wheat 6,500 MT Constanta / Alexandria', minutes: 15, group_id: 'demo-group-wheat', position_id: cargo[0].id,
             event: 'Forward with named source', event_ru: 'Пересылка с указанием источника', reply_to_id: 'demo-mail-001',
-            body_text: 'Dear colleagues,\n\nForwarded with source: Larkspur Grain. Their enquiry remains 6,500 MT wheat Constanta / Alexandria, with the same laycan. We are circulating this enquiry as brokers.\n\nPlease confirm vessel availability; do not count this forwarded email as another cargo.\n\nSource: demo-mail-001. This sample does not independently establish authority or availability.\nHavenline Brokers' },
+            body_text: 'Dear colleagues,\n\nForwarded with source: Larkspur Grain. Their enquiry remains 6,500 MT wheat Constanta / Alexandria, with the same laycan. We are circulating this enquiry as brokers.\n\nPlease confirm vessel availability; do not count this forwarded email as another cargo.\n\nSource: Larkspur Grain — Wheat 6,500 MT, Constanta / Alexandria. This sample does not independently establish authority or availability.\nHavenline Brokers' },
         { id: 'demo-mail-004', counterpart_id: companies[0].id, from: 'cargo@larkspur.example.invalid', from_name: 'Larkspur Grain',
             subject: 'Separate enquiry · wheat Constanta / Mersin', minutes: 5, position_id: cargo[7].id,
             event: 'Similar cargo, different destination', event_ru: 'Похожий груз, другой порт',
@@ -92,7 +92,7 @@
             subject:subject,body_text:body,position_ids:ids,position_id:ids[0],position_kind:ids[0].indexOf('tonnage')>=0?'tonnage':'cargo',
             date_received:date(0,minutesById[number-1]),thread_id:'demo-thread-'+ids[0]},extra||{}));
     }
-    addMail(5,0,'Correction · wheat quantity and laycan','Good day,\n\nPlease amend our Alexandria enquiry: quantity is now 6,800 MT and laycan is '+date(3).slice(0,10)+' to '+date(7).slice(0,10)+'. This replaces the 6,500 MT / earlier window in messages 001–003. Ports and cargo specification remain unchanged.\n\nPlease acknowledge the correction; loading rate remains to be agreed.\nLarkspur Grain',[cargo[0].id],{event:'Quantity and window corrected',event_ru:'Количество и окно исправлены',reply_to_id:'demo-mail-001'});
+    addMail(5,0,'Correction · wheat quantity and laycan','Good day,\n\nPlease amend our Alexandria enquiry: quantity is now 6,800 MT and laycan is '+date(3).slice(0,10)+' to '+date(7).slice(0,10)+'. This replaces our earlier 6,500 MT enquiry and its forwarded copies. Ports and cargo specification remain unchanged.\n\nPlease acknowledge the correction; loading rate remains to be agreed.\nLarkspur Grain',[cargo[0].id],{event:'Quantity and window corrected',event_ru:'Количество и окно исправлены',reply_to_id:'demo-mail-001'});
     addMail(6,4,'Steel coils 12,000 MT · Marmara / Casablanca · mandate claimed','Dear colleagues,\n\n12,000 MT steel coils, Marmara / Casablanca, laycan '+cargo[1].laycan_from.slice(0,10)+' to '+cargo[1].laycan_to.slice(0,10)+'. We claim an exclusive mandate for this enquiry.\n\nNo authority letter or named principal is attached to this sample. Please request confirmation before relying on the claim.\nSilverwake Agency',[cargo[1].id],{event:'Mandate claimed; evidence not shown',event_ru:'Мандат заявлен; подтверждения не показаны'});
     addMail(7,3,'Fwd: Silverwake · 12,000 MT steel coils Marmara / Casablanca','Good day,\n\nRecirculating the Silverwake enquiry: 12,000 MT steel coils, Marmara / Casablanca, same window as their original message. We have no additional authority document.\n\nPlease refer to the named source; this is the same cargo, not another parcel.\nTidefold Chartering',[cargo[1].id],{event:'Recirculation with named source',event_ru:'Повторная рассылка с источником',reply_to_id:'demo-mail-006'});
     addMail(8,1,'Withdrawal reported · Marmara / Casablanca steel','Dear colleagues,\n\nWe relay a withdrawal notice for the Silverwake 12,000 MT steel enquiry. Please remove the parcel from active matching. Any later circulation needs fresh confirmation from the named principal.\n\nThe original mandate evidence has not been supplied in this sample.\nHavenline Brokers',[cargo[1].id],{event:'Withdrawal notice',event_ru:'Уведомление об отзыве',reply_to_id:'demo-mail-006'});
@@ -181,9 +181,12 @@
                 reasons:['Sample capacity: quantity <= 95% DWT','Same load/open port','Overlapping date windows']});
         });
     });
-    var matches = pairs.map(function (p, i) {
+    // Own cargo × market tonnage is a distinct DTO direction. Do not present
+    // the same market cargo again as bazaar_cargo_signal in the map fallback.
+    var ownCargoIds=cargo.filter(function(p){return p.status==='active';}).slice(0,3).map(function(p){return p.id;});
+    var matches = pairs.filter(function(p){return ownCargoIds.indexOf(p.cargo_signal.id)>=0;}).map(function (p, i) {
         return { id: 'demo-match-' + (i + 1), cargo_listing: p.cargo_signal, bazaar_tonnage_signal: p.tonnage_signal,
-            bazaar_cargo_signal: p.cargo_signal, score: p.score, created_at: p.created_at, reasons: p.reasons };
+            score: p.score, created_at: p.created_at, reasons: p.reasons };
     });
     var settings = { broker_id: 'demo-local', bearer_token: '', server_url: '', display_name: 'Sample Chartering (Demo)',
         reply_to: 'broker@sample.example.invalid', team_nickname: 'Demo Broker', chat_sound: false };
@@ -245,13 +248,36 @@
         if(records.length>8||JSON.stringify(packet).length>12000)throw unavailable();
         return clone(packet);
     }
+    function formatCount(n,en,ru,locale){
+        n=Number.isFinite(Number(n))?Math.max(0,Math.floor(Number(n))):0;
+        var forms=locale==='ru'?ru:en;
+        var mod=n%100,one=n%10;
+        var index=locale==='ru'?(mod>=11&&mod<=14?2:(one===1?0:(one>=2&&one<=4?1:2))):(n===1?0:1);
+        return n+' '+forms[index];
+    }
     function sampleResponse(packet,question,locale){
         var checked=casePacket(packet.case_id),ru=locale==='ru',q=String(question||'').trim().toLowerCase();
         var status=ru?'Пример ответа · демоверсия\n\n':'Sample response · demo preview\n\n';
-        if(/duplicate|повтор|дубл/.test(q))return status+(ru?'В этом примере ':'In this sample there are ')+checked.counts.occurrences+(ru?' появления и ':' appearances and ')+checked.counts.duplicates+(ru?' точных повтора. Сравните исходные письма: параметры одной позиции совпадают; исправления и отзыв показаны отдельно.':' exact repeats. Compare the linked source messages: the position terms match; revisions and withdrawal are recorded separately.');
-        if(/chang|измен|исправ/.test(q))return status+(checked.counts.revisions?(ru?'В истории есть явное исправление. Последние параметры показаны в карточке выбранного кейса; первоначальные письма сохранены без переписывания. Уточните принятие новых условий.':'The history includes an explicit correction. The selected case shows the latest terms; original messages remain unchanged. Ask whether the revised terms have been acknowledged.'):(ru?'В показанной истории нет явного исправления параметров. Повтор сам по себе не добавляет новую позицию.':'No explicit correction of terms appears in this case history. A repeat does not itself create another position.'));
+        var group=duplicateGroups.filter(function(g){return g.id===checked.case_id;})[0];
+        if(/duplicate|повтор|дубл/.test(q))return status+(ru?'В этом примере: ':'In this sample: ')
+            +formatCount(checked.counts.occurrences,['appearance','appearances'],['появление','появления','появлений'],locale)+' · '
+            +formatCount(checked.counts.duplicates,['exact repeat','exact repeats'],['точный повтор','точных повтора','точных повторов'],locale)
+            +(ru?'. Сравните исходные письма: параметры одной позиции совпадают; исправления и отзыв показаны отдельно.':'. Compare the linked source messages: the position terms match; revisions and withdrawal are recorded separately.');
+        if(/chang|измен|исправ/.test(q)){
+            if(checked.counts.withdrawals)return status+(ru?'Поступило сообщение об отзыве steel coils Marmara / Casablanca. Позиция исключена из активных совпадений. Более поздняя рассылка повторяет старые условия и не подтверждает возобновление; историческая группа сохранена. Запросите актуальную доступность у источника.':'Steel coils Marmara / Casablanca was reported withdrawn and is excluded from active matching. A later stale circulation repeats the old terms and does not establish reactivation; the historical group is retained. Ask the source to confirm current availability.');
+            if(checked.counts.revisions&&group){
+                var current=group.position,wheat=group.id==='demo-group-wheat';
+                var from=wheat?date(2):date(3),to=wheat?date(6):date(9);
+                var latestFrom=current.laycan_from||current.open_from,latestTo=current.laycan_to||current.open_to;
+                return status+(wheat?(ru?'Количество пшеницы изменено с 6,500 MT на 6,800 MT. ':'Wheat quantity changed from 6,500 MT to 6,800 MT. '):(ru?'Окно открытия судна исправлено. ':'The vessel opening window was revised. '))
+                    +(ru?'Прежнее окно: ':'Previous window: ')+from.slice(0,10)+' – '+to.slice(0,10)+'. '
+                    +(ru?'Новое окно: ':'Revised window: ')+latestFrom.slice(0,10)+' – '+latestTo.slice(0,10)+'. '
+                    +(ru?'Исходные письма сохранены. Уточните принятие исправления.':'Original messages remain unchanged. Ask whether the correction has been acknowledged.');
+            }
+            return status+(ru?'В показанной истории нет явного исправления параметров. Повтор сам по себе не добавляет новую позицию.':'No explicit correction of terms appears in this case history. A repeat does not itself create another position.');
+        }
         if(/mandate|authority|missing|мандат|полномоч|не хватает/.test(q))return status+(ru?'Заявление не заменяет подтверждение. В этих примерах не показаны письменные полномочия, их объём и срок, а также независимое подтверждение принципала. Запросите эти сведения; не делайте вывод о мошенничестве.':'A claim is not evidence of authority. These samples do not show written authority, its scope or expiry, or independent confirmation from the principal. Request those facts; do not infer fraud.');
-        if(/question|clarif|draft|вопрос|уточн|состав/.test(q))return status+(ru?'Уточните: кто принципал и как подтверждены полномочия; какие количество и окно действуют сейчас; подтверждены ли ставка погрузки, ограничения терминала и доступность позиции; кем и когда принято последнее исправление или отзыв.':'Ask who the principal is and how authority is evidenced; which quantity and window are current; whether loading rate, terminal limits and availability are confirmed; and who acknowledged the latest correction or withdrawal.');
+        if(/question|clarif|draft|вопрос|уточн|состав/.test(q))return status+(ru?'Уточните: кто принципал и как подтверждены полномочия; какие количество и окно действуют сейчас; подтверждены ли норма погрузки, ограничения терминала и доступность позиции; кем и когда принято последнее исправление или отзыв.':'Ask who the principal is and how authority is evidenced; which quantity and window are current; whether loading rate, terminal limits and availability are confirmed; and who acknowledged the latest correction or withdrawal.');
         return status+(ru?'Здесь доступны подготовленные примеры по выбранному вымышленному кейсу. Выберите вопрос о повторах, изменённых условиях, недостающих полномочиях или уточнениях.':'Prepared examples are available for the selected fictional case. Choose a question about duplicates, changed terms, missing authority or clarifications.');
     }
     function invoke(command, args) {
@@ -300,5 +326,5 @@
         }, true);
     }
     Object.defineProperty(global, 'SkipiBrokerDemo', { value: Object.freeze({ active: active, storage: storage, invoke: invoke, enter: enter, exit: exit,
-        mailList:mailList, mailMessage:mailMessage, markMailRead:markMailRead, listCases:listCases, casePacket:casePacket, sampleResponse:sampleResponse, positionsForMail:positionsForMail }), writable: false, configurable: false });
+        mailList:mailList, mailMessage:mailMessage, markMailRead:markMailRead, listCases:listCases, casePacket:casePacket, sampleResponse:sampleResponse, formatCount:formatCount, positionsForMail:positionsForMail }), writable: false, configurable: false });
 })(window);

@@ -228,7 +228,7 @@ assert.match(html, /view:'mail',\s+slug:'mail'/, 'Mail is reachable through norm
 // Causal control at the real new group-rendering call site: removing the
 // summary escape changes the oracle from inert text to executable markup.
 const rendererSource = html.slice(html.indexOf('function _dedupClusterCard(c){'), html.indexOf('function renderDedup(){'));
-const renderer = { _isDemo:()=>true, getUiLang:()=> 'en', _demoText:en=>en,
+const renderer = { brokerDemo:showcase, _demoCount:(n,en,ru)=>showcase.formatCount(n,en,ru,'en'), _isDemo:()=>true, getUiLang:()=> 'en', _demoText:en=>en,
   esc:value=>String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),
   escNum:value=>String(Number(value)||0), escAttrVal:value=>String(value).replace(/"/g,'&quot;'), escJs:value=>String(value).replace(/'/g,"\\'") };
 vm.createContext(renderer);
