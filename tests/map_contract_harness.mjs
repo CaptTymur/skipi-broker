@@ -7,6 +7,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -63,3 +65,54 @@ if (fail) {
   process.exit(1);
 }
 console.log(`\n${pass} Map contract assertions passed`);
+
+// Execute real startup callers. Browser acceptance separately verifies actual
+// Leaflet geometry; these tests catch auth/startup races without an API.
+const stateStart = html.indexOf('var state = {');
+const stateEnd = html.indexOf('\n};', stateStart) + 3;
+const bootStart = html.indexOf('async function _bootContinue(){');
+const bootEnd = html.indexOf('// ---------- Boot ----------', bootStart);
+const mobileStart = html.indexOf('function mobileInitIfNeeded(){');
+const mobileEnd = html.indexOf('// Long-press a team message', mobileStart);
+function startup({ phase = 'free', mobile = false, refresh } = {}) {
+  const views = [];
+  const ctx = {
+    console, state: {}, document: { body: { classList: { add() {}, toggle() {} } }, getElementById() { return null; } },
+    window: {}, refreshIdentityBadge() {}, _isDemo() { return false; },
+    trialGateApply: async () => phase, refreshAll: refresh || (async () => {}),
+    startAutoRefresh() {}, initTeamChat() {}, emitTeamEvent() {}, checkForUpdates() {}, maybePromptForFeedback() {},
+    showView: name => views.push(name), mobileSwitchView: name => views.push(name),
+    isMobileViewport: () => mobile, setupMobileMatchSplitter() { return true; }, _setupTeamLongPress() {},
+    setTimeout() { return 1; }, APP_VERSION: 'test',
+  };
+  vm.createContext(ctx);
+  vm.runInContext(html.slice(stateStart, stateEnd) + html.slice(bootStart, bootEnd) + html.slice(mobileStart, mobileEnd), ctx);
+  return { ctx, views };
+}
+for (const mobile of [false, true]) {
+  const s = startup({ mobile });
+  assert.equal(s.ctx.state.view, 'viz', 'a fresh profile defaults to Map');
+  s.ctx.mobileInitIfNeeded();
+  assert.equal(s.views.length, 0, 'mobile layout does not open a data-reading view before auth');
+  await s.ctx._bootContinue();
+  assert.equal(s.views.at(-1), 'viz', 'authorized startup opens Map');
+  s.ctx.state.view = 'cases';
+  await s.ctx._bootContinue();
+  assert.equal(s.views.at(-1), 'cases', 'repeat boot preserves the explicit module');
+}
+let release;
+const delayed = startup({ mobile: true, refresh: () => new Promise(resolve => { release = resolve; }) });
+const pending = delayed.ctx._bootContinue();
+for (let i = 0; i < 10 && !release; i++) await Promise.resolve();
+assert.equal(typeof release, 'function', 'the actual startup reached its pending refresh');
+delayed.ctx.mobileInitIfNeeded();
+assert.equal(delayed.views.length, 0, 'DOMContentLoaded while auth refresh is pending cannot fetch Map data');
+delayed.ctx.state.view = 'signals';
+release();
+await pending;
+assert.equal(delayed.views.at(-1), 'signals', 'a late refresh does not steal explicit navigation');
+const blocked = startup({ phase: 'blocked', mobile: true });
+blocked.ctx.mobileInitIfNeeded();
+await blocked.ctx._bootContinue();
+assert.equal(blocked.views.length, 0, 'inactive profile cannot open the default Map');
+console.log('Map startup: desktop/mobile auth timing and explicit navigation PASS');

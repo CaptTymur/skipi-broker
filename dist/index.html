@@ -4,7 +4,37 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skipi Broker · Stack SKIPI-2026.08-R1</title>
+<script src="broker-demo.js"></script>
 <script>
+// A missing Demo asset must never fall through to a real profile transport.
+const brokerDemoRequested = window.__SKIPI_BROKER_DEMO__ === true
+    || ((location.protocol === 'tauri:' || location.hostname === 'tauri.localhost')
+        && new URL(location.href).searchParams.get('demo') === '1');
+const brokerDemo = window.SkipiBrokerDemo;
+const brokerBootstrapBlocked = brokerDemoRequested && !(brokerDemo && brokerDemo.active);
+// This immutable lexical binding selects storage for every host script in this
+// document. It does not replace Window.localStorage: Demo never acquires that
+// getter, and a real profile remains available unchanged after leaving Demo.
+const localStorage = (function(){
+    if(!brokerBootstrapBlocked && brokerDemo && brokerDemo.active) return brokerDemo.storage;
+    if(!brokerDemoRequested){
+        try { return window.localStorage; } catch(_) { /* Storage can be denied by the WebView. */ }
+    }
+    var memory = Object.create(null);
+    if(brokerDemoRequested) memory['skipi-ui-language'] = new URL(location.href).searchParams.get('lang') === 'ru' ? 'ru' : 'en';
+    return Object.freeze({
+        getItem:function(key){return Object.prototype.hasOwnProperty.call(memory,key) ? memory[key] : null;},
+        setItem:function(key,value){memory[String(key)] = String(value);},
+        removeItem:function(key){delete memory[String(key)];}
+    });
+})();
+function brokerInvoke(command, args){
+    if(brokerBootstrapBlocked) return Promise.reject(new Error('Demo could not load. Please reload the page.'));
+    if(brokerDemo && brokerDemo.active) return brokerDemo.invoke(command, args);
+    var live = (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke)
+        || (window.__TAURI__ && window.__TAURI__.invoke);
+    return live ? live(command, args) : Promise.reject(new Error('Broker connection unavailable'));
+}
 var APP_BUILD_METADATA={
     component: 'Broker',
     component_version: '0.1.152',
@@ -74,10 +104,7 @@ function setBuildInfo(info){ setBuildMetadata(info); }
 async function loadBuildInfo(){
     for(var i=0;i<30;i++){
         try{
-            var liveInvoke = (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke)
-                || (window.__TAURI__ && window.__TAURI__.invoke);
-            if(liveInvoke){
-                invoke = liveInvoke;
+            if(typeof invoke === 'function'){
                 setBuildMetadata(await invoke('get_build_info'));
                 return;
             }
@@ -97,7 +124,7 @@ function updateTitlebar(){
     // granted by default — skip outright to avoid the "not allowed"
     // unhandled rejection in logcat.
     var isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent || '');
-    if(isMobile) return;
+    if(isMobile || brokerBootstrapBlocked || (brokerDemo && brokerDemo.active)) return;
     try {
         if(window.__TAURI__ && window.__TAURI__.window){
             var w = window.__TAURI__.window.getCurrentWindow
@@ -130,6 +157,44 @@ var UI_LANG_VALID=UI_LANG_OPTIONS.reduce(function(a,o){a[o[0]]=true;return a;},{
 // terminology in English mirrors Clarksons / SSY style.
 var UI_STRINGS={
     ru:{
+        "map.filters":"🗺 Фильтры",
+        "map.filtersMobile":"⚙ Фильтры",
+        "map.mode":"Режим",
+        "map.signals":"📍 Сигналы",
+        "map.flows":"🌊 Грузопотоки",
+        "map.timeline":"⏱ Хроника",
+        "map.layer":"Слой",
+        "map.cargo":"📦 Грузы",
+        "map.tonnage":"🚢 Тоннаж",
+        "map.soon":"(скоро)",
+        "map.period":"Период (дней)",
+        "map.window":"Окно (дней назад)",
+        "map.dayLayers":"Слои на этот день",
+        "map.timelineHint":"Прокликай ползунок ниже — увидишь как сигналы появлялись и снимались. ▶ Play даёт анимацию.",
+        "map.safety":"Безопасность",
+        "map.region":"Регион (load)",
+        "map.size":"Размер",
+        "map.age":"Свежесть",
+        "map.all":"все",
+        "map.active":"все активные",
+        "map.6h":"≤6 часов",
+        "map.24h":"≤24 часа",
+        "map.72h":"≤72 часа",
+        "map.refresh":"🔄 Обновить базу",
+        "map.visible":"Видимые сигналы",
+        "rail.ex":"Мои позиции",
+        "rail.bazaar":"Базар",
+        "rail.matches":"Совпадения",
+        "rail.map":"Карта",
+        "status.bazaar":"Базар",
+        "status.coverage":"Покрытие",
+        "status.fresh":"Свежие совпадения",
+        "status.untilClose":"до закрытия",
+        "status.untilOpen":"до открытия",
+        "status.minutes":"м",
+        "status.hours":"ч",
+        "map.msiNotice":"Ситуационная осведомлённость. Не замена GMDSS (NAVTEX / SafetyNET / SafetyCast). Символика S-52-inspired, не certified ECDIS.",
+        'demo.notice':'Демо · Вымышленные данные','demo.exit':'Выйти из демо',
         'nav.exclusives':'📋 Эксклюзивы','nav.matches':'🎯 Совпадения','nav.signals':'🛒 Базар',
         'nav.duplicates':'🔍 Дубли','nav.counterparts':'🤝 Контрагенты',
         'nav.map':'🗺 Карта','nav.mail':'📧 Почта','nav.cases':'📂 Дела','nav.team':'💬 Команда',
@@ -248,6 +313,44 @@ var UI_STRINGS={
         'settings.broker.devices.revoke_confirm':'Отозвать это устройство? Его доступ будет аннулирован на сервере.',
     },
     en:{
+        "map.filters":"🗺 Filters",
+        "map.filtersMobile":"⚙ Filters",
+        "map.mode":"Mode",
+        "map.signals":"📍 Signals",
+        "map.flows":"🌊 Cargo flows",
+        "map.timeline":"⏱ Timeline",
+        "map.layer":"Layer",
+        "map.cargo":"📦 Cargo",
+        "map.tonnage":"🚢 Tonnage",
+        "map.soon":"(soon)",
+        "map.period":"Period (days)",
+        "map.window":"Look back (days)",
+        "map.dayLayers":"Layers on this day",
+        "map.timelineHint":"Move the slider to see when sample signals appeared and closed. Press Play to animate.",
+        "map.safety":"Safety",
+        "map.region":"Loading region",
+        "map.size":"Size",
+        "map.age":"Age",
+        "map.all":"all",
+        "map.active":"all active",
+        "map.6h":"≤6 hours",
+        "map.24h":"≤24 hours",
+        "map.72h":"≤72 hours",
+        "map.refresh":"🔄 Refresh data",
+        "map.visible":"Visible signals",
+        "rail.ex":"My positions",
+        "rail.bazaar":"Bazaar",
+        "rail.matches":"Matches",
+        "rail.map":"Map",
+        "status.bazaar":"Bazaar",
+        "status.coverage":"Coverage",
+        "status.fresh":"Fresh matches",
+        "status.untilClose":"until close",
+        "status.untilOpen":"until open",
+        "status.minutes":"m",
+        "status.hours":"h",
+        "map.msiNotice":"Situational awareness. Does not replace GMDSS (NAVTEX / SafetyNET / SafetyCast). S-52-inspired symbols; not certified ECDIS.",
+        'demo.notice':'Demo · Fictional sample data','demo.exit':'Exit demo',
         'nav.exclusives':'📋 Exclusives','nav.matches':'🎯 Matches','nav.signals':'🛒 Bazaar',
         'nav.duplicates':'🔍 Duplicates','nav.counterparts':'🤝 Counterparties',
         'nav.map':'🗺 Map','nav.mail':'📧 Mail','nav.cases':'📂 Cases','nav.team':'💬 Desk',
@@ -476,6 +579,11 @@ document.addEventListener('DOMContentLoaded', function(){
 }
 body { background:var(--bg); color:var(--text); font-family:var(--font-ui);
     font-size:var(--font-size-ui); height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+/* Reserve a desktop row for the Demo notice; never cover the map or footer. */
+body.demo-mode:not(.mobile-mode) #demo-banner {
+    position:static !important; flex:0 0 32px; justify-content:center;
+    border-radius:0 !important; box-shadow:none !important;
+}
 ::selection { background:var(--accent-bg2); }
 input, select, button, textarea { font-family:var(--font-ui); font-size:var(--font-size-ui); color:inherit; }
 a { color:var(--accent-text); text-decoration:none; cursor:pointer; }
@@ -853,6 +961,7 @@ body.mobile-mode .mrail-btn {
     transition:color .15s, background .15s, border-color .15s;
 }
 body.mobile-mode .mrail-btn span { font-size:19px; line-height:1; }
+body.mobile-mode .mrail-btn .mrail-label { font-size:inherit; line-height:inherit; }
 body.mobile-mode .mrail-btn.active {
     color:#fff; background:var(--accent, #004564);
     border-color:var(--accent, #004564);
@@ -4313,8 +4422,8 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
 <div id="demo-banner" style="display:none; position:fixed; left:14px; bottom:14px; z-index:94;
     background:#3C3489; color:#fff; padding:6px 12px; border-radius:16px; font-size:11px;
     align-items:center; gap:8px; box-shadow:0 4px 14px rgba(60,52,137,.45);">
-    <span style="font-weight:600;">🎬 Демонстрация</span>
-    <button onclick="_exitDemo()" style="background:rgba(255,255,255,.22); color:#fff; border:none; border-radius:10px; padding:3px 10px; font-size:11px; cursor:pointer; font-weight:600;">Выйти</button>
+    <span style="font-weight:600;" data-i18n="demo.notice">Demo · Fictional sample data</span>
+    <button onclick="_exitDemo()" style="background:rgba(255,255,255,.22); color:#fff; border:none; border-radius:10px; padding:3px 10px; font-size:11px; cursor:pointer; font-weight:600;" data-i18n="demo.exit">Exit demo</button>
 </div>
 
 <!-- Mobile-only top bar (visible only on body.mobile-mode). Matches the
@@ -4332,22 +4441,22 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
      Карта · Apps. No scroll; остальные модули открываются из грида Apps. -->
 <div class="mobile-bottom-rail-wrap" id="mobile-bottom-rail-wrap">
     <div class="mobile-bottom-rail" id="mobile-bottom-rail">
-        <button class="mrail-btn" id="mrail-ex" data-qa="bottom-nav-my-positions" type="button" onclick="mobileSwitchView('ex')"><span>&#128203;</span>Мои позиции</button>
-        <button class="mrail-btn" id="mrail-signals" data-qa="bottom-nav-bazaar" type="button" onclick="mobileSwitchView('signals')"><span>&#128722;</span>Базар</button>
-        <button class="mrail-btn active" id="mrail-match" data-qa="bottom-nav-matches" type="button" onclick="mobileSwitchView('match')"><span>&#127919;</span>Совпадения</button>
-        <button class="mrail-btn" id="mrail-viz" data-qa="bottom-nav-map" type="button" onclick="mobileSwitchView('viz')"><span>&#128506;</span>Карта</button>
+        <button class="mrail-btn" id="mrail-ex" data-qa="bottom-nav-my-positions" type="button" onclick="mobileSwitchView('ex')"><span>&#128203;</span><span class="mrail-label" data-i18n="rail.ex">Мои позиции</span></button>
+        <button class="mrail-btn" id="mrail-signals" data-qa="bottom-nav-bazaar" type="button" onclick="mobileSwitchView('signals')"><span>&#128722;</span><span class="mrail-label" data-i18n="rail.bazaar">Базар</span></button>
+        <button class="mrail-btn" id="mrail-match" data-qa="bottom-nav-matches" type="button" onclick="mobileSwitchView('match')"><span>&#127919;</span><span class="mrail-label" data-i18n="rail.matches">Совпадения</span></button>
+        <button class="mrail-btn active" id="mrail-viz" data-qa="bottom-nav-map" type="button" onclick="mobileSwitchView('viz')"><span>&#128506;</span><span class="mrail-label" data-i18n="rail.map">Карта</span></button>
         <button class="mrail-btn" id="mrail-apps" data-qa="bottom-nav-apps" type="button" onclick="mobileSwitchView('apps')"><span>&#129513;</span>Apps</button>
     </div>
 </div>
 
 <div class="modules-bar">
-    <div class="mod-tab active" id="nav-ex" onclick="showView('ex')"><span data-i18n="nav.exclusives">📋 Эксклюзивы</span></div>
+    <div class="mod-tab" id="nav-ex" onclick="showView('ex')"><span data-i18n="nav.exclusives">📋 Эксклюзивы</span></div>
     <div class="mod-tab" id="nav-match" onclick="showView('match')"><span data-i18n="nav.matches">🎯 Совпадения</span> <span id="match-badge" class="count" style="display:none;"></span></div>
     <!-- 📋 Лиды убран 03.06 — merged into 📂 Дела (lead = case со статусом lead). -->
     <div class="mod-tab" id="nav-signals" onclick="showView('signals')"><span data-i18n="nav.signals">🛒 Сигналы</span> <span id="signals-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-dedup" data-qa="broker-module-dedup" onclick="showView('dedup')"><span data-i18n="nav.duplicates">🔍 Дедупликатор</span> <span id="dedup-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-partners" data-qa="broker-module-counterparties" onclick="showView('partners')"><span data-i18n="nav.counterparts">🤝 Контрагенты</span> <span id="partners-badge" class="count" style="display:none;"></span></div>
-    <div class="mod-tab" id="nav-viz" onclick="showView('viz')"><span data-i18n="nav.map">🗺 Визуализатор</span></div>
+    <div class="mod-tab active" id="nav-viz" onclick="showView('viz')"><span data-i18n="nav.map">🗺 Визуализатор</span></div>
     <div class="mod-tab" id="nav-mail" onclick="showView('mail')"><span data-i18n="nav.mail">📧 Почта</span> <span id="mail-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-cases" onclick="showView('cases')"><span data-i18n="nav.cases">📂 Дела</span> <span id="cases-badge" class="count" style="display:none;"></span></div>
     <div class="mod-tab" id="nav-team" onclick="showView('team')"><span data-i18n="nav.team">💬 Команда</span> <span id="team-nav-badge" class="count" style="display:none;"></span></div>
@@ -4695,25 +4804,25 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
     <div class="view-pane view-viz-stack" id="view-viz" style="display:none;">
         <div class="viz-sidebar-backdrop" onclick="vizToggleFilters()"></div>
         <div class="viz-sidebar">
-            <div class="col-head"><span>🗺 Фильтры</span><span class="count" id="viz-visible-count">0</span></div>
+            <div class="col-head"><span data-i18n="map.filters">🗺 Фильтры</span><span class="count" id="viz-visible-count">0</span></div>
             <div class="viz-filter-body">
                 <div class="viz-section">
-                    <label>Режим</label>
+                    <label data-i18n="map.mode">Режим</label>
                     <div class="viz-mode-tabs">
-                        <span class="viz-mode-tab active" id="viz-mode-signals" onclick="setVizMode('signals')">📍 Сигналы</span>
-                        <span class="viz-mode-tab" id="viz-mode-flows" onclick="setVizMode('flows')">🌊 Грузопотоки</span>
-                        <span class="viz-mode-tab" id="viz-mode-timeline" onclick="setVizMode('timeline')">⏱ Хроника</span>
+                        <span class="viz-mode-tab active" id="viz-mode-signals" onclick="setVizMode('signals')" data-i18n="map.signals">📍 Сигналы</span>
+                        <span class="viz-mode-tab" id="viz-mode-flows" onclick="setVizMode('flows')" data-i18n="map.flows">🌊 Грузопотоки</span>
+                        <span class="viz-mode-tab" id="viz-mode-timeline" onclick="setVizMode('timeline')" data-i18n="map.timeline">⏱ Хроника</span>
                     </div>
                 </div>
                 <div class="viz-section viz-section-signals" id="viz-section-signals">
-                    <label>Слой</label>
+                    <label data-i18n="map.layer">Слой</label>
                     <div class="viz-layer-toggle">
-                        <label><input type="checkbox" id="viz-show-cargo" checked onchange="renderVizMap()"> 📦 Грузы</label>
-                        <label><input type="checkbox" id="viz-show-tonnage" onchange="renderVizMap()"> 🚢 Тоннаж <span style="color:var(--text3); font-size:10px;">(скоро)</span></label>
+                        <label><input type="checkbox" id="viz-show-cargo" checked onchange="renderVizMap()"> <span data-i18n="map.cargo">📦 Грузы</span></label>
+                        <label><input type="checkbox" id="viz-show-tonnage" onchange="renderVizMap()"> <span data-i18n="map.tonnage">🚢 Тоннаж</span> <span style="color:var(--text3); font-size:10px;" data-i18n="map.soon">(скоро)</span></label>
                     </div>
                 </div>
                 <div class="viz-section viz-section-flows" id="viz-section-flows" style="display:none;">
-                    <label>Период (дней)</label>
+                    <label data-i18n="map.period">Период (дней)</label>
                     <select id="viz-flow-days" onchange="renderVizFlows()">
                         <option value="7">7</option>
                         <option value="14">14</option>
@@ -4723,32 +4832,32 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
                     </select>
                 </div>
                 <div class="viz-section viz-section-timeline" id="viz-section-timeline" style="display:none;">
-                    <label>Окно (дней назад)</label>
+                    <label data-i18n="map.window">Окно (дней назад)</label>
                     <select id="viz-tl-days" onchange="renderVizTimeline(true)">
                         <option value="7">7</option>
                         <option value="14">14</option>
                         <option value="30" selected>30</option>
                         <option value="60">60</option>
                     </select>
-                    <label style="margin-top:8px;">Слои на этот день</label>
+                    <label style="margin-top:8px;" data-i18n="map.dayLayers">Слои на этот день</label>
                     <div class="viz-layer-toggle">
-                        <label><input type="checkbox" id="viz-tl-cargo" checked onchange="_tlRedraw()"> 📦 Грузы</label>
-                        <label><input type="checkbox" id="viz-tl-tonn" checked onchange="_tlRedraw()"> 🚢 Тоннаж</label>
+                        <label><input type="checkbox" id="viz-tl-cargo" checked onchange="_tlRedraw()"> <span data-i18n="map.cargo">📦 Грузы</span></label>
+                        <label><input type="checkbox" id="viz-tl-tonn" checked onchange="_tlRedraw()"> <span data-i18n="map.tonnage">🚢 Тоннаж</span></label>
                     </div>
-                    <div style="margin-top:8px; font-size:10px; color:var(--text3); line-height:1.4;">
+                    <div style="margin-top:8px; font-size:10px; color:var(--text3); line-height:1.4;" data-i18n="map.timelineHint">
                         Прокликай ползунок ниже — увидишь как сигналы появлялись и снимались. ▶ Play даёт анимацию.
                     </div>
                 </div>
                 <div class="viz-section">
-                    <label>Безопасность</label>
+                    <label data-i18n="map.safety">Безопасность</label>
                     <div class="viz-layer-toggle">
                         <label><input type="checkbox" id="viz-show-msi" onchange="vizToggleMsi(this.checked)"> ⚠️ Maritime Safety (MSI)</label>
                     </div>
                 </div>
                 <div class="viz-section">
-                    <label>Регион (load)</label>
+                    <label data-i18n="map.region">Регион (load)</label>
                     <select id="viz-region" onchange="renderVizMap()">
-                        <option value="">все</option>
+                        <option value="" data-i18n="map.all">все</option>
                         <option value="blacksea">Black Sea</option>
                         <option value="med">Med</option>
                         <option value="weurope">NW Europe</option>
@@ -4761,9 +4870,9 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
                     </select>
                 </div>
                 <div class="viz-section">
-                    <label>Размер</label>
+                    <label data-i18n="map.size">Размер</label>
                     <select id="viz-size" onchange="renderVizMap()">
-                        <option value="">все</option>
+                        <option value="" data-i18n="map.all">все</option>
                         <option value="coaster">coaster (≤5K)</option>
                         <option value="handysize">handy (5-20K)</option>
                         <option value="handymax">handymax (20-40K)</option>
@@ -4772,19 +4881,19 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
                     </select>
                 </div>
                 <div class="viz-section">
-                    <label>Свежесть</label>
+                    <label data-i18n="map.age">Свежесть</label>
                     <select id="viz-age" onchange="renderVizMap()">
-                        <option value="">все активные</option>
-                        <option value="6h">≤6 часов</option>
-                        <option value="24h">≤24 часа</option>
-                        <option value="72h">≤72 часа</option>
+                        <option value="" data-i18n="map.active">все активные</option>
+                        <option value="6h" data-i18n="map.6h">≤6 часов</option>
+                        <option value="24h" data-i18n="map.24h">≤24 часа</option>
+                        <option value="72h" data-i18n="map.72h">≤72 часа</option>
                     </select>
                 </div>
                 <div class="viz-section">
-                    <button class="btn btn-sm" onclick="refreshSignalsBrowse().then(renderVizMap)">🔄 Обновить базу</button>
+                    <button class="btn btn-sm" onclick="refreshSignalsBrowse().then(renderVizMap)" data-i18n="map.refresh">🔄 Обновить базу</button>
                 </div>
                 <div class="viz-section">
-                    <label>Видимые сигналы</label>
+                    <label data-i18n="map.visible">Видимые сигналы</label>
                     <div id="viz-visible-list" class="viz-list"></div>
                 </div>
             </div>
@@ -4796,9 +4905,9 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
                  (vizToggleMsi below). Awareness layer, not certified ECDIS / GMDSS. -->
             <div id="viz-msi-wrap" style="display:none;">
                 <div id="viz-msi-map"></div>
-                <div id="viz-msi-disclaimer">Ситуационная осведомлённость. Не замена GMDSS (NAVTEX / SafetyNET / SafetyCast). Символика S-52-inspired, не certified ECDIS.</div>
+                <div id="viz-msi-disclaimer" data-i18n="map.msiNotice">Ситуационная осведомлённость. Не замена GMDSS (NAVTEX / SafetyNET / SafetyCast). Символика S-52-inspired, не certified ECDIS.</div>
             </div>
-            <button class="viz-mobile-filter-btn" type="button" onclick="vizToggleFilters()">&#9881; Фильтры</button>
+            <button class="viz-mobile-filter-btn" type="button" onclick="vizToggleFilters()" data-i18n="map.filtersMobile">&#9881; Фильтры</button>
             <div id="viz-empty-hint" style="display:none; position:absolute; top:12px; right:12px;
                 background:rgba(20,28,40,.92); color:#dcddde; border:1px solid rgba(0,69,100,.5);
                 border-radius:4px; padding:8px 12px; font-size:11px; line-height:1.4; z-index:500;
@@ -5007,9 +5116,9 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
     </div>
 
     <div class="statusbar" id="statusbar">
-        <span class="sb-pill"><span>Базар</span>: <span class="v" id="sb-bazaar-total">0</span></span>
-        <span class="sb-pill ok"><span>Покрытие</span>: <span class="v" id="sb-coverage">0%</span></span>
-        <span class="sb-pill"><span>Свежие совпадения</span>: <span class="v" id="sb-fresh">0</span></span>
+        <span class="sb-pill"><span data-i18n="status.bazaar">Базар</span>: <span class="v" id="sb-bazaar-total">0</span></span>
+        <span class="sb-pill ok"><span data-i18n="status.coverage">Покрытие</span>: <span class="v" id="sb-coverage">0%</span></span>
+        <span class="sb-pill"><span data-i18n="status.fresh">Свежие совпадения</span>: <span class="v" id="sb-fresh">0</span></span>
         <span class="sb-spacer"></span>
         <span id="sb-server" class="sb-pill">—</span>
     </div>
@@ -5068,20 +5177,14 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
 "use strict";
 
 // ---------- Tauri bridge ----------
-var invoke = (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke)
-    || (window.__TAURI__ && window.__TAURI__.invoke)
-    || function(){ return Promise.reject(new Error("Tauri bridge unavailable — open via Skipi Broker app, not file://")); };
+var invoke = brokerInvoke;
 loadBuildInfo();
 
 // ---------- Demo mode ----------
-// «Посмотреть демо» logs into a real, pre-seeded demo team on the server, so every
-// read/render path runs UNCHANGED (zero regression risk). Only WRITE actions are
-// blocked client-side with a friendly register-prompt; exit → back to the gate.
-var DEMO_BROKER_ID = '1bbed322-f650-4442-b4e2-a3608e81643a';
-function _isDemo(){ return !!(state.settings && state.settings.broker_id === DEMO_BROKER_ID); }
+function _isDemo(){ return brokerDemoRequested || !!(brokerDemo && brokerDemo.active); }
 function _demoGuard(){
     if(!_isDemo()) return false;
-    try { showToast('🎬 Это демонстрация. Создай свою команду (бесплатно), чтобы публиковать, связываться и спрашивать ассистента.', 'info'); } catch(_){}
+    try { showToast(getUiLang() === 'ru' ? 'Это демонстрация. Войди, чтобы работать со своей командой.' : 'This action is unavailable in Demo. Sign in to work with your team.', 'info'); } catch(_){}
     return true;
 }
 
@@ -5097,7 +5200,8 @@ var state = {
     selectedMatch: null,     // { type:'own'|'bazaar', data:{...} }
     publish: { side:null },  // null | 'cargo' | 'tonnage'
     access: null,   // {role, team_id, team_name, days_left, active, expires} — from /api/broker-auth/validate
-    view: 'ex',              // 'ex' = Эксклюзивы tab, 'match' = Совпадения tab
+    view: 'viz',             // Map is the initial workspace; explicit navigation is preserved.
+    workspaceReady: false,
     selectedSignal: null,    // { kind:'cargo'|'tonnage', id:'...' } — driver of view-match col 2 selection
     bxbMatches: [],          // bazaar × bazaar matches for selectedSignal
     selectedBxbMatch: null,  // chosen row in col 3
@@ -5209,6 +5313,7 @@ function reportAppDiagnostic(eventType,severity,message,details){
     } catch(e) {}
 }
 function startAppDiagnostics(){
+    if(typeof _isDemo === 'function' && _isDemo()) return;
     try {
         invoke('init_app_diagnostics',{appVersion:APP_VERSION,locale:'ru',context:diagnosticsScreen()}).catch(function(){});
         setInterval(function(){
@@ -6505,6 +6610,7 @@ async function saveTeamNameInline(){
 
 var _presenceLastPing = 0;
 async function _teamPresenceCycle(){
+    if(typeof _isDemo === 'function' && _isDemo()) return;
     // Пингуем presence и обновляем список участников не чаще раза в ~25с —
     // чат поллится каждые 10с, серверу чаще не нужно.
     if(Date.now() - _presenceLastPing < 25000) return;
@@ -6799,13 +6905,8 @@ function isMobileViewport(){
 function mobileInitIfNeeded(){
     if(!isMobileViewport()) return;
     document.body.classList.add('mobile-mode');
-    // Defer until showView is defined. Home view = Совпадения.
-    var tryShow = function(){
-        try { if(typeof showView === 'function'){ mobileSwitchView('match'); return; } }
-        catch(_) {}
-        setTimeout(tryShow, 50);
-    };
-    tryShow();
+    // Layout can initialize before auth. Opening Map here would fetch data.
+    if(state.workspaceReady) mobileSwitchView(state.view || 'viz');
     // Inject view-match draggable row splitter (once).
     var trySplit = function(){
         if(setupMobileMatchSplitter()) return;
@@ -7272,6 +7373,7 @@ function _onTeamMsgContextMenu(ev, msgId){
 // Copy the clean text of a team message to the clipboard (strips the
 // КОНТЕКСТ blob, [модуль:…] prefix and [img:…] tokens for readable text).
 function _copyTeamMsg(msgId){
+    if(_demoGuard()) return;
     _closeTeamCtxMenu();
     var msg = (state.team.messages || []).filter(function(m){ return m.id === msgId; })[0];
     if(!msg){ return; }
@@ -7289,6 +7391,7 @@ function _copyTeamMsg(msgId){
     } catch(_) { _copyFallback(body, done); }
 }
 function _copyFallback(text, done){
+    if(_demoGuard()) return;
     try {
         var ta = document.createElement('textarea');
         ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
@@ -8830,6 +8933,7 @@ async function askLLMAboutCase(id){
 }
 
 function openTeamImgLightbox(src){
+    if(_demoGuard()) return;
     var lb = document.getElementById('team-img-lightbox');
     if(lb) lb.remove();
     lb = document.createElement('div');
@@ -8856,6 +8960,7 @@ function _sigIdBadge(fullId){
 }
 
 function copySigId(ev, el){
+    if(_demoGuard()) return;
     ev.stopPropagation();
     var full = el.getAttribute('data-full') || '';
     if(!full) return;
@@ -9246,7 +9351,8 @@ function closeLeadView(){
         state.leadMap = null;
     }
     document.getElementById('view-lead').style.display = 'none';
-    showView(state.view || 'ex');
+    if(typeof isMobileViewport === 'function' && isMobileViewport()) mobileSwitchView(state.view || 'viz');
+    else showView(state.view || 'viz');
     renderLeadTabs();
 }
 
@@ -9413,6 +9519,7 @@ function _onSplitUp(){
 //     button that reuses the same code path but toasts the result.
 
 async function _runUpdaterCheck(){
+    if(_isDemo()) return null;
     var updater = window.__TAURI__ && window.__TAURI__.updater;
     if(updater && updater.check){
         return await updater.check();
@@ -9437,6 +9544,7 @@ async function checkForUpdates(){
 }
 
 async function checkForUpdatesManual(){
+    if(_demoGuard()) return;
     var statusEl = document.getElementById('update-check-status');
     if(statusEl) statusEl.textContent = 'Проверяю…';
     try {
@@ -9480,6 +9588,7 @@ function hideUpdateBanner(){
 }
 
 async function doInstallUpdate(){
+    if(_demoGuard()) return;
     var update = state.pendingUpdate;
     if(!update) return;
     showToast('Загружаю обновление…', 'ok');
@@ -9623,6 +9732,7 @@ async function _authCreateTeam(){
     }
 }
 async function _authCopyCreated(){
+    if(_demoGuard()) return;
     var t=(document.getElementById('auth-created-token')||{}).textContent||'';
     try { await navigator.clipboard.writeText(t); showToast('Токен скопирован','ok'); } catch(_){}
 }
@@ -9794,6 +9904,7 @@ async function _qrScanCancel(){ try { await invoke('plugin:barcode-scanner|cance
 // (Linux WebKitGTK, macOS WKWebView) honestly fall back to manual entry.
 var _qrStream=null, _qrTimer=null, _qrDetector=null, _qrStop=false, _qrWrongNs=false;
 async function _migrateScanWebview(){
+    if(_demoGuard()) return;
     if(typeof window.BarcodeDetector==='undefined'){
         _qrSetStatus('Сканирование QR недоступно на этой платформе — введите одноразовый код вручную.', true); return;
     }
@@ -9846,26 +9957,12 @@ function _devFmtWhen(iso){ try { return new Date(iso).toLocaleString(); } catch(
 // now drives device_list/device_revoke/device_pairing_token through the
 // host.devices capability (see the Settings block below).
 
-// Enter the demo — log into the pre-seeded demo team (real read paths, blocked writes).
+// Reload before entering Demo so no current profile state reaches its views.
 async function _authEnterDemo(){
-    state.settings = state.settings || {};
-    state.settings.broker_id = DEMO_BROKER_ID;
-    state.settings.bearer_token = DEMO_BROKER_ID;
-    try { state.settings = await invoke('save_settings', { incoming: state.settings }); } catch(_){}
-    try { await _authGateValidate(DEMO_BROKER_ID); } catch(_){}
-    _authGateHide();
-    await _bootContinue();
+    if(brokerDemo) brokerDemo.enter();
 }
-// Leave the demo — wipe the demo token and return to the auth gate (fresh start).
 async function _exitDemo(){
-    try {
-        state.settings = state.settings || {};
-        state.settings.broker_id = '';
-        state.settings.bearer_token = '';
-        await invoke('save_settings', { incoming: state.settings });
-    } catch(_){}
-    try { window.location.reload(); }
-    catch(_){ var db=document.getElementById('demo-banner'); if(db) db.style.display='none'; _authFresh=true; _authGateShow(); }
+    if(brokerDemo) brokerDemo.exit();
 }
 async function _authGateSubmit(){
     var inp = document.getElementById('auth-gate-input');
@@ -10041,6 +10138,7 @@ function trialPhaseMessage(phase){
     return 'Токен принят, но сервер вернул статус «' + String(phase) + '» вместо активного.' + trialContactTail();
 }
 async function trialActivateLicense(){
+    if(typeof _isDemo === 'function' && _isDemo()) return;
     var input = document.getElementById('trial-license');
     var err = document.getElementById('trial-license-error');
     var btn = document.getElementById('trial-license-btn');
@@ -10108,7 +10206,7 @@ async function trialGateApply(){
 }
 async function _bootContinue(){
     refreshIdentityBadge();
-    // Demo-mode pill — show/hide based on the demo token. body.demo-mode drives
+    // Demo-mode pill — show/hide based on the immutable local mode. body.demo-mode drives
     // the mobile layout reserving space for the docked demo strip (no overlap).
     try {
         var _dm = _isDemo();
@@ -10119,7 +10217,9 @@ async function _bootContinue(){
     await refreshAll();
     startAutoRefresh();
     initTeamChat();
-    showView(state.view || 'ex');
+    state.workspaceReady = true;
+    if(typeof isMobileViewport === 'function' && isMobileViewport()) mobileSwitchView(state.view || 'viz');
+    else showView(state.view || 'viz');
     emitTeamEvent('user_opened', '🚪 зашёл в Skipi (v' + APP_VERSION + ')');
     checkForUpdates();
     if(!_isDemo()) maybePromptForFeedback('broker-board');
@@ -10127,7 +10227,17 @@ async function _bootContinue(){
 
 // ---------- Boot ----------
 async function boot(){
+    if(brokerBootstrapBlocked){
+        showToast('Demo could not load. Please reload the page.', 'error');
+        return;
+    }
     applyTheme();
+    if(_isDemo()){
+        state.settings = await invoke('get_settings');
+        _authGateHide();
+        await _bootContinue();
+        return;
+    }
     try {
         state.settings = await invoke('get_settings');
     } catch(e){
@@ -10608,19 +10718,19 @@ function _disarmMailAutoRefresh(){
 // keeps self-contained fixtures and never touches the server mailbox.
 function _DEMO_MAIL(folder){
     if(folder === 'SENT') return [
-        { id:'demo-s1', to:'chartering@oceanic-bulk.gr', from_name:'', subject:'RE: MV Aurora — Constanta open 22 Jun', date_received:'2026-06-19T09:12:00', is_read:true, channel:null }
+        { id:'demo-s1', to:'chartering@oceanic.example.invalid', from_name:'', subject:'RE: MV Aurora — Constanta open prompt', date_received:new Date(Date.now()-3600000).toISOString(), is_read:true, channel:null }
     ];
     return [
-        { id:'demo-1', from:'chartering@oceanic-bulk.gr', from_name:'Oceanic Bulk Chartering', subject:'MV Aurora open Constanta 22 Jun — 12,500 dwt geared', date_received:'2026-06-19T08:40:00', is_read:false, channel:null },
-        { id:'demo-2', from:'desk@meridian-shipbrokers.com', from_name:'Meridian Shipbrokers', subject:'Cargo: 5,000 mt steel coils Marmara/Alexandria prompt', date_received:'2026-06-18T16:05:00', is_read:false, channel:null },
-        { id:'demo-3', from:'ops@blacksea-grain.com', from_name:'Black Sea Grain', subject:'Wheat 6,000 mt Reni/Mersin — laycan 25-28 Jun', date_received:'2026-06-18T11:20:00', is_read:true, channel:null }
+        { id:'demo-1', from:'chartering@oceanic.example.invalid', from_name:'Oceanic Bulk Chartering', subject:'MV Aurora open Constanta prompt — 12,500 dwt geared', date_received:new Date(Date.now()-3600000).toISOString(), is_read:false, channel:null },
+        { id:'demo-2', from:'desk@meridian.example.invalid', from_name:'Meridian Shipbrokers', subject:'Cargo: 5,000 mt steel coils Marmara/Alexandria prompt', date_received:new Date(Date.now()-3600000).toISOString(), is_read:false, channel:null },
+        { id:'demo-3', from:'ops@grain.example.invalid', from_name:'Black Sea Grain', subject:'Wheat 6,000 mt Reni/Mersin — laycan next week', date_received:new Date(Date.now()-3600000).toISOString(), is_read:true, channel:null }
     ];
 }
 function _demoMessage(id){
     var bodies = {
-        'demo-1':'Good day,\n\nMV Aurora (12,500 dwt, geared) opens Constanta 22 June. Seeking cargo Black Sea / East Med. Please advise suitable parcels.\n\nBest regards,\nOceanic Bulk Chartering',
+        'demo-1':'Good day,\n\nMV Aurora (12,500 dwt, geared) opens Constanta shortly. Seeking cargo Black Sea / East Med. Please advise suitable parcels.\n\nBest regards,\nOceanic Bulk Chartering',
         'demo-2':'Dear Captain,\n\nWe have firm 5,000 mt steel coils Marmara → Alexandria, prompt laycan. Kindly advise tonnage and freight idea.\n\nMeridian Shipbrokers',
-        'demo-3':'Hello,\n\nWheat in bulk 6,000 mt Reni → Mersin, laycan 25-28 June, suitable geared handysize. Awaiting your best offers.\n\nBlack Sea Grain',
+        'demo-3':'Hello,\n\nWheat in bulk 6,000 mt Reni → Mersin, laycan next weeke, suitable geared handysize. Awaiting your best offers.\n\nBlack Sea Grain',
         'demo-s1':'Thanks — proposing MV Aurora for your steel coils, full details to follow shortly.'
     };
     var all = _DEMO_MAIL('INBOX').concat(_DEMO_MAIL('SENT'));
@@ -11933,6 +12043,7 @@ function _publisherContactsHtml(sig){
     return '<div class="detail-block contact-block"><div class="contact-block-title">📇 Контакты публикатора</div>'+rows+'</div>';
 }
 function _copyContact(text, ev){
+    if(_demoGuard()) return;
     if(ev){ try{ ev.stopPropagation(); ev.preventDefault(); }catch(_){} }
     text = String(text == null ? '' : text);
     function done(ok){ try{ showToast(ok ? '📋 Скопировано' : 'Не удалось скопировать', ok ? 'ok' : 'error'); }catch(_){} }
@@ -11943,6 +12054,7 @@ function _copyContact(text, ev){
     } catch(e){ _copyContactFallback(text, done); }
 }
 function _copyContactFallback(text, done){
+    if(_demoGuard()) return;
     try {
         var ta=document.createElement('textarea'); ta.value=text;
         ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta);
@@ -12552,7 +12664,7 @@ function _tickBrokerClock(){
     var st = _brokerDayState();
     el.classList.toggle('open', st.open);
     el.classList.toggle('closed', !st.open);
-    var label = st.open ? 'до закрытия' : 'до открытия';
+    var label = tr(st.open ? 'status.untilClose' : 'status.untilOpen');
     var stateLabel = st.open ? 'open' : 'closed';
     el.innerHTML = ''
         + '<div class="mc-now">LDN ' + esc(st.hhmm) + ' · ' + esc(_fmtCountdown(st.secsLeft)) + '</div>'
@@ -12589,12 +12701,12 @@ function _tickFreshIndicator(){
     if(!el) return;
     var ts = _bazaarFreshTs();
     if(!ts){
-        el.innerHTML = '<span style="color:var(--text3);">базар: —</span>';
+        el.innerHTML = '<span style="color:var(--text3);">'+esc(tr('status.bazaar'))+': —</span>';
         return;
     }
     var ageMin = Math.max(0, Math.floor((Date.now() - ts) / 60000));
-    var label = ageMin < 60 ? (ageMin + 'м') : ((ageMin/60).toFixed(1) + 'ч');
-    el.innerHTML = ageRingSvg(new Date(ts).toISOString(), 14) + '<span>базар ' + label + '</span>';
+    var label = ageMin < 60 ? (ageMin + tr('status.minutes')) : ((ageMin/60).toFixed(1) + tr('status.hours'));
+    el.innerHTML = ageRingSvg(new Date(ts).toISOString(), 14) + '<span>'+esc(tr('status.bazaar'))+' ' + label + '</span>';
 }
 setInterval(_tickFreshIndicator, 30000);
 window.addEventListener('DOMContentLoaded', _tickFreshIndicator);
@@ -12650,6 +12762,7 @@ async function _importCaseSeeds(){
 
 var _autoAgentUpdateDone = false;
 function _maybeAutoAgentUpdate(){
+    if(_isDemo()) return;
     if(_autoAgentUpdateDone) return;
     _autoAgentUpdateDone = true;
     setTimeout(function(){
@@ -13754,6 +13867,7 @@ function openCirculateModal(){
 }
 function closeCirculateModal(){ var ov=document.getElementById('circulate-overlay'); if(ov) ov.remove(); }
 async function doCirculateEml(){
+    if(_demoGuard()) return;
     var recoText=(document.getElementById('circ-recipients')||{}).value||'';
     _mailListSet(recoText); // persist the list for next time
     var reco=_parseRecipients(recoText);
@@ -13767,6 +13881,7 @@ async function doCirculateEml(){
     } catch(e){ showToast('Ошибка: '+e,'error'); }
 }
 async function doCirculateShare(){
+    if(_demoGuard()) return;
     var subject=(document.getElementById('circ-subject')||{}).value||'';
     var body=(document.getElementById('circ-body')||{}).value||'';
     var text=body+'\n\n--\nSent via Skipi';
