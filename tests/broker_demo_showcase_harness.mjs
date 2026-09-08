@@ -148,6 +148,24 @@ await correction('Demo Team read/write zero; live renderer preserved',()=>{
  tc.renderTeamUnread();tc.renderTeamStream();assert.equal(reads,0);assert.equal(stream.innerHTML,'SENTINEL');
  demoMode=false;tc.renderTeamUnread();tc.renderTeamStream();assert.ok(reads>0);assert.notEqual(stream.innerHTML,'SENTINEL');
 });
+for(const entry of ['teamSend','teamSendWithLlm']) await correction(entry+' denies Demo before consuming Team state; live send preserved',async()=>{
+ function shipped(name){const start=html.indexOf((name.startsWith('teamSend')?'async ':'')+'function '+name+'(');assert.ok(start>=0);return html.slice(start,html.indexOf('\n}',start)+2);}
+ let demoMode=true,reads=0,domReads=0,focused=0;const calls=[],toasts=[];
+ const team={pendingAttach:['SYNTHETIC_ATTACHMENT'],pendingReplyTo:{sender:'Synthetic sender',snippet:'Synthetic reply'},messages:[]};
+ const before=JSON.stringify(team),ta={value:'Synthetic message',disabled:false,focus(){focused++;}},btn={disabled:false,textContent:'🤖'};
+ const st={};Object.defineProperty(st,'team',{get(){reads++;return team;}});
+ const tc={state:st,_isDemo:()=>demoMode,getUiLang:()=> 'en',showToast:(...args)=>toasts.push(args),document:{getElementById:id=>{domReads++;return id==='team-input'?ta:btn;}},
+  _renderAttachThumbs(){},_renderPendingReply(){},renderTeamStream(){},captureViewContext:()=> '[Synthetic context]\n',
+  invoke:async(command,args)=>{calls.push({command,args});if(demoMode)throw Error('DEMO_INVOKE_DENIED');return {id:'synthetic-result',created_at:'2026-09-08T00:00:00Z'};}};
+ vm.createContext(tc);vm.runInContext(['_demoGuard','_consumeAttachTokens','_consumeReplyPrefix',entry].map(shipped).join('\n'),tc);
+ await tc[entry]('@Synthetic recipient: ');
+ assert.equal(reads,0,'Demo action must not read Team before invoke denial');assert.equal(domReads,0);assert.equal(JSON.stringify(team),before);assert.equal(ta.value,'Synthetic message');assert.equal(calls.length,0);assert.equal(toasts.length,1);
+ demoMode=false;await tc[entry]('@Synthetic recipient: ');
+ assert.equal(calls.length,1);assert.equal(calls[0].command,entry==='teamSend'?'send_team_message':'send_team_message_with_llm');
+ assert.match(calls[0].args.body,/> @Synthetic sender: Synthetic reply/);assert.match(calls[0].args.body,/\[img:SYNTHETIC_ATTACHMENT\]/);
+ assert.ok(calls[0].args.body.includes(entry==='teamSend'?'@Synthetic recipient: ':'[Synthetic context]'));
+ assert.equal(team.pendingReplyTo,null);assert.equal(team.pendingAttach.length,0);assert.equal(team.messages[0].id,'synthetic-result');assert.equal(ta.value,'');assert.equal(ta.disabled,false);assert.equal(btn.disabled,false);assert.equal(focused,1);
+});
 await correction('actual canonical Map index has one entry per market pair',async()=>{
  const mapSource=fs.readFileSync(path.join(ROOT,'dist/map.js'),'utf8');
  const start=mapSource.indexOf('function _vizCargoSignalMatchIndex(){'),end=mapSource.indexOf('\n// ---',start);

@@ -1363,6 +1363,9 @@ body.demo-mode .demo-current-terms{font-size:12px;padding:9px;background:var(--s
 .demo-occurrence small { display:block; color:var(--text2); }
 .demo-mobile-back { display:none; }
 body.demo-mode #view-mail .signals-col, body.demo-mode #view-partners .signals-col { min-width:0; }
+body.demo-mode #view-mail .signals-col:first-child > .col-head { flex-wrap:wrap; height:auto; min-height:38px; padding:5px 12px; }
+body.demo-mode #view-mail .col-head > span:first-child { flex-wrap:wrap; min-width:0; max-width:100%; }
+body.demo-mode #view-mail .mail-tab { flex-shrink:0; white-space:nowrap; }
 @media(max-width:700px){
  body.demo-mode #view-mail .signals-cols, body.demo-mode #view-partners .signals-cols, body.demo-mode #view-dedup .signals-cols { display:block; overflow:auto; }
  body.demo-mode #view-mail .signals-col, body.demo-mode #view-partners .signals-col, body.demo-mode #view-dedup .signals-col { width:100%; min-width:0; max-width:none!important; min-height:200px; overflow:visible; }
@@ -9404,6 +9407,7 @@ function captureViewContext(){
 }
 
 async function teamSend(prefix){
+    if(_isDemo()){ _demoGuard(); return; }
     var ta = document.getElementById('team-input');
     if(!ta) return;
     var text = (ta.value || '').trim();
@@ -9435,6 +9439,7 @@ async function teamSend(prefix){
 // in the background; both messages (user + LLM) land in the room's
 // next poll cycle and become visible to all teammates.
 async function teamSendWithLlm(){
+    if(_isDemo()){ _demoGuard(); return; }
     var ta = document.getElementById('team-input');
     if(!ta) return;
     var raw = (ta.value || '').trim();
