@@ -1,0 +1,11 @@
+{
+  "module": "@skipi/assistant",
+  "version": "0.1.0",
+  "source_repository": "CaptTymur/skipi-assistant",
+  "source_commit": "846abfee446e0a280ac5d2d3eb81f3ed4ba9ef9d",
+  "sha256": {
+    "skipi-assistant.js": "45d175eb92b445c02622924e062d9a44972411ce064a7826524c46280b9b178c",
+    "skipi-assistant.css": "88bd346dfbbd782a8641269d53426ba0a427593f54c385236dcabba29af49259",
+    "skipi-assistant.ASSISTANT_VERSION": "434df66b91dcaa83ea19c36c8c9af7d532dbe98d229975a73f75b3679b3ae488"
+  }
+}
