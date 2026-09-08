@@ -503,6 +503,8 @@ function getUiLang(){
     var lang=localStorage.getItem(UI_LANG_KEY)||'en';
     return UI_LANG_VALID[lang]?lang:'en';
 }
+Object.assign(UI_STRINGS.en, {"demo.cargoDuplicates": "📦 Cargo duplicates", "demo.tonnageDuplicates": "🚢 Tonnage duplicates", "demo.refresh": "Refresh", "demo.partners": "🤝 Counterparties", "demo.dossier": "Counterparty profile", "demo.partner": "Counterparty", "demo.domain": "Domain", "demo.lastSeen": "Last seen", "demo.allSides": "All sides", "demo.cargoSide": "Cargo side", "demo.tonnageSide": "Vessel side", "demo.bothSides": "Both sides", "demo.inbox": "📥 Inbox", "demo.sent": "📤 Sent", "demo.chooseMail": "Choose a message", "demo.chooseHint": "Choose a message from the list to read it.", "demo.backMail": "‹ Message list", "demo.backPartners": "‹ Counterparty list", "demo.searchPartners": "Search company or domain…"});
+Object.assign(UI_STRINGS.ru, {"demo.cargoDuplicates": "📦 Дубли грузов", "demo.tonnageDuplicates": "🚢 Дубли тоннажа", "demo.refresh": "Обновить", "demo.partners": "🤝 Контрагенты", "demo.dossier": "Профиль контрагента", "demo.partner": "Контрагент", "demo.domain": "Домен", "demo.lastSeen": "Последний раз", "demo.allSides": "Все стороны", "demo.cargoSide": "Грузовая сторона", "demo.tonnageSide": "Судовая сторона", "demo.bothSides": "Обе стороны", "demo.inbox": "📥 Входящие", "demo.sent": "📤 Отправленные", "demo.chooseMail": "Выберите письмо", "demo.chooseHint": "Выберите письмо в списке, чтобы прочитать его.", "demo.backMail": "‹ Список писем", "demo.backPartners": "‹ Список контрагентов", "demo.searchPartners": "Поиск компании или домена…"});
 function tr(key){
     var lang=getUiLang();
     return (UI_STRINGS[lang]&&UI_STRINGS[lang][key]) || UI_STRINGS.en[key] || UI_STRINGS.ru[key] || key;
@@ -522,6 +524,8 @@ function applyI18n(){
         var node=labels[k].lastChild;
         if(node && node.nodeType === 3) node.textContent=tr(labels[k].getAttribute('data-i18n-label'));
     }
+    var placeholders=document.querySelectorAll('[data-i18n-placeholder]');
+    for(var ph=0;ph<placeholders.length;ph++) placeholders[ph].placeholder=tr(placeholders[ph].getAttribute('data-i18n-placeholder'));
     var titleEls=document.querySelectorAll('[data-i18n-title]');
     for(var j=0;j<titleEls.length;j++){
         var k2=titleEls[j].getAttribute('data-i18n-title');
@@ -533,6 +537,12 @@ function setUiLang(lang){
     localStorage.setItem(UI_LANG_KEY,lang);
     document.documentElement.lang=lang;
     applyI18n();
+    if(typeof state !== 'undefined' && typeof _isDemo === 'function' && _isDemo()){
+        if(state.view === 'mail') { renderMailList(); if(state.mail.selectedId) openMailMessage(state.mail.selectedId); }
+        if(state.view === 'dedup') renderDedup();
+        if(state.view === 'partners') renderPartners();
+        if(state.view === 'apps') brokerAppsRender();
+    }
     // The @skipi/settings shell re-reads host.getUiLang()/host.t() and redraws
     // itself after host.setUiLang resolves — no extra hook needed here.
 }
@@ -988,6 +998,9 @@ body.mobile-mode .mrail-btn:active { background:rgba(0,69,100,0.30); }
     /* Force all view-panes off except whichever mobile view is active.
        JS toggles display via showView(); here we just provide defaults. */
     body.mobile-mode .view-pane { display:none !important; }
+    body.mobile-mode #view-mail[data-mobile-active="1"],
+    body.mobile-mode #view-dedup[data-mobile-active="1"],
+    body.mobile-mode #view-partners[data-mobile-active="1"],
     body.mobile-mode #view-team[data-mobile-active="1"],
     body.mobile-mode #view-match[data-mobile-active="1"],
     body.mobile-mode #view-cases[data-mobile-active="1"],
@@ -1311,6 +1324,32 @@ body.mobile-mode .mrail-btn:active { background:rgba(0,69,100,0.30); }
 .cp-flag svg { display:block; }
 .cp-flag-lbl { font-size:10px; font-weight:500; white-space:nowrap; }
 .cp-flag-row.cp-flag-expanded .cp-flag { padding:2px 6px; }
+
+
+/* Synthetic story drill-downs reuse the normal Mail / Duplicates / CRM panes. */
+.demo-story-note { padding:12px 14px; border:1px solid var(--border); border-radius:8px; background:var(--surface2); font-size:12px; line-height:1.5; margin-bottom:12px; }
+.demo-story-actions { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0; }
+.demo-story-actions button { min-height:36px; text-align:left; white-space:normal; overflow-wrap:anywhere; }
+.demo-group summary { cursor:pointer; padding:4px 0; line-height:1.5; font-size:13px; }
+.demo-group summary:focus-visible, .demo-story-actions button:focus-visible { outline:2px solid var(--accent-text); outline-offset:3px; }
+.demo-occurrence { border-top:1px solid var(--border); padding:12px 2px; overflow-wrap:anywhere; line-height:1.5; }
+.demo-occurrence small { display:block; color:var(--text2); }
+.demo-mobile-back { display:none; }
+body.demo-mode #view-mail .signals-col, body.demo-mode #view-partners .signals-col { min-width:0; }
+@media(max-width:700px){
+ body.demo-mode #view-mail .signals-cols, body.demo-mode #view-partners .signals-cols, body.demo-mode #view-dedup .signals-cols { display:block; overflow:auto; }
+ body.demo-mode #view-mail .signals-col, body.demo-mode #view-partners .signals-col, body.demo-mode #view-dedup .signals-col { width:100%; min-width:0; max-width:none!important; min-height:200px; overflow:visible; }
+ body.demo-mode #view-mail .signals-col, body.demo-mode #view-partners .signals-col { height:100%; }
+ body.demo-mode #view-mail .signals-col:nth-of-type(3), body.demo-mode #view-partners .signals-col:nth-of-type(3) { display:none; }
+ body.demo-mode #view-mail.demo-detail-open .signals-col:first-child, body.demo-mode #view-partners.demo-detail-open .signals-col:first-child { display:none; }
+ body.demo-mode #view-mail.demo-detail-open .signals-col:nth-of-type(3), body.demo-mode #view-partners.demo-detail-open .signals-col:nth-of-type(3) { display:flex; }
+ body.demo-mode .demo-mobile-back { display:inline-flex; margin:0 0 10px; min-height:36px; align-items:center; }
+ body.demo-mode #view-dedup .splitter, body.demo-mode #view-mail .splitter, body.demo-mode #view-partners .splitter { display:none; }
+ body.demo-mode #view-mail .col-head { flex-wrap:wrap; height:auto; min-height:38px; }
+ body.demo-mode #view-mail #mail-detail-title { white-space:normal; overflow-wrap:anywhere; }
+ body.demo-mode #view-partners .signals-table th, body.demo-mode #view-partners .signals-table td { padding:8px 5px; }
+ body.demo-mode #view-partners .signals-table td:nth-child(2) { max-width:110px; overflow-wrap:anywhere; white-space:normal; }
+}
 
 /* 🔍 Дедупликатор — duplicate signal clusters. Two-pane vertical. */
 .ded-card { border:1px solid var(--border); border-radius:5px; padding:8px 10px; margin-bottom:8px;
@@ -4728,16 +4767,16 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
         <div class="signals-cols">
             <div class="signals-col">
                 <div class="col-head">
-                    <span>📦 Дубли грузов</span>
+                    <span data-i18n="demo.cargoDuplicates">📦 Cargo duplicates</span>
                     <span class="count" id="dedup-cargo-count">0</span>
-                    <span class="p2-refresh" id="dedup-cargo-refresh" title="Обновить" onclick="refreshDedup()">🔄</span>
+                    <span class="p2-refresh" id="dedup-cargo-refresh" title="Refresh" data-i18n-title="demo.refresh" onclick="refreshDedup()">🔄</span>
                 </div>
                 <div class="signals-table-wrap" id="dedup-cargo-body" style="padding:8px 10px; overflow-y:auto;"></div>
             </div>
             <div class="splitter splitter-v" onmousedown="startSplitDrag(event, 'dedup-v')"></div>
             <div class="signals-col">
                 <div class="col-head">
-                    <span>🚢 Дубли тоннажа</span>
+                    <span data-i18n="demo.tonnageDuplicates">🚢 Tonnage duplicates</span>
                     <span class="count" id="dedup-tonnage-count">0</span>
                 </div>
                 <div class="signals-table-wrap" id="dedup-tonnage-body" style="padding:8px 10px; overflow-y:auto;"></div>
@@ -4754,32 +4793,32 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
             <!-- Left: counterpart list (per-domain CRM profiles) -->
             <div class="signals-col" style="flex:1;">
                 <div class="col-head">
-                    <span>🤝 Контрагенты</span>
+                    <span data-i18n="demo.partners">🤝 Counterparties</span>
                     <span class="count" id="partners-count">0</span>
-                    <span class="p2-refresh" title="Обновить контрагентов" onclick="refreshCounterpartsCRM().then(renderPartners)">🔄</span>
+                    <span class="p2-refresh" title="Refresh" data-i18n-title="demo.refresh" onclick="refreshCounterpartsCRM().then(renderPartners)">🔄</span>
                 </div>
                 <div class="signals-filter-row">
-                    <input id="partners-q" placeholder="поиск: компания / домен / cargo / route…" oninput="renderPartners()">
+                    <input id="partners-q" data-i18n-placeholder="demo.searchPartners" placeholder="Search company or domain…" oninput="renderPartners()">
                     <select id="partners-side" onchange="renderPartners()">
-                        <option value="">все стороны</option>
-                        <option value="cargo">📦 cargo-side (грузы)</option>
-                        <option value="tonnage">🚢 vessel-side (тоннаж)</option>
-                        <option value="both">📦🚢 двусторонние</option>
+                        <option value="" data-i18n="demo.allSides">All sides</option>
+                        <option value="cargo" data-i18n="demo.cargoSide">Cargo side</option>
+                        <option value="tonnage" data-i18n="demo.tonnageSide">Vessel side</option>
+                        <option value="both" data-i18n="demo.bothSides">Both sides</option>
                     </select>
                 </div>
                 <div class="signals-table-wrap"><table class="signals-table"><thead><tr>
-                    <th>контрагент</th>
-                    <th>домен</th>
-                    <th onclick="partnersSort('cargoCount')" title="отсортировать по cargo">📦</th>
-                    <th onclick="partnersSort('tonnageCount')" title="отсортировать по tonnage">🚢</th>
-                    <th onclick="partnersSort('last')">последний</th>
+                    <th data-i18n="demo.partner">Counterparty</th>
+                    <th data-i18n="demo.domain">Domain</th>
+                    <th onclick="partnersSort('cargoCount')" title="Sort by cargo">📦</th>
+                    <th onclick="partnersSort('tonnageCount')" title="Sort by tonnage">🚢</th>
+                    <th onclick="partnersSort('last')" data-i18n="demo.lastSeen">Last seen</th>
                 </tr></thead><tbody id="partners-body"></tbody></table></div>
             </div>
             <div class="splitter splitter-v" onmousedown="startSplitDrag(event, 'partners-v')"></div>
             <!-- Right: dossier of selected counterpart -->
             <div class="signals-col" style="flex:1.3; overflow:auto;">
                 <div class="col-head">
-                    <span id="partners-dossier-title">📇 Досье контрагента</span>
+                    <span id="partners-dossier-title" data-i18n="demo.dossier">Counterparty profile</span>
                 </div>
                 <div id="partners-dossier" style="padding:14px 16px; overflow:auto; flex:1;"></div>
             </div>
@@ -4950,14 +4989,14 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
             <div class="signals-col" style="max-width:480px;">
                 <div class="col-head">
                     <span style="display:inline-flex; gap:4px;">
-                        <span class="mail-tab active" id="mail-tab-inbox" onclick="switchMailFolder('INBOX')">📥 Входящие</span>
-                        <span class="mail-tab" id="mail-tab-sent" onclick="switchMailFolder('SENT')">📤 Отправленные</span>
+                        <span class="mail-tab active" id="mail-tab-inbox" onclick="switchMailFolder('INBOX')" data-i18n="demo.inbox">📥 Inbox</span>
+                        <span class="mail-tab" id="mail-tab-sent" onclick="switchMailFolder('SENT')" data-i18n="demo.sent">📤 Sent</span>
                     </span>
                     <span class="count" id="mail-count">0</span>
-                    <span class="p2-refresh" id="mail-refresh" title="Обновить (poll IMAP)" onclick="refreshMail(true)">🔄</span>
+                    <span class="p2-refresh" id="mail-refresh" title="Refresh" data-i18n-title="demo.refresh" onclick="refreshMail(true)">🔄</span>
                     <span id="mail-last-refresh" style="font-size:10px; color:var(--text3); margin-left:6px;"></span>
-                    <span class="p2-refresh" title="Написать новое" onclick="openMailCompose()">✏</span>
-                    <span class="p2-refresh" id="mail-settings-btn" title="Настройки почтового ящика" style="margin-left:auto;" onclick="openMailboxSettings()">⚙</span>
+                    <span class="p2-refresh" title="Compose" onclick="openMailCompose()">✏</span>
+                    <span class="p2-refresh" id="mail-settings-btn" title="Mailbox settings" style="margin-left:auto;" onclick="openMailboxSettings()">⚙</span>
                 </div>
                 <!-- Montline-specific channel tabs removed for per-user mailboxes -->
                 <div id="mail-channel-tabs" style="display:none;">
@@ -4971,14 +5010,14 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
             <div class="splitter splitter-v" onmousedown="startSplitDrag(event, 'mail-v')"></div>
             <div class="signals-col">
                 <div class="col-head">
-                    <span id="mail-detail-title">Выбери письмо слева</span>
+                    <span id="mail-detail-title" data-i18n="demo.chooseMail">Choose a message</span>
                     <span class="p2-refresh" title="Завести дело по этому письму" id="mail-case-btn" style="display:none;" onclick="startCaseFromMail()">📂</span>
                     <span class="p2-refresh" title="Ответить" id="mail-reply-btn" style="display:none;" onclick="openMailReply()">↩</span>
                     <span class="p2-refresh" title="Удалить письмо из локального кэша" id="mail-delete-btn" style="display:none;" onclick="deleteCurrentMail()">🗑</span>
                 </div>
                 <div class="signals-table-wrap" id="mail-detail-body" style="padding:14px 18px; overflow-y:auto;">
                     <div style="color:var(--text3); font-size:12px; padding:40px; text-align:center;">
-                        Это твой личный почтовый ящик. Выбери письмо слева.
+                        <span data-i18n="demo.chooseHint">Choose a message from the list to read it.</span>
                     </div>
                 </div>
             </div>
@@ -6436,6 +6475,7 @@ var BROKER_MOBILE_MODULES = [
   { view:'signals',  slug:'bazaar',       icon:'🛒', label:'Базар' },
   { view:'match',    slug:'matches',      icon:'🎯', label:'Совпадения' },
   { view:'viz',      slug:'map',          icon:'🗺', label:'Карта' },
+  { view:'mail',     slug:'mail',         icon:'📧', label:'Почта' },
   { view:'cases',    slug:'cases',        icon:'📂', label:'Дела' },
   { view:'team',     slug:'team',         icon:'💬', label:'Команда' },
   { view:'dedup',    slug:'dedup',        icon:'🔍', label:'Дубли' },
@@ -6447,10 +6487,12 @@ function brokerIsMobileMode(){
 }
 function brokerMobileModuleTilesHtml(){
   return BROKER_MOBILE_MODULES.map(function(m){
+    var key = {ex:'nav.exclusives',signals:'nav.signals',match:'nav.matches',viz:'nav.map',mail:'nav.mail',cases:'nav.cases',team:'nav.team',dedup:'nav.duplicates',partners:'nav.counterparts'}[m.view];
+    var label = key ? tr(key) : m.label;
     var badge = (m.slug === 'cases') ? ' <span class="apps-badge" id="apps-tile-cases-badge" style="display:none;"></span>' : '';
     return '<div class="apps-tile apps-module-tile" data-qa="module-tile-'+appsAttrVal(m.slug)+'" onclick="mobileSwitchView(\''+appsHandlerArg(m.view)+'\')">'
-      + '<div class="at-name">'+esc(m.icon)+' '+esc(m.label)+badge+'</div>'
-      + '<div class="at-cat">Модуль</div>'
+      + '<div class="at-name">'+esc(label)+badge+'</div>'
+      + '<div class="at-cat">'+esc(_demoText('Module','Модуль'))+'</div>'
       + '</div>';
   }).join('');
 }
@@ -7067,6 +7109,7 @@ function setupMobileMatchSplitter(){
 // logical name. Записи, чьих btn-id нет на рейле (team/cases/dedup/partners,
 // vessels), остаются переключаемыми — их открывают тайлы грида Apps.
 var MOBILE_VIEWS = {
+    mail:  { pane:'view-mail', btn:'mrail-mail' },
     team:  { pane:'view-team',  btn:'mrail-team'  },
     match: { pane:'view-match', btn:'mrail-match' },
     signals: { pane:'view-signals', btn:'mrail-signals' },
@@ -10587,8 +10630,8 @@ function switchMailFolder(folder){
     var dbody = document.getElementById('mail-detail-body');
     var dtitle = document.getElementById('mail-detail-title');
     var replyBtn = document.getElementById('mail-reply-btn');
-    if(dtitle) dtitle.textContent = folder === 'SENT' ? 'Выбери отправленное' : 'Выбери письмо слева';
-    if(dbody) dbody.innerHTML = '<div style="color:var(--text3); font-size:12px; padding:40px; text-align:center;">Загружаю…</div>';
+    if(dtitle) dtitle.textContent = tr('demo.chooseMail');
+    if(dbody) dbody.innerHTML = '<div class="demo-story-note">'+esc(_demoText('Choose a message from this folder.','Выберите письмо из этой папки.'))+'</div>';
     if(replyBtn) replyBtn.style.display = 'none';
     refreshMail(false);
 }
@@ -10703,6 +10746,7 @@ async function refreshMail(forcePoll){
 function _updateMailRefreshLabel(){
     var el = document.getElementById('mail-last-refresh');
     if(!el) return;
+    if(_isDemo()){ el.textContent = _demoText('Local sample','Локальный пример'); return; }
     var ts = state.mail && state.mail.lastRefreshAt;
     if(!ts){ el.textContent = ''; return; }
     var ago = Math.max(0, Math.round((Date.now() - ts) / 1000));
@@ -10738,32 +10782,48 @@ function _disarmMailAutoRefresh(){
 // Each user connects their OWN mailbox. If the server says not_configured we
 // show the Connect Email pane instead of any shared/server mailbox. Demo mode
 // keeps self-contained fixtures and never touches the server mailbox.
-function _DEMO_MAIL(folder){
-    if(folder === 'SENT') return [
-        { id:'demo-s1', to:'chartering@oceanic.example.invalid', from_name:'', subject:'RE: MV Aurora — Constanta open prompt', date_received:new Date(Date.now()-3600000).toISOString(), is_read:true, channel:null }
-    ];
-    return [
-        { id:'demo-1', from:'chartering@oceanic.example.invalid', from_name:'Oceanic Bulk Chartering', subject:'MV Aurora open Constanta prompt — 12,500 dwt geared', date_received:new Date(Date.now()-3600000).toISOString(), is_read:false, channel:null },
-        { id:'demo-2', from:'desk@meridian.example.invalid', from_name:'Meridian Shipbrokers', subject:'Cargo: 5,000 mt steel coils Marmara/Alexandria prompt', date_received:new Date(Date.now()-3600000).toISOString(), is_read:false, channel:null },
-        { id:'demo-3', from:'ops@grain.example.invalid', from_name:'Black Sea Grain', subject:'Wheat 6,000 mt Reni/Mersin — laycan next week', date_received:new Date(Date.now()-3600000).toISOString(), is_read:true, channel:null }
-    ];
+function _DEMO_MAIL(folder){ return brokerDemo.mailList(folder); }
+function _demoMessage(id){ return brokerDemo.mailMessage(id); }
+function _demoText(en, ru){ return getUiLang() === 'ru' ? ru : en; }
+function _demoShowView(view){ if(brokerIsMobileMode()) mobileSwitchView(view); else showView(view); }
+function _demoBackToList(view){
+    var pane = document.getElementById('view-' + view);
+    if(pane) pane.classList.remove('demo-detail-open');
 }
-function _demoMessage(id){
-    var bodies = {
-        'demo-1':'Good day,\n\nMV Aurora (12,500 dwt, geared) opens Constanta shortly. Seeking cargo Black Sea / East Med. Please advise suitable parcels.\n\nBest regards,\nOceanic Bulk Chartering',
-        'demo-2':'Dear Captain,\n\nWe have firm 5,000 mt steel coils Marmara → Alexandria, prompt laycan. Kindly advise tonnage and freight idea.\n\nMeridian Shipbrokers',
-        'demo-3':'Hello,\n\nWheat in bulk 6,000 mt Reni → Mersin, laycan next week, suitable geared handysize. Awaiting your best offers.\n\nBlack Sea Grain',
-        'demo-s1':'Thanks — proposing MV Aurora for your steel coils, full details to follow shortly.'
-    };
-    var all = _DEMO_MAIL('INBOX').concat(_DEMO_MAIL('SENT'));
-    var fx = null;
-    for(var i=0;i<all.length;i++){ if(all[i].id===id){ fx=all[i]; break; } }
-    fx = fx || { id:id, subject:'(demo)' };
-    return Object.assign({}, fx, { body_text: bodies[id] || '(demo message)', to: fx.to || 'you@demo', cc:'' });
+async function demoOpenGroup(id){
+    if(!_isDemo()) return;
+    await refreshDedup();
+    _demoShowView('dedup');
+    var group = document.getElementById(id);
+    if(group){ group.open = true; group.scrollIntoView({block:'nearest'}); var summary = group.querySelector('summary'); if(summary) summary.focus(); }
+}
+async function demoOpenCompany(id){
+    if(!_isDemo()) return;
+    await refreshCounterpartsCRM();
+    _demoShowView('partners');
+    selectCounterpart(id);
+}
+async function demoOpenMail(id){
+    if(!_isDemo()) return;
+    state.mail.folder = brokerDemo.mailMessage(id).folder;
+    _demoShowView('mail');
+    await openMailMessage(id);
+}
+function _demoMailLinks(m){
+    if(!_isDemo()) return '';
+    return '<div class="demo-story-note" data-qa="demo-mail-provenance">'
+        + '<b>'+esc(_demoText('Trace this sample','Связи этого примера'))+'</b><br>'
+        + esc(m.event && (getUiLang() === 'ru' ? m.event_ru : m.event) || '')
+        + ' · '+esc(m.position_id || '')
+        + '<div class="demo-story-actions">'
+        + (m.group_id ? '<button class="btn btn-accent" data-qa="demo-mail-group" onclick="demoOpenGroup(\''+escAttrVal(escJs(m.group_id))+'\')">'+esc(_demoText('View duplicate group','Открыть группу повторов'))+'</button>' : '<span>'+esc(_demoText('Separate position · excluded from Alexandria group','Отдельная позиция · вне группы Александрии'))+'</span>')
+        + '<button class="btn" data-qa="demo-mail-company" onclick="demoOpenCompany(\''+escAttrVal(escJs(m.counterpart_id))+'\')">'+esc(_demoText('View counterparty','Открыть контрагента'))+'</button></div></div>';
 }
 function _renderDemoMail(){
     var folder = state.mail.folder || 'INBOX';
     state.mail.messages = _DEMO_MAIL(folder);
+    var title = document.getElementById('mail-detail-title');
+    if(title && !state.mail.selectedId) title.textContent = tr('demo.chooseMail');
     state.mail.loaded = true;
     state.mail.lastRefreshAt = Date.now();
     renderMailList();
@@ -11019,7 +11079,7 @@ function renderMailList(){
     }
     if(!body) return;
     if(msgs.length === 0){
-        body.innerHTML = '<div style="padding:30px; text-align:center; color:var(--text3); font-size:11px;">В этом канале писем нет. Нажми 🔄 чтобы запросить опрос IMAP.</div>';
+        body.innerHTML = '<div class="demo-story-note">'+esc(_isDemo() ? _demoText('No messages in this folder.','В этой папке нет писем.') : _demoText('No messages in this folder. Use Refresh to poll your mailbox.','В этой папке нет писем. Нажмите Обновить для опроса почтового ящика.'))+'</div>';
         return;
     }
     var isSent = state.mail.folder === 'SENT';
@@ -11058,7 +11118,7 @@ function renderMailList(){
                      + 'style="font-size:9px; padding:1px 5px; border-radius:3px; background:rgba(94,184,135,.18); color:#4ec970; font-weight:600; vertical-align:middle;">'
                      + bits.join(' ') + '</span>';
         }
-        return '<div onclick="openMailMessage(\''+escAttrVal(escJs(m.id))+'\')" style="padding:7px 10px; cursor:pointer; border-bottom:1px solid var(--border); '+unr+' '+sel+'">'
+        return '<div data-qa="mail-row-'+escAttrVal(m.id)+'" tabindex="0" onkeydown="if(event.key===\'Enter\')openMailMessage(\''+escAttrVal(escJs(m.id))+'\')" onclick="openMailMessage(\''+escAttrVal(escJs(m.id))+'\')" style="padding:7px 10px; cursor:pointer; border-bottom:1px solid var(--border); '+unr+' '+sel+'">'
             +   '<div style="font-size:11px; font-weight:'+weight+'; color:var(--text);">'+ringWrap+chTag+' '+header+sigBadge+'</div>'
             +   '<div style="font-size:11px; color:var(--text2); margin-top:2px;">'+subj+renderFlagBadges(flagSource, 'compact')+'</div>'
             +   '<div style="font-size:10px; color:var(--text3); margin-top:2px;">'+dt+'</div>'
@@ -11067,6 +11127,7 @@ function renderMailList(){
 }
 
 async function deleteCurrentMail(){
+    if(_demoGuard()) return;
     var m = state.mail && state.mail.currentMsg;
     if(!m || !m.id){ showToast('Нет открытого письма', 'error'); return; }
     var preview = (m.subject || '(no subject)').slice(0, 60);
@@ -11131,13 +11192,18 @@ async function openMailMessage(id){
     if(dbody) dbody.innerHTML = '<div style="padding:30px; text-align:center; color:var(--text3);">Загружаю…</div>';
     try {
         var m = _isDemo() ? _demoMessage(id) : await invoke('fetch_mail_message', { messageId: id });
+        if(state.mail.selectedId !== id) return;
         state.mail.currentMsg = m;
+        if(_isDemo()){
+            brokerDemo.markMailRead(id); state.mail.messages = _DEMO_MAIL(state.mail.folder || 'INBOX'); renderMailList();
+            document.getElementById('view-mail').classList.add('demo-detail-open');
+        }
         if(dtitle) dtitle.textContent = (m.subject || '(no subject)').slice(0, 100);
-        if(replyBtn) replyBtn.style.display = '';
+        if(replyBtn) replyBtn.style.display = _isDemo() ? 'none' : '';
         var caseBtn = document.getElementById('mail-case-btn');
-        if(caseBtn) caseBtn.style.display = '';
+        if(caseBtn) caseBtn.style.display = _isDemo() ? 'none' : '';
         var delBtn = document.getElementById('mail-delete-btn');
-        if(delBtn) delBtn.style.display = '';
+        if(delBtn) delBtn.style.display = _isDemo() ? 'none' : '';
         var meta = '<div style="font-size:11px; color:var(--text2); margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid var(--border);">'
             + '<b>'+esc(m.from_name || m.from || '')+'</b> &lt;'+esc(m.from || '')+'&gt;'+renderFlagBadges(m.from, 'expanded')+'<br>'
             + '<span style="color:var(--text3);">→ '+esc(m.to || '')+'</span>'
@@ -11157,9 +11223,9 @@ async function openMailMessage(id){
         if(plain){
             bodyContent = '<pre style="white-space:pre-wrap; word-break:break-word; font-family:var(--font-ui); font-size:12px; line-height:1.5;">'+esc(plain)+'</pre>';
         } else {
-            bodyContent = '<div style="color:var(--text3);">(пустое тело)</div>';
+            bodyContent = '<div style="color:var(--text3);">'+esc(_demoText('(Empty message)','(Пустое письмо)'))+'</div>';
         }
-        if(dbody) dbody.innerHTML = meta + bodyContent;
+        if(dbody) dbody.innerHTML = (_isDemo() ? '<button class="btn demo-mobile-back" onclick="_demoBackToList(\'mail\')">'+esc(tr('demo.backMail'))+'</button>' : '') + _demoMailLinks(m) + meta + bodyContent;
     } catch(e){
         if(dbody) dbody.innerHTML = '<div style="color:var(--accent); padding:20px;">Ошибка: '+esc(String(e))+'</div>';
     }
@@ -11187,6 +11253,7 @@ function toggleComposeCc(){
 }
 
 function openMailCompose(){
+    if(_demoGuard()) return;
     _resetComposeForm();
     var title = document.getElementById('mail-compose-title');
     if(title) title.textContent = '✏ Новое письмо';
@@ -11195,6 +11262,7 @@ function openMailCompose(){
 }
 
 function openMailReply(){
+    if(_demoGuard()) return;
     var m = state.mail.currentMsg;
     if(!m) return;
     _resetComposeForm();
@@ -11220,6 +11288,7 @@ function closeMailCompose(){
 }
 
 async function sendMailFromCompose(){
+    if(_demoGuard()) return;
     var to = document.getElementById('mail-to').value.trim();
     var cc = document.getElementById('mail-cc').value.trim();
     var subject = document.getElementById('mail-subject').value.trim();
@@ -11298,6 +11367,19 @@ function _dedupStrengthBadge(s){
 }
 
 function _dedupClusterCard(c){
+    if(_isDemo() && c.id){
+        return '<details class="ded-card demo-group" id="'+escAttrVal(c.id)+'" data-qa="demo-duplicate-group">'
+            + '<summary><b>'+esc(c.summary || '')+'</b><br>'
+            + escNum(c.size)+' '+esc(_demoText('occurrences','появления'))+' · '+escNum(c.duplicate_count)+' '+esc(_demoText('duplicates','повтора'))
+            + ' · '+escNum(c.unique_senders)+' '+esc(_demoText('senders','отправителя'))+'</summary>'
+            + '<p>'+esc(_demoText('One position. Occurrences include the original message.','Одна позиция. Исходное письмо входит в число появлений.'))+'</p>'
+            + (c.members || []).map(function(m){ return '<div class="demo-occurrence">'
+                + '<b>'+esc(getUiLang() === 'ru' ? m.event_ru : m.event)+'</b>'
+                + '<small>'+esc((m.first_seen_at || '').slice(0,16).replace('T',' '))+' · '+esc(m.posted_by_name)+'</small>'
+                + '<div>'+esc(m.title)+'</div><div class="demo-story-actions">'
+                + '<button class="btn" data-qa="demo-occ-mail-'+escAttrVal(m.mail_id)+'" onclick="demoOpenMail(\''+escAttrVal(escJs(m.mail_id))+'\')">'+esc(_demoText('Read source message','Читать исходное письмо'))+'</button>'
+                + '<button class="btn" data-qa="demo-occ-company-'+escAttrVal(m.counterpart_id)+'" onclick="demoOpenCompany(\''+escAttrVal(escJs(m.counterpart_id))+'\')">'+esc(_demoText('Counterparty','Контрагент'))+'</button></div></div>'; }).join('')+'</details>';
+    }
     var canonical = (c.members || []).filter(function(m){ return m.is_canonical; })[0] || (c.members||[])[0] || {};
     var copies = (c.members || []).filter(function(m){ return !m.is_canonical; });
     var title = esc((canonical.title || '(без темы)').slice(0, 110));
@@ -11353,12 +11435,12 @@ function renderDedup(){
     }
     if(cBody){
         cBody.innerHTML = cargo.length === 0
-            ? '<div style="padding:30px; text-align:center; color:var(--text3); font-size:11px;">Дублей грузов нет 👍</div>'
+            ? '<div class="demo-story-note">'+esc(_demoText('No cargo duplicate groups.','Групп повторов грузов нет.'))+'</div>'
             : cargo.map(_dedupClusterCard).join('');
     }
     if(tBody){
         tBody.innerHTML = tonnage.length === 0
-            ? '<div style="padding:30px; text-align:center; color:var(--text3); font-size:11px;">Дублей тоннажа нет 👍</div>'
+            ? '<div class="demo-story-note">'+esc(_demoText('No tonnage duplicate groups.','Групп повторов тоннажа нет.'))+'</div>'
             : tonnage.map(_dedupClusterCard).join('');
     }
 }
@@ -11432,10 +11514,10 @@ function _fmtPartnerAge(ts){
     var d = Date.parse(ts); if(!d) return '?';
     var diff = Date.now() - d;
     var m = Math.floor(diff/60000);
-    if(m < 60) return m + 'м';
+    if(m < 60) return m + _demoText('m','м');
     var h = Math.floor(m/60);
-    if(h < 24) return h + 'ч';
-    return Math.floor(h/24) + 'д';
+    if(h < 24) return h + _demoText('h','ч');
+    return Math.floor(h/24) + _demoText('d','д');
 }
 
 function partnersSort(col){
@@ -11473,7 +11555,7 @@ function renderPartners(){
     if(cnt) cnt.textContent = rows.length;
     if(!body) return;
     if(rows.length === 0){
-        body.innerHTML = '<tr><td colspan="5" style="padding:20px; text-align:center; color:var(--text2);">Контрагентов не найдено. Сначала загрузи сигналы в 🛒 Сигналы.</td></tr>';
+        body.innerHTML = '<tr><td colspan="5" style="padding:20px; text-align:center; color:var(--text2);">'+esc(_demoText('No counterparties match this search.','По этому запросу контрагентов нет.'))+'</td></tr>';
     } else {
         body.innerHTML = rows.map(function(r){
             var roleIcon = r.role === 'both' ? '📦🚢' : (r.role === 'cargo' ? '📦' : '🚢');
@@ -11492,12 +11574,13 @@ function renderPartners(){
         renderCounterpartDossier(state.partners.selectedEmail);
     } else {
         var dEl = document.getElementById('partners-dossier');
-        if(dEl) dEl.innerHTML = '<div style="color:var(--text2); padding:20px 0;">Выбери контрагента слева — откроется досье с паттернами активности из CRM-профиля.</div>';
+        if(dEl) dEl.innerHTML = '<div style="color:var(--text2); padding:20px 0;">'+esc(_demoText('Choose a counterparty to see the messages behind its activity.','Выберите контрагента: откроются письма, объясняющие активность.'))+'</div>';
     }
 }
 
 function selectCounterpart(email){
     state.partners.selectedEmail = email;
+    if(_isDemo()) document.getElementById('view-partners').classList.add('demo-detail-open');
     renderPartners();
 }
 
@@ -11509,7 +11592,18 @@ function renderCounterpartDossier(email){
     if(!r || !dEl){ if(dEl) dEl.innerHTML = '<div style="color:var(--text2);">Контрагент не найден</div>'; return; }
     if(tEl) tEl.textContent = '📇 ' + r.name;
 
-    var roleLabel = r.role === 'both' ? '📦+🚢 cargo и tonnage' : (r.role === 'cargo' ? '📦 только cargo' : '🚢 только tonnage');
+    if(_isDemo() && r.crm && r.crm.evidence_ids){
+        var c = r.crm;
+        dEl.innerHTML = '<button class="btn demo-mobile-back" onclick="_demoBackToList(\'partners\')">'+esc(tr('demo.backPartners'))+'</button>'
+            + '<div class="demo-story-note" data-qa="demo-counterparty-pattern"><h3>'+esc(r.name)+'</h3>'
+            + '<p>'+esc(_demoText('Pattern in sample data','Паттерн в примерах'))+'</p><p>'
+            + esc(getUiLang() === 'ru' ? c.pattern_ru : c.pattern)+'</p>'
+            + '<p>'+escNum(c.total_messages)+' '+esc(_demoText('messages','письма'))+' · '+escNum(c.cargo_posts)+' cargo · '+escNum(c.tonnage_posts)+' tonnage</p></div>'
+            + '<b>'+esc(_demoText('Source messages','Исходные письма'))+'</b>'
+            + '<div class="demo-story-actions">'+c.evidence_ids.map(function(id){ var m=brokerDemo.mailMessage(id); return '<button class="btn" data-qa="demo-profile-mail-'+escAttrVal(id)+'" onclick="demoOpenMail(\''+escAttrVal(escJs(id))+'\')">'+esc(m.subject)+'</button>'; }).join('')+'</div>';
+        return;
+    }
+    var roleLabel = r.role === 'both'  ? '📦+🚢 cargo и tonnage' : (r.role === 'cargo' ? '📦 только cargo' : '🚢 только tonnage');
     var html = '';
     html += '<div style="display:flex; flex-direction:column; gap:14px;">';
     // Header card

@@ -190,4 +190,63 @@ const liveLanguage = fixture({ demo: false });
 assert.equal(liveLanguage.ctx.getUiLang(), 'en', 'a fresh live profile defaults to English');
 liveLanguage.ctx.setUiLang('ru');
 assert.equal(liveLanguage.ctx.getUiLang(), 'ru', 'an explicit live Russian preference is preserved');
+// One source corpus powers the actual Mail -> duplicates -> counterparty path.
+const showcase = fixture().ctx.SkipiBrokerDemo;
+const groups = await showcase.invoke('fetch_duplicate_clusters', { kind:'cargo' });
+assert.ok(groups.length > 0, 'showcase exposes a nonempty canonical duplicate DTO');
+const wheat = groups.find(g => g.id === 'demo-group-wheat');
+assert.equal(wheat.size, 3);
+assert.equal(wheat.members.length, wheat.size);
+assert.equal(wheat.duplicate_count, 2, 'original is an occurrence, not an additional duplicate');
+assert.equal(wheat.unique_senders, 2);
+assert.equal(wheat.members.filter(m => m.is_canonical).length, 1);
+const inbox = await showcase.invoke('fetch_mail_inbox', { folder:'INBOX' });
+const companies = await showcase.invoke('fetch_counterparts');
+for (const member of wheat.members) {
+  const mail = inbox.messages.find(m => m.id === member.mail_id);
+  assert.ok(mail, 'every duplicate occurrence links an existing mail');
+  assert.equal(mail.group_id, wheat.id);
+  assert.equal(mail.position_id, member.position_id);
+  assert.ok(companies.some(c => c.id === mail.counterpart_id));
+  assert.equal((await showcase.invoke('fetch_mail_message', { messageId:mail.id })).body_text, mail.body_text);
+}
+assert.ok(!wheat.members.some(m => m.position_id === 'demo-cargo-near-wheat'), 'different discharge is never merged');
+assert.ok(companies.every(c => c.first_seen && c.last_seen), 'CRM uses the fields consumed by the actual renderer');
+for (const company of companies) {
+  const sourceMails = inbox.messages.filter(m => m.counterpart_id === company.id);
+  assert.equal(company.total_messages, sourceMails.length);
+  assert.equal(company.cargo_posts, sourceMails.filter(m => m.position_kind === 'cargo').length);
+}
+assert.equal(typeof showcase.mailList, 'function');
+assert.equal(showcase.mailList('INBOX').length, inbox.messages.length);
+assert.throws(() => showcase.mailMessage('unknown'), /Demo/);
+const readId = inbox.messages[0].id;
+showcase.markMailRead(readId);
+assert.equal(showcase.mailMessage(readId).is_read, true, 'read state is local to this fixture session');
+assert.equal(fixture().ctx.SkipiBrokerDemo.mailMessage(readId).is_read, false, 'new Demo session starts independently');
+assert.match(html, /view:'mail',\s+slug:'mail'/, 'Mail is reachable through normal narrow Apps navigation');
+// Causal control at the real new group-rendering call site: removing the
+// summary escape changes the oracle from inert text to executable markup.
+const rendererSource = html.slice(html.indexOf('function _dedupClusterCard(c){'), html.indexOf('function renderDedup(){'));
+const renderer = { _isDemo:()=>true, getUiLang:()=> 'en', _demoText:en=>en,
+  esc:value=>String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),
+  escNum:value=>String(Number(value)||0), escAttrVal:value=>String(value).replace(/"/g,'&quot;'), escJs:value=>String(value).replace(/'/g,"\\'") };
+vm.createContext(renderer);
+vm.runInContext(rendererSource, renderer);
+const unsafeGroup = { ...wheat, summary:'<img src="https://pixel.example.invalid/canary" onerror="alert(1)">' };
+assert.ok(!renderer._dedupClusterCard(unsafeGroup).includes('<img'), 'group summary is inert text at the actual renderer');
+vm.runInContext(rendererSource.replace("esc(c.summary || '')", "(c.summary || '')"), renderer);
+assert.throws(()=>assert.ok(!renderer._dedupClusterCard(unsafeGroup).includes('<img')), /AssertionError/, 'negative control trips when the actual group escape is removed');
+
+// Mobile Mail must be accepted by the actual dispatcher, not only drawn as a tile.
+const mobileBlock = html.slice(html.indexOf('var MOBILE_VIEWS = {'), html.indexOf('// Mirror the desktop cases-badge'));
+assert.ok(mobileBlock.includes("mail:  { pane:'view-mail'"));
+const mobileCalls = [];
+const mobile = { document:{getElementById:()=>null}, showView:name=>mobileCalls.push(name) };
+vm.createContext(mobile);
+const mobileStart = mobileBlock.indexOf('function mobileSwitchView(name){');
+const mobileEnd = mobileBlock.indexOf('\n}', mobileStart)+2;
+vm.runInContext(mobileBlock.slice(0,mobileEnd), mobile);
+mobile.mobileSwitchView('mail');
+assert.deepEqual(mobileCalls,['mail'], 'actual narrow Apps caller opens Mail');
 console.log('Broker Demo: actual early script, invoke rebind, boot, storage, commands, network and exit isolation PASS');
