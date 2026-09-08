@@ -153,6 +153,13 @@ assert.equal(f.counts.auth, 0);
 assert.equal(f.counts.boot, 0);
 assert.equal(f.counts.storage, 0);
 
+const missingMsi = fixture({ module: false });
+vm.runInContext(bridge, missingMsi.ctx);
+const msiProvider = html.slice(html.indexOf('function _msiLayerConfig(){'), html.indexOf('function vizToggleMsi(on){'));
+vm.runInContext(msiProvider, missingMsi.ctx);
+assert.equal((await missingMsi.ctx._msiLayerConfig().provider()).length, 0);
+assert.equal(missingMsi.counts.network, 0, 'manual MSI provider cannot reach live data when Demo module is missing');
+
 // A deliberate removal of the host binding must trip the same real-store
 // canary oracle. This verifies the isolation test, not merely the fixture.
 const unbound = fixture({ inline: firstInline.replace('const localStorage =', 'const unusedStorage =') });

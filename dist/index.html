@@ -28,6 +28,9 @@ const localStorage = (function(){
         removeItem:function(key){delete memory[String(key)];}
     });
 })();
+if(brokerBootstrapBlocked){
+    window.fetch = function(){ return Promise.reject(new Error('Demo could not load. Please reload the page.')); };
+}
 function brokerInvoke(command, args){
     if(brokerBootstrapBlocked) return Promise.reject(new Error('Demo could not load. Please reload the page.'));
     if(brokerDemo && brokerDemo.active) return brokerDemo.invoke(command, args);
@@ -511,6 +514,12 @@ function applyI18n(){
         var key=els[i].getAttribute('data-i18n');
         if(key) els[i].textContent=tr(key);
     }
+    // Icon buttons keep their leading icon and translate the existing label node.
+    var labels=document.querySelectorAll('[data-i18n-label]');
+    for(var k=0;k<labels.length;k++){
+        var node=labels[k].lastChild;
+        if(node && node.nodeType === 3) node.textContent=tr(labels[k].getAttribute('data-i18n-label'));
+    }
     var titleEls=document.querySelectorAll('[data-i18n-title]');
     for(var j=0;j<titleEls.length;j++){
         var k2=titleEls[j].getAttribute('data-i18n-title');
@@ -961,7 +970,6 @@ body.mobile-mode .mrail-btn {
     transition:color .15s, background .15s, border-color .15s;
 }
 body.mobile-mode .mrail-btn span { font-size:19px; line-height:1; }
-body.mobile-mode .mrail-btn .mrail-label { font-size:inherit; line-height:inherit; }
 body.mobile-mode .mrail-btn.active {
     color:#fff; background:var(--accent, #004564);
     border-color:var(--accent, #004564);
@@ -4441,10 +4449,10 @@ body.qr-scanning > *:not(#qr-scan-overlay) { visibility:hidden !important; }
      Карта · Apps. No scroll; остальные модули открываются из грида Apps. -->
 <div class="mobile-bottom-rail-wrap" id="mobile-bottom-rail-wrap">
     <div class="mobile-bottom-rail" id="mobile-bottom-rail">
-        <button class="mrail-btn" id="mrail-ex" data-qa="bottom-nav-my-positions" type="button" onclick="mobileSwitchView('ex')"><span>&#128203;</span><span class="mrail-label" data-i18n="rail.ex">Мои позиции</span></button>
-        <button class="mrail-btn" id="mrail-signals" data-qa="bottom-nav-bazaar" type="button" onclick="mobileSwitchView('signals')"><span>&#128722;</span><span class="mrail-label" data-i18n="rail.bazaar">Базар</span></button>
-        <button class="mrail-btn" id="mrail-match" data-qa="bottom-nav-matches" type="button" onclick="mobileSwitchView('match')"><span>&#127919;</span><span class="mrail-label" data-i18n="rail.matches">Совпадения</span></button>
-        <button class="mrail-btn active" id="mrail-viz" data-qa="bottom-nav-map" type="button" onclick="mobileSwitchView('viz')"><span>&#128506;</span><span class="mrail-label" data-i18n="rail.map">Карта</span></button>
+        <button class="mrail-btn" id="mrail-ex" data-i18n-label="rail.ex" data-qa="bottom-nav-my-positions" type="button" onclick="mobileSwitchView('ex')"><span>&#128203;</span>Мои позиции</button>
+        <button class="mrail-btn" id="mrail-signals" data-i18n-label="rail.bazaar" data-qa="bottom-nav-bazaar" type="button" onclick="mobileSwitchView('signals')"><span>&#128722;</span>Базар</button>
+        <button class="mrail-btn" id="mrail-match" data-i18n-label="rail.matches" data-qa="bottom-nav-matches" type="button" onclick="mobileSwitchView('match')"><span>&#127919;</span>Совпадения</button>
+        <button class="mrail-btn active" id="mrail-viz" data-i18n-label="rail.map" data-qa="bottom-nav-map" type="button" onclick="mobileSwitchView('viz')"><span>&#128506;</span>Карта</button>
         <button class="mrail-btn" id="mrail-apps" data-qa="bottom-nav-apps" type="button" onclick="mobileSwitchView('apps')"><span>&#129513;</span>Apps</button>
     </div>
 </div>
@@ -9264,6 +9272,8 @@ function _msiLayerConfig(){
         labelMinZoom: 4,
         visible: true, // overlay itself is off by default; sidebar checkbox controls it
         provider: async function(){
+            // Remain synthetic even if the early Demo asset failed to load.
+            if(_isDemo()) return [];
             var r = await fetch('msi/warnings.geojson', { cache: 'no-cache' });
             var gj = await r.json();
             return (gj.features || []).map(function(f, i){
@@ -9282,6 +9292,7 @@ function _msiLayerConfig(){
 }
 
 function vizToggleMsi(on){
+    if(brokerBootstrapBlocked) return;
     var wrap = document.getElementById('viz-msi-wrap');
     if(!wrap) return;
     if(!on){
@@ -11633,6 +11644,7 @@ function openSignalDetail(kind, id){
 
 // ---------- View switching (Эксклюзивы ↔ Совпадения ↔ Сигналы) ----------
 function showView(name){
+    if(brokerBootstrapBlocked) return;
     if(name !== 'ex' && name !== 'match' && name !== 'signals' && name !== 'dedup' && name !== 'partners' && name !== 'vessels' && name !== 'viz' && name !== 'mail' && name !== 'team' && name !== 'leads2' && name !== 'cases' && name !== 'apps') return;
     if(state.view === 'apps' && name !== 'apps') brokerAppsResetToList();
     state.view = name;
